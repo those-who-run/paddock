@@ -5,14 +5,16 @@
 The rules are in `AGENTS.md` above; these notes are only for Claude Code.
 
 - Work in a git worktree per issue, on a branch from `origin/main`. Worktrees
-  live in `.claude/worktrees/` and are never committed. Each new
-  worktree sets the contributor's noreply address with
-  `git config user.email <id>+<user>@users.noreply.github.com` before the
-  first commit, then runs the repository's setup target from its own
+  live in `.claude/worktrees/` and are never committed (`.gitignore` keeps
+  them out). Each new worktree sets the noreply address of the account it
+  works as, never the maintainer's, unless the environment already sets it,
+  with `git config user.email <id>+<user>@users.noreply.github.com` before
+  the first commit, then runs the repository's setup target from its own
   `AGENTS.md`.
 - Commits end with the trailer Claude Code writes,
   `Co-Authored-By: Claude <model> <noreply@anthropic.com>`, naming the model
   you are.
+- No session links in commits or PR bodies.
 - Use `gh` for issues and PRs. Read an issue with
   `gh issue view N -R those-who-run/paddock --comments` before anything else;
   check its labels for `needs triage` and `hold`, and its author. Open the PR
