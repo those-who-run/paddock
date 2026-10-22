@@ -25,16 +25,17 @@ record carries that choice.
   `ghcr.io/those-who-run/twr-ecu:0.1.0`. The `twr-` prefix and the version
   tag stay as ADR 0001 had them; only the registry and the namespace change.
 - **Pushed with the publishing job's own `GITHUB_TOKEN`,** with
-  `packages: write` on that job only. There is no registry secret to create,
-  store or rotate, so the `release` environment holds no registry
-  credentials.
+  `packages: write` on that job only. The token lasts only for the job, so
+  there is no stored, long-lived registry secret to create or rotate, and the
+  `release` environment holds no registry credentials.
 - **Each image links to its repository** through the
   `org.opencontainers.image.source` label, so its package page points at the
   code it was built from.
 - **Public.** The maintainer makes each new package public once, after its
   first push, so clusters and laptops pull without a login or a pull secret.
 - **amd64 only** (`linux/amd64`) until a need for another platform shows.
-  The workflow's `platforms` input stays for when it does.
+  The workflow's `platforms` input names the one platform; building for more
+  than one is a workflow change and a new record.
 - **v1 stays on Docker Hub** as it is. This record is about v2 only.
 
 The workflow is `image.yml` in
@@ -56,9 +57,9 @@ experiments, deployment) still holds.
 
 ## Consequences
 
-- **No registry secret anywhere,** so there is nothing for an agent to
-  touch, leak or forget to rotate, and one fewer maintainer step per
-  repository.
+- **No stored, long-lived registry secret.** The push uses the job's own
+  short-lived `GITHUB_TOKEN`, so there is no credential to store, leak or
+  forget to rotate, and one fewer maintainer step per repository.
 - **One organisation holds the code, the build, the provenance and the
   image.** The attestations are GitHub's, and they can sit beside the image
   in the same registry.
@@ -66,6 +67,8 @@ experiments, deployment) still holds.
   a pull without credentials fails. This is a step per component, once.
 - **v1 and v2 publish to different registries** while they run side by side.
   The names do not overlap, so neither can overwrite the other.
+
+Changing any point here needs a new record that supersedes this one.
 
 ## Alternatives considered
 
