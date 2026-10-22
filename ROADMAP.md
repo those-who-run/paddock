@@ -62,8 +62,8 @@ New in v2:
   name, so a milestone can change phase without a rename.
 - **Names can change until work starts on a milestone,** and never after.
 
-[ADR 0005](docs/adr/0005-milestone-names.md) records why milestones are named
-after F1 drivers.
+ADR 0005 ([#11](https://github.com/those-who-run/paddock/issues/11)) will
+record why milestones are named after F1 drivers.
 
 ## How the order works
 
@@ -137,6 +137,9 @@ The ground every component stands on.
 - `contracts` v0.1: the frame, `session.started`, `lap.completed` and
   `session.ended`, with lint and breaking-change checks, Go generation and the
   list of subjects.
+- Guardrails at the starting level, as [`docs/guardrails.md`](docs/guardrails.md)
+  lists them: an agent identity of its own, rulesets that need the
+  maintainer's approval, and the release environment with a reviewer.
 
 **Demo:** a new repository made from the template passes CI, and an agent's
 pull request on it cannot merge without the maintainer's approval.
@@ -270,8 +273,8 @@ of its own.
 
 ## Open questions
 
-- Are these the right drivers for each milestone? A name can change until
-  work starts on its milestone, and never after.
+- Are these the right drivers for each milestone? See [Rules](#rules) for
+  when a name can still change.
 - Is anything missing from parity? v1 has three things no parity milestone
   names yet: the archive of outing recordings (v1's
   [ADR 0002](https://github.com/those-who-run/those-who-run/blob/main/docs/adr/0002-outing-archive.md)),
