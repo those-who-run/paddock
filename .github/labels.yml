@@ -1,0 +1,68 @@
+# paddock's labels as data. docs/labels.md says what each one means and who
+# applies it; the two list the same names. The maintainer applies changes to
+# GitHub by hand.
+
+# Phase: exactly one per issue.
+- name: parity
+  color: 1d76db
+  description: Needed for parity with v1
+- name: feature
+  color: 0e8a16
+  description: A feature milestone, after parity
+
+# Component: one or more per issue.
+- name: "component: org"
+  color: c5def5
+  description: "The organisation: .github, templates, rulesets, policy"
+- name: "component: paddock"
+  color: c5def5
+  description: "This repository: docs, ADRs, deploy, process"
+- name: "component: contracts"
+  color: c5def5
+  description: Protobuf schemas, subjects catalogue, generated code
+- name: "component: salsa"
+  color: c5def5
+  description: GT7 packet decoder (Go)
+- name: "component: ecu"
+  color: c5def5
+  description: "The core: race state, rules, callouts (Go)"
+- name: "component: logbook"
+  color: c5def5
+  description: "The store: laps, sessions, queries (Go)"
+- name: "component: radio"
+  color: c5def5
+  description: "Voice: callouts to speech to Discord (Python)"
+- name: "component: pitwall"
+  color: c5def5
+  description: "The pit wall: web app and its API"
+- name: "component: dash"
+  color: c5def5
+  description: The live wheel dashboard
+- name: "component: deploy"
+  color: c5def5
+  description: Kubernetes base, overlays, NATS, the runbook
+- name: "component: shakedown-coach"
+  color: c5def5
+  description: The AI coach experiment
+
+# Kind of work.
+- name: adr
+  color: 5319e7
+  description: Records a decision more than one issue depends on
+- name: guardrail
+  color: b60205
+  description: A safeguard for agent or human work; added when we need it
+- name: bug
+  color: d73a4a
+  description: Something isn't working
+- name: accessibility
+  color: f143ab
+  description: Barrier affecting people with disabilities
+
+# Process: the maintainer's.
+- name: needs triage
+  color: fbca04
+  description: Not yet accepted as a spec; agents don't work on it
+- name: hold
+  color: d93f0b
+  description: "Paused by the maintainer: agents stop, PRs don't merge"
