@@ -44,7 +44,7 @@ switch and the public-base, private-overlay split both depend on it:
 
 The PS5 streams to one listener on UDP 33740, and one Discord token holds one
 voice connection (Context). At any moment exactly one engineer is live: it
-holds the PS5's stream and speaks in the driver's voice channel. The other
+holds the PS5's stream and is the one the driver hears in voice. The other
 side holds neither. v2's live pieces are `ecu`'s live frame source, `radio`
 speaking in Discord and the results card subscriber posting cards; v1's is
 its engineer.
@@ -54,12 +54,12 @@ Settles: #106 and #108 (`ecu` holds the port only when v2 is live), #109
 
 ### 2. The switch lives in the deployment, not in v1
 
-- **One value decides it:** `engineer: v1 | v2`, in `paddock`'s deployment.
-- **One kustomize component per value.** Each scales and configures one
-  side's live pieces up and the other side's down. An environment's overlay
-  includes exactly one of the two; that choice is the value.
-- **Flipping is one commit,** which Argo CD rolls out. Rolling back is the
-  same flip.
+- **One value decides it:** `engineer: v1 | v2`. `paddock`'s base has one
+  kustomize component per value, and the environment's overlay includes one.
+- **Each component** scales and configures one side's live pieces up and the
+  other side's down. Which one the overlay includes is the value.
+- **Flipping is one commit** in the environment's overlay, which Argo CD
+  rolls out. Rolling back is the same flip.
 - **No NATS and no standby mode in v1.** v1's engineer is never changed except
   its replica count: same image, same configuration, same volume. Flipping
   back restores it exactly.
@@ -89,8 +89,8 @@ NATS, `logbook`, the pit wall and the dash run whichever engineer is live.
 With v1 live they are quiet, because nothing live is on the bus, and they can
 be used with replays at any time: a replay publishes under its own
 `replay-<run>` source ([0001](0001-v2-architecture.md), point 2), and `radio`
-speaks to a WAV or console sink, or its own test channel, never the driver's
-channel unless v2 is live.
+speaks to a WAV or console sink, or its own test channel, and reaches the
+driver only when v2 is live.
 
 Settles: #45 (replays on the cluster), #60 (the sinks for replays), #109 R4.
 
@@ -105,10 +105,11 @@ Lauda demo, beside v1).
 
 ### 6. A second Discord bot for v2
 
-v2's `radio` speaks as a second bot, with its own token, in its own channel.
-v2 can be tested in voice without touching v1's bot, and a shadow run (below)
-could have both speaking at once. The token is a Secret named in the base and
-provided by the overlay.
+v2's `radio` speaks as a second bot, with its own token. While v1 is live it
+uses only its own test channel; which channel it speaks in when v2 is live is
+#109's. v2 can be tested in voice without touching v1's bot, and a shadow run
+(below) could have both speaking at once. The token is a Secret named in the
+base and provided by the overlay.
 
 Settles: #58, #63.
 
@@ -155,9 +156,12 @@ Settles: #113, #114, #115, #116, #117, #118, #119.
 
 If replay parity is not convincing enough, a small UDP relay could heartbeat
 the PS5 and fan each packet out to both engineers, with v1 pointed at the
-relay through its existing `GT7_PS5_IP` setting (configuration, no v1 code)
-and `radio` silent or speaking through the second bot. This is not part of the
-plan. It is held in #111, which decides whether to build it at all.
+relay through its existing `GT7_PS5_IP` setting and `radio` silent or
+speaking through the second bot. That should need only configuration in v1,
+and #111 checks it: v1 also sends its heartbeat to that address, so the relay
+has to absorb it, and the relay and v1 cannot both hold UDP 33740 on one host
+address. This is not part of the plan. It is held in #111, which decides
+whether to build it at all.
 
 ## What #10 does because of this
 
@@ -176,7 +180,8 @@ What this costs:
 - **A hand `kubectl scale` does not stick.** Argo CD's self-heal reverts it
   within minutes, so the hurry path in the runbook is a commit, or pausing the
   application's auto-sync first (#109 R7).
-- **Two bots, two tokens and two channels** to keep until Hamilton.
+- **Two bots and two tokens** to keep until Hamilton, and their channels,
+  however #109 settles them.
 - **Two stores** until Hamilton, and v1's history never shows in v2's pit wall
   unless a later record imports it.
 - **Kustomize does not package v2 for anyone else.** If that is ever wanted, a
