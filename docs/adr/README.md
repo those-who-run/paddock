@@ -39,6 +39,7 @@ Signs it is time:
 | ADR | Decision |
 |---|---|
 | [0001](0001-v2-architecture.md) | The v2 architecture: events over NATS (design B), the subject scheme, who owns the session and the rules, one repository per component, the languages, the dash reading NATS directly, replays and parity. |
+| [0002](0002-contracts.md) | Contracts: protobuf with `buf` as the source, protobuf's JSON form on the wire, the JSON rules, CloudEvents headers set by hand, the `subjects.yaml` catalogue, releases by git tag with generated code committed, and how a contract evolves. |
 
 ## v1's records
 
