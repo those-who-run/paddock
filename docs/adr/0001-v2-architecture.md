@@ -22,9 +22,9 @@ work across several repositories while the maintainer reviews. Parity with
 v1, checked by replaying the same recordings through both, comes before any
 new feature.
 
-Every component issue from Brabham on depends on the same few decisions: how
-frames and events travel, who publishes what, and where a component's code
-lives. This record makes them once. The contracts' format (ADR 0002, #8), the
+Every component issue depends on the same few decisions: how frames and
+events travel, who publishes what, and where a component's code lives. This
+record makes them once. The contracts' format (ADR 0002, #8), the
 store (ADR 0003, #9), running beside v1 (ADR 0004, #10) and the milestone
 names (ADR 0005, #11) are separate records.
 
@@ -59,10 +59,13 @@ Under design B:
     commits.
   - `CALLOUTS`: callouts (`twr.v1.*.callout.>`), with work-queue retention.
     Voice is the one consumer.
-  - `TELEMETRY`: frames (`twr.v1.*.frame.>`), kept as a flight recorder with
-    a short `max_age`, so a consumer that restarts mid-lap can pick the lap
-    up again instead of losing it. The store's own files stay the record of
-    what happened; `TELEMETRY` is not.
+  - `TELEMETRY`: full-rate frames (`twr.v1.*.frame.*`), kept as a flight
+    recorder with a short `max_age`, so a consumer that restarts mid-lap can
+    pick the lap up again instead of losing it. The single `*` matches
+    `frame.gt7` and any other game's frame subject, but not the 20 Hz copy
+    (`frame.gt7.lo`), which is derived from the same frames and not kept.
+    The store's own files stay the record of what happened; `TELEMETRY` is
+    not.
 - **KV buckets:**
   - `live`: the current state (the open session, pit status, telemetry age,
     each service's health), so a client that joins late reads the current
@@ -77,7 +80,8 @@ Starting values, which the deploy issues (#36, #43) may tune without a new
 record: `TELEMETRY` on file storage with `max_age` 2 h and old messages
 discarded first; `EVENTS` with `max_age` 30 d and a 2 min duplicate window;
 `CALLOUTS` with `max_age` 15 s. At 60 Hz a frame as JSON is about 1.3 KB,
-which is about 80 KB/s, or about 280 MB per hour of driving in `TELEMETRY`.
+which is about 80 KB/s, or about 280 MB per hour of driving in `TELEMETRY`
+(the 60 Hz frames only; the 20 Hz copy is not captured).
 These are estimates from v1's frame, to be measured.
 
 Settles: #34 (core publish of frames and events), #36 and #43 (the streams
@@ -103,9 +107,9 @@ svc.<service>.<verb>                      NATS micro services, e.g. svc.ecu.stat
   `twr.v1.*.evt.>` across all of them.
 - **The game is on frame subjects** (`frame.gt7`), because a frame's fields
   are the game's own. A consumer for GT7 only subscribes to `…frame.gt7`, and
-  a game-neutral one to `…frame.>`. Adding the token later would change every
-  subject, which is a breaking change for every subscriber; adding it now
-  costs nothing.
+  a game-neutral one to `…frame.*` (full rate, every game). Adding the token
+  later would change every subject, which is a breaking change for every
+  subscriber; adding it now costs nothing.
 - **Events are game-neutral** (a lap completed is a lap completed) and carry
   the session id, so a consumer can follow, purge or replay one session. The
   game is named in the event's headers and in `session.started`, not in the
@@ -120,7 +124,11 @@ svc.<service>.<verb>                      NATS micro services, e.g. svc.ecu.stat
 
 The full list of subjects, with the message on each, is `contracts`'
 `subjects.yaml` (#25), and it grows milestone by milestone. Its test (#25,
-R3) checks every pattern against this scheme.
+R3) checks the `twr.v1.` patterns against this scheme. The
+`svc.<service>.<verb>` subjects sit outside that check: they carry requests
+and replies, not published messages, and #25 leaves services out of the
+catalogue until their messages exist. When they are added, the check has to
+accept the `svc.` prefix as well.
 
 Settles: #25, #34, #71 (callouts by priority), #88 (`svc.ecu.status`), #138
 (the 20 Hz frame).
@@ -284,9 +292,11 @@ Changing any point here needs a new record that supersedes this one.
 
 ## Alternatives considered
 
-- **Plain HTTP and WebSocket between services, no broker.** The earlier
-  service-architecture exploration leaned this way. It leaves each producer
-  knowing its consumers, which is the coupling v2 removes.
+- **Plain HTTP and WebSocket between services, no broker.** v1's planned
+  split into a web app and a server tied by an HTTP API
+  (those-who-run/those-who-run#347, those-who-run/those-who-run#386) leaned
+  this way. It leaves each producer knowing its consumers, which is the
+  coupling v2 removes.
 - **Designs A and C** (point 1).
 - **The dash through the pit wall,** either fanned out by the pit wall's API
   or routed through its origin. Either keeps one origin, but the dash then

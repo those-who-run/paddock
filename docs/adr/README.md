@@ -5,8 +5,7 @@ made and what follows from it, so the issues that depend on it stop deciding
 it again, each a little differently.
 
 v2's records live here, in `paddock`, and nowhere else: the component
-repositories hold code, not decisions. The process is v1's, carried over
-unchanged.
+repositories hold code, not decisions. The process is v1's, carried over.
 
 ## When to write one
 
