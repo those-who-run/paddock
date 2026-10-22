@@ -1,6 +1,7 @@
 # 0001: The v2 architecture
 
-**Status:** Accepted, 2026-10-22. Asked for by #7.
+**Status:** Accepted, 2026-10-22. Asked for by #7. Superseded in part by
+[0006](0006-images-on-ghcr.md) (point 4).
 
 ## Context
 

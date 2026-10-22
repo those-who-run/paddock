@@ -41,11 +41,12 @@ Signs it is time:
 
 | ADR | Decision |
 |---|---|
-| [0001](0001-v2-architecture.md) | The v2 architecture: events over NATS (design B), the subject scheme, who owns the session and the rules, one repository per component, the languages, the dash reading NATS directly, replays and parity. |
+| [0001](0001-v2-architecture.md) | The v2 architecture: events over NATS (design B), the subject scheme, who owns the session and the rules, one repository per component, the languages, the dash reading NATS directly, replays and parity. Superseded in part by [0006](0006-images-on-ghcr.md) (point 4). |
 | [0002](0002-contracts.md) | Contracts: protobuf with `buf` as the source, protobuf's JSON form on the wire, the JSON rules, CloudEvents headers set by hand, the `subjects.yaml` catalogue, releases by git tag with generated code committed, and how a contract evolves. |
 | [0003](0003-the-store.md) | The store: `logbook` owns its data, the only writer and reader of the volume, serving everything else through services; one writer carried from v1; how it subscribes and writes idempotently; DuckDB as the lean for the engine (open). |
 | [0004](0004-beside-v1.md) | v2 runs beside v1: one engineer live at a time, the switch (`engineer: v1 \| v2`) in the deployment rather than in v1, the idle gate on both sides, the `twr` namespace and its own Argo CD application, a second Discord bot, v1's history kept as an archive, kustomize with Helm only for third-party charts, and the swap. |
 | [0005](0005-milestone-names.md) | Milestones are named after F1 drivers: `ROADMAP.md` alone holds their order, they are not versions, they live in `paddock`, the phase is a label, and a name is never reused. |
+| [0006](0006-images-on-ghcr.md) | v2 images on GitHub's container registry, `ghcr.io/those-who-run/twr-<repo>:X.Y.Z`, pushed with the publishing job's own `GITHUB_TOKEN`, amd64 only; v1 stays on Docker Hub. Supersedes ADR 0001, point 4, on images. |
 
 ## v1's records
 
