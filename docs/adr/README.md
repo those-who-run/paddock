@@ -29,6 +29,9 @@ Signs it is time:
   issue that asked for it.
 - Status is *Accepted* or *Superseded by NNNN*. A record is not edited to say
   something new: a new record replaces it, and the old one points to it.
+- A later record may supersede a single point of an earlier one. The earlier
+  record's status line and its index row then say "Superseded in part by
+  NNNN (point N)".
 - Every issue a record settles links back to it, and its body agrees with it.
   Where a test can back a decision, the record names the test.
 - Plain and short, like the rest of the docs (see
@@ -40,6 +43,7 @@ Signs it is time:
 |---|---|
 | [0001](0001-v2-architecture.md) | The v2 architecture: events over NATS (design B), the subject scheme, who owns the session and the rules, one repository per component, the languages, the dash reading NATS directly, replays and parity. |
 | [0002](0002-contracts.md) | Contracts: protobuf with `buf` as the source, protobuf's JSON form on the wire, the JSON rules, CloudEvents headers set by hand, the `subjects.yaml` catalogue, releases by git tag with generated code committed, and how a contract evolves. |
+| [0003](0003-the-store.md) | The store: `logbook` owns its data, the only writer and reader of the volume, serving everything else through services; one writer carried from v1; how it subscribes and writes idempotently; DuckDB as the lean for the engine (open). |
 
 ## v1's records
 
