@@ -29,6 +29,9 @@ Signs it is time:
   issue that asked for it.
 - Status is *Accepted* or *Superseded by NNNN*. A record is not edited to say
   something new: a new record replaces it, and the old one points to it.
+- A later record may supersede a single point of an earlier one. The earlier
+  record's status line and its index row then say "Superseded in part by
+  NNNN (point N)".
 - Every issue a record settles links back to it, and its body agrees with it.
   Where a test can back a decision, the record names the test.
 - Plain and short, like the rest of the docs (see

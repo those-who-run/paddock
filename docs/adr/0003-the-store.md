@@ -2,8 +2,9 @@
 
 **Status:** Accepted, 2026-10-22. Asked for by #9. Two choices inside it are
 still open and marked **Open** (points 6 and 7). If the maintainer settles
-them before this merges, the points say what was chosen; after it merges, a
-later record settles each one and this one points to it.
+them before this merges, the points say what was chosen. After it merges, a
+later record settles each one, and this status line then says "Superseded in
+part by NNNN (point N)", as the [process](README.md#how) describes.
 
 ## Context
 
@@ -35,33 +36,39 @@ decides it once.
 
 ### 1. logbook owns the data
 
-`logbook` is the only process that writes the data volume and the only one
-that reads it. Nothing else mounts it: not the pit wall, not an experiment,
-not a job, not a command-line tool.
+Decided by the maintainer: `logbook` owns all reads and all writes. It is the
+only process that writes the data volume and the only one that reads it. No
+other component shares its state, its files or its locks, and nothing else
+mounts the volume: not the pit wall, not an experiment, not a job, not a
+command-line tool.
 
-Everything else reads through `logbook`'s services:
+Everything else goes through `logbook`'s services:
 
 - **NATS micro services**, named `svc.logbook.<verb>` under ADR 0001's
   pattern (point 2), for experiments and any other service.
-- **Connect**, for the pit wall's API, which serves the browser over its own
-  origin (ADR 0001, point 6).
+- **The pit wall's API** serves the browser over Connect, from its own origin
+  ([ADR 0002](0002-contracts.md); ADR 0001, point 6), and gets its data from
+  `logbook`'s services. Whether `logbook` serves it over NATS micro or over
+  Connect is #122's to decide.
 
 The services are defined in `contracts` when they are first needed, in the
-format ADR 0002 (#8) sets.
+format [ADR 0002](0002-contracts.md) (#8) sets.
 
-Settles: #9 R1.1 and the issue's first open question (the record's title).
+Settles: #9 R1.1 and the issue's first open question (the record's title);
+#122 and #124 (the pit wall reads only through `logbook`).
 
 ### 2. The volume is not a contract
 
 The files' layout, their names, the index's tables and the Parquet columns
 are `logbook`'s own business. They can change in any `logbook` release
 without any other component knowing. Only `logbook`'s services are contracts,
-and they live in `contracts` and change by its rules (ADR 0002, #8).
+and they live in `contracts` and change by its rules
+([ADR 0002](0002-contracts.md), #8).
 
 A consumer that wants a new query asks for a new service or a new field in
 `contracts`; it never reads the files.
 
-Settles: #9 R1.2.
+Settles: #9 R1.2; #122 (the pit wall never touches the store's files).
 
 ### 3. One writer, carried from v1
 
@@ -77,22 +84,22 @@ lock for as long as it runs. In v2 that process is `logbook`.
   guard if that slips.
 - Anything that has to change the data (a backfill, a prune, a re-run) is a
   `logbook` service call or runs inside `logbook`, never a second process
-  with the volume mounted.
+  with the volume mounted. `logbook`'s own commands (such as
+  `logbook export`, #37) take the same lock, so they refuse while `logbook`
+  runs.
 
-Settles: #9 R1.3. Replaces v1's readers rule (v1 ADR 0001, point 2) for v2:
+Settles: #9 R1.3; #37 R1 (the lock). Replaces v1's readers rule (v1 ADR 0001, point 2) for v2:
 there are no other readers.
 
 ### 4. How logbook subscribes
 
 The streams are ADR 0001's (point 1).
 
-- **Frames** come from the `TELEMETRY` stream, so a `logbook` restart
-  mid-lap picks the lap up again instead of losing it. `logbook` buffers a
-  lap's frames in memory, as v1 does. With each lap it writes, it records the
-  stream sequence of the lap's last frame; after a restart it reads
-  `TELEMETRY` again from the frame after the last lap it committed, which
-  rebuilds the lap in progress. `TELEMETRY`'s `max_age` (2 h to start) is the
-  longest `logbook` can be down without losing frames.
+- **Frames** come from the `TELEMETRY` stream. `logbook` buffers a lap's
+  frames in memory, as v1 does. After a restart, `logbook` resumes from the
+  first frame of the lap in progress, so no committed lap is read twice and
+  no lap is lost. `TELEMETRY`'s `max_age` (2 h to start) is the longest
+  `logbook` can be down without losing frames.
 - **Events** come from the `EVENTS` stream with a durable consumer.
   `logbook` acknowledges an event only after the write it causes has
   committed, so an event whose write failed or was cut short is delivered
@@ -102,12 +109,11 @@ The streams are ADR 0001's (point 1).
   point 3), not by arrival, and writes a lap only once it holds every frame up
   to that number.
 
-How the frame consumer is set up (an ordered consumer started from a
-sequence, or a durable one) is `logbook`'s implementation, for Brabham's
-issues; what is decided here is that a restart resumes the lap and that
-events are acknowledged after commit.
+What is decided here is the guarantee: a restart resumes the lap in progress,
+and events are acknowledged after commit. How the consumers are set up is
+#38's (R1, the durable consumers).
 
-Settles: #9 R1.4.
+Settles: #9 R1.4; #38.
 
 ### 5. Idempotent writes
 
@@ -127,7 +133,7 @@ Tests in `logbook` back this point (Brabham): the same lap delivered twice
 leaves one file and one row, and a crash between the file and the row leaves
 the file and no row, which the next delivery completes.
 
-Settles: #9 R1.5.
+Settles: #9 R1.5; #37 R6 and #38 R6 (writes safe to repeat).
 
 ### 6. The engine: DuckDB is the lean (Open)
 
@@ -137,20 +143,19 @@ official Go driver. The fallback is **SQLite plus Parquet in pure Go**.
 
 | | DuckDB embedded | SQLite plus Parquet, pure Go |
 |---|---|---|
-| Build | Needs cgo and a glibc base image (no Alpine); a larger binary, about 30 MB more; a multi-arch image needs a native arm64 runner or a cross toolchain | `CGO_ENABLED=0`, one static binary, multi-arch with no extra work |
+| Build | Needs cgo and a glibc base image (no Alpine); a larger binary, about 30 MB more | `CGO_ENABLED=0`, one static binary |
 | Lap files | DuckDB writes Parquet itself | A Parquet library in Go |
 | Queries | SQL over the Parquet files: thinning a trace with window functions (as v1 does), lap against lap, every session at a track, corner statistics | The index in SQL; traces read and thinned in Go code |
 | Features after parity | The debrief, corner coaching, personal bests and progress are analytics over laps, which is what DuckDB is for | Each one is more Go code, or a new tool |
 
 Why the lean: the features after parity are mostly analytics over laps, and
-v1 already relies on DuckDB for its traces. The cost is cgo in one image, and
-`logbook` runs beside the volume on one node, so the arm64 build is not
-needed to start.
+v1 already relies on DuckDB for its traces. The cost is cgo in one image.
 
 Switching later, either way, changes no contract: nobody else sees the files
 (point 2). A switch is a `logbook` release that migrates its own data.
 
-Settles, once chosen: #9 R1.6 and the issue's second open question.
+Settles, once chosen: #9 R1.6 and the issue's second open question; #37's
+engine (its Approach follows the lean).
 
 ### 7. One engine or two (Open)
 
@@ -163,7 +168,7 @@ away.
 
 Like point 6, this changes no contract.
 
-Settles, once chosen: the issue's third open question.
+Settles, once chosen: #9's third open question; #37's first open question.
 
 ## Not decided here
 
@@ -181,10 +186,10 @@ Settles, once chosen: the issue's third open question.
 
 #9 is this record and its row in [`README.md`](README.md). Brabham's
 `logbook` issues and Rosberg's pit wall API issues link here: the pit wall
-API never mounts the volume and reads only through `logbook`'s Connect
-service. If the maintainer settles point 6 or 7 before this merges, the
-point loses its **Open** mark and says what was chosen; after it merges, a
-later record settles it.
+API never mounts the volume and reads only through `logbook`'s services. If
+the maintainer settles point 6 or 7 before this merges, the point loses its
+**Open** mark and says what was chosen; after it merges, a later record
+supersedes that point, as the Status line says.
 
 ## Consequences
 
@@ -204,8 +209,10 @@ later record settles it.
   a longer outage loses the frames of the laps it missed, though not their
   events (`EVENTS` keeps them for 30 d).
 
-Changing any point here needs a new record that supersedes this one. A
-record that settles point 6 or 7 supersedes only that point.
+Changing any point here needs a new record that supersedes this one, or
+supersedes that point alone. A record that settles point 6 or 7 supersedes
+only that point: this record's status line and its row in
+[`README.md`](README.md) then say "Superseded in part by NNNN (point N)".
 
 ## Alternatives considered
 
