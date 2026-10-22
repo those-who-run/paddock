@@ -14,7 +14,8 @@ fail a PR before any consumer sees it.
 
 The contracts live in their own repository, `contracts`, and ADR 0001 left
 three things to this record: the schema format, what goes in a message's
-headers, and how a contract is released and consumed.
+headers, and how a contract is released and consumed. This record also
+settles how the pit wall's HTTP API is defined (point 8).
 
 Five sources of truth were compared with protobuf: JSON Schema, TypeSpec, Go
 structs, Avro and CUE. Each was weighed on code generation for Go,
@@ -39,7 +40,8 @@ have no breaking check and the other two languages come out weak.
 ### 1. Protobuf with `buf` is the source
 
 Every contract is a protobuf message (or service) in `contracts`, under
-`proto/twr/<area>/v<N>/`. `buf` is the one tool around them:
+`proto/twr/<package>/v<N>/` (for example `telemetry`, `events` or
+`state`). `buf` is the one tool around them:
 
 - **`buf lint`** with the `STANDARD` rules plus `COMMENTS`, so every message,
   field, enum and value says what it is. The comments are where units and
@@ -136,12 +138,13 @@ headers, the message in the payload. The headers are:
   `subjects.yaml` (point 5) and in the helper, and a test checks they agree
   (#26).
 - **`Nats-Msg-Id` equals `ce-id`, and both are deterministic,** built from
-  what the event is about, for example `<sid>:lap:<n>:completed`. A replay
-  of the same frames or a producer that restarts produces the same id, and
-  JetStream's duplicate window drops the second copy, so a stream cannot
-  store an event twice (0001, point 1). A replay through `ecu` mints a new
-  session id, so it does not collide with the live session it came from. The
-  scheme for each event is written in `subjects.yaml` (#25).
+  what the event is about, for example `<sid>:lap:<n>:completed`. A producer
+  that restarts and publishes the same event again produces the same id, and
+  JetStream's duplicate window (2 min, 0001 point 1) drops the second copy.
+  That is all dedup catches: a copy published after the window is stored
+  again. A replay through `ecu` mints a new session id, so its events never
+  collide with the live session's. The scheme for each event is written in
+  `subjects.yaml` (#25).
 
 Settles: #26 (the helper and the headers), #25 (`ce-type` and the id scheme
 per subject), #34 (headers on what `ecu` publishes), #38 (readers that check
@@ -212,11 +215,27 @@ the maintainer), and every consumer's bump issue.
   what it does not know (point 3). A reader that meets an enum value it does
   not know treats it as `…_UNSPECIFIED`.
 
-`buf breaking` in `WIRE_JSON` mode enforces the first two; the third relies
-on the helper's options profile (point 3).
+`buf breaking` in `WIRE_JSON` mode enforces the first rule and catches type
+changes that break the wire; review holds the rest of the second. The third
+relies on the helper's options profile (point 3).
 
 Settles: #23 (the rules written in `contracts`' `AGENTS.md`), and every later
 `feat(contracts)` issue.
+
+### 8. Connect for the pit wall's HTTP API
+
+The pit wall's HTTP API is a [Connect](https://connectrpc.com/) service,
+defined in `contracts` as protobuf like every other contract. One set of
+protos generates the Go server, the TypeScript client and its query hooks, so
+the API follows the same lint, breaking and release rules as the rest
+(points 1, 6 and 7). Read-only methods are marked
+`option idempotency_level = NO_SIDE_EFFECTS;`, which lets Connect serve them
+over GET, so HTTP caching keeps working. GraphQL was the alternative; it is
+parked as a possible experiment, not part of v2.
+
+The service's shape (its methods and messages) is #121's to specify.
+
+Settles: #121 (the API is a Connect service, `twr.pitwall.v1`).
 
 ## Open choices
 
@@ -232,9 +251,6 @@ and a later record or that issue's PR writes the result down.
   (#26)
 - **The Go module's place and tag scheme:** the root module with plain
   `vX.Y.Z` tags, or a `gen/go` module with `gen/go/vX.Y.Z` tags. (#23)
-- **The pit wall's HTTP API:** Connect, generated from the same protos, is
-  the recommended direction, with GraphQL parked as a possible experiment.
-  Rosberg specifies it (#121).
 - **Where TypeScript packages are published:** npmjs.com with trusted
   publishing is recommended, since GitHub Packages' npm registry needs a
   token even to install a public package. Not needed until a TypeScript
@@ -279,6 +295,8 @@ Changing any point here needs a new record that supersedes this one.
 - **The CloudEvents SDKs:** their NATS transports own the connection, which
   clashes with JetStream, KV and micro (point 4).
 - **AsyncAPI** for the subjects (point 5).
+- **GraphQL** for the pit wall's API: parked as a possible experiment
+  (point 8).
 - **The Buf Schema Registry:** generated SDKs on demand, but another service
   and account, and nothing a git tag with committed code does not already
   give a project this size (point 6).
