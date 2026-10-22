@@ -99,6 +99,8 @@ Settles: #11.
 - **The list of usable names shrinks:** a dropped or closed milestone uses up
   its driver for good.
 
+Changing any point here needs a new record that supersedes this one.
+
 ## Alternatives considered
 
 - **Numbered milestones tied to versions,** as in v1. Rejected for the
