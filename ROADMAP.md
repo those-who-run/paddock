@@ -62,8 +62,8 @@ New in v2:
   name, so a milestone can change phase without a rename.
 - **Names can change until work starts on a milestone,** and never after.
 
-ADR 0005 ([#11](https://github.com/those-who-run/paddock/issues/11)) will
-record why milestones are named after F1 drivers.
+[ADR 0005](docs/adr/0005-milestone-names.md) records why milestones are
+named after F1 drivers, and these rules with it.
 
 ## How the order works
 
