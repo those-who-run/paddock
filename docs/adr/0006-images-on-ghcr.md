@@ -9,9 +9,10 @@
 `muldoon/twr-<repo>`", on Docker Hub, and its table names each component's
 image that way. That followed v1, whose images are on Docker Hub.
 
-#16 adds the organisation's reusable image workflow, which builds, smoke-tests
-and pushes every v2 image with an SBOM and provenance, from each repository's
-`release` environment. Its open question was where to push: Docker Hub, which
+#16 adds the organisation's reusable image workflows: one builds and
+smoke-tests every v2 image with an SBOM and provenance, without write access,
+and one pushes and attests that exact image from each repository's `release`
+environment. Its open question was where to push: Docker Hub, which
 needs a registry secret in every publishing repository, or GitHub's container
 registry, which does not. The maintainer chose GitHub's container registry
 when he triaged #16 on 2026-10-22. An accepted record is not edited, so this
@@ -38,9 +39,12 @@ record carries that choice.
   than one is a workflow change and a new record.
 - **v1 stays on Docker Hub** as it is. This record is about v2 only.
 
-The workflow is `image.yml` in
-[`those-who-run/.github`](https://github.com/those-who-run/.github/blob/main/.github/workflows/image.yml)
-(#16), and its README there says how to verify an image's attestations.
+The workflows are
+[`image.yml`](https://github.com/those-who-run/.github/blob/main/.github/workflows/image.yml),
+which builds and smoke-tests, and
+[`image-publish.yml`](https://github.com/those-who-run/.github/blob/main/.github/workflows/image-publish.yml),
+which publishes, in `those-who-run/.github` (#16). Their README there says how
+to verify an image's attestations.
 
 Settles: #16 (R3, R8 and the registry and platform questions). The image
 names in #21, #29, #39, #44, #55, #131 and any other issue that still says
