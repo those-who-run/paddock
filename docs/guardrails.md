@@ -51,10 +51,17 @@ named.
 | CI | On every PR: dependency review; the test guard, which fails a PR that deletes, skips or loosens tests unless its body has a line `Tests weakened: <reason>`; gitleaks over every commit in the PR, including ones made without the hooks; the PR title checked as a Conventional Commit, since it becomes the squash commit. | v1: the `test` job in [`ci.yml`](https://github.com/those-who-run/those-who-run/blob/main/.github/workflows/ci.yml) and [`scripts/test_guard.py`](https://github.com/those-who-run/those-who-run/blob/main/scripts/test_guard.py) (those-who-run/those-who-run#358). v2: the reusable `checks.yml` in `those-who-run/.github` (#14), each language's test guard (#15 for Go), called from each repository's `ci.yml` (paddock #20). | Maintainer. |
 | `needs triage` | Every new issue gets the label from its template, and blank issues are off. Agents don't work on an issue until the maintainer removes it. | paddock's [issue templates](../.github/ISSUE_TEMPLATE/) and [`docs/ISSUE_FORMAT.md`](ISSUE_FORMAT.md#needs-triage); the rule in [`AGENTS.md`](../AGENTS.md). | Maintainer: removes the label, and changes the templates. |
 
-Where things stand in paddock: the `main` and release tag rulesets are on,
-with no required check until paddock has CI (#20); the guard, the project
-settings and the commit hooks arrive with #12 and #20; paddock publishes
-nothing, so it has no `release` environment.
+Where things stand in paddock: the `main` and release tag rulesets are on.
+Since #20 paddock has the guard and the project settings in `.claude/`, the
+commit hooks, `.github/CODEOWNERS` and CI with two jobs: `checks / checks`
+from `checks.yml`, and `test`, which checks the Markdown links, that
+`docs/labels.md` and `.github/labels.yml` agree, and that the guard copy
+matches `those-who-run/.github` at the pinned commit. `make check` runs the
+same locally. The ruleset requires those two checks once the maintainer adds
+them to `scripts/repos.json` in `those-who-run/.github` and applies it.
+Renovate proposes updates to the pinned actions and hooks after 7 days, and
+none merges without the maintainer. paddock publishes nothing, so it has no
+`release` environment.
 
 ## Known gaps
 
