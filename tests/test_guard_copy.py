@@ -4,9 +4,14 @@ a stand-in for the fetch. `make guard` runs the real check against GitHub."""
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import shutil
 import tempfile
 import unittest
+import urllib.error
+from contextlib import redirect_stderr
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -82,6 +87,48 @@ class Copies(unittest.TestCase):
         (self.root / guard_copy.CI).write_text("jobs: {}\n")
         self.assertEqual(len(guard_copy.check(self.root, self.canonical)), 1)
         self.assertEqual(self.asked, [])
+
+    def test_a_failed_fetch_is_one_line_not_a_traceback(self):
+        def refused(*_args, **_kwargs):
+            raise urllib.error.HTTPError("https://example.invalid", 404, "Not Found", {}, io.BytesIO())
+
+        with mock.patch.object(guard_copy.urllib.request, "urlopen", refused):
+            with self.assertRaises(guard_copy.FetchError) as raised:
+                guard_copy.fetch(SHA, "agent/guard.py")
+            message = str(raised.exception)
+            self.assertIn(f"raw.githubusercontent.com/those-who-run/.github/{SHA}/agent/guard.py", message)
+            self.assertNotIn("\n", message)
+
+            with mock.patch.object(guard_copy, "fetch", side_effect=guard_copy.FetchError(message)):
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    self.assertEqual(guard_copy.main(self.root), 1)
+            self.assertEqual(stderr.getvalue(), message + "\n")
+
+    def test_no_network_is_one_line_too(self):
+        def offline(*_args, **_kwargs):
+            raise urllib.error.URLError(OSError("Name or service not known"))
+
+        with mock.patch.object(guard_copy.urllib.request, "urlopen", offline):
+            with self.assertRaises(guard_copy.FetchError) as raised:
+                guard_copy.fetch(SHA, "agent/settings.json")
+        self.assertIn("Name or service not known", str(raised.exception))
+
+
+class PaddocksConfig(unittest.TestCase):
+    """paddock's own values in .claude/guard.json."""
+
+    def test_the_guard_config_values(self):
+        config = json.loads((ROOT / guard_copy.CONFIG).read_text(encoding="utf-8"))
+        self.assertEqual(
+            config,
+            {
+                "branch": "main",
+                "release_tags": ["v*"],
+                "release_workflow": "release.yml",
+                "owner": "those-who-run",
+            },
+        )
 
 
 if __name__ == "__main__":

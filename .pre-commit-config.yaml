@@ -5,8 +5,10 @@
 # plus paddock's link and labels checks. `make check` runs them with the rest of CI.
 #
 # The external hooks are pinned to a commit SHA, the tag in the `frozen:` comment;
-# Renovate bumps them (renovate.json). tests/test_precommit_config.py, which
-# `make test` and CI's `test` job run, fails a hand edit to `rev: vX.Y.Z`.
+# Renovate bumps them: renovate.json extends those-who-run/.github's shared preset,
+# which turns on Renovate's pre-commit manager (off by default) and keeps the
+# comment in step with the SHA. tests/test_precommit_config.py, which `make test`
+# and CI's `test` job run, fails a hand edit to `rev: vX.Y.Z`.
 default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit, manual]
 
@@ -30,6 +32,9 @@ repos:
         name: internal Markdown links resolve (scripts/docs_links.py)
         entry: python3 scripts/docs_links.py
         language: system
+        # Only on Markdown changes, to keep commits quick: a commit that deletes or
+        # renames another file a page links to is caught by `make check` and CI's
+        # `test` job, which run the check on every page.
         files: \.md$
         pass_filenames: false
       - id: labels

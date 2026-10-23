@@ -23,6 +23,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -51,11 +52,26 @@ def pinned_commit(ci_text: str) -> str:
     return pins.pop()
 
 
+class FetchError(Exception):
+    """A canonical file couldn't be fetched; the message says which and why."""
+
+
 def fetch(commit: str, path: str) -> bytes:
     """A file of those-who-run/.github at a commit."""
     url = f"https://raw.githubusercontent.com/{CANONICAL}/{commit}/{path}"
-    with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 (fixed https URL)
-        return response.read()
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 (fixed https URL)
+            return response.read()
+    except (urllib.error.URLError, TimeoutError) as e:
+        # A 404 is a pin that names no commit of .github; anything else is most
+        # likely the network. One line either way, as the other problems are.
+        if isinstance(e, urllib.error.HTTPError):
+            e.close()  # it holds the response open
+        reason = e.reason if isinstance(e, urllib.error.URLError) else e
+        raise FetchError(
+            f"could not fetch {url} ({reason}): check that the checks.yml pin in {CI} "
+            "is a commit of those-who-run/.github, and the network"
+        ) from None
 
 
 def config_problem(guard: Path, config: Path) -> str | None:
@@ -80,7 +96,10 @@ def check(root: Path = ROOT, get=fetch) -> list[str]:
         return [str(e)]
     problems = []
     for source, copy in COPIES.items():
-        want = get(commit, source)
+        try:
+            want = get(commit, source)
+        except FetchError as e:
+            return [str(e)]
         have = (root / copy).read_bytes() if (root / copy).exists() else None
         if have != want:
             problems.append(

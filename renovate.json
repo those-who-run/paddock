@@ -1,6 +1,4 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>those-who-run/.github"],
-  "automerge": false,
-  "minimumReleaseAge": "7 days"
+  "extends": ["github>those-who-run/.github"]
 }

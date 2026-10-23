@@ -23,6 +23,7 @@ links. Each failure names the file, the line and what is missing.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from functools import cache
@@ -47,11 +48,15 @@ EXTERNAL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 def markdown_files(root: Path = ROOT) -> list[Path]:
     """Every Markdown file in ``root``, but the ones skipped above."""
-    return [
-        p
-        for p in sorted(root.rglob("*.md"))
-        if p.name not in SKIP and not SKIP_DIRS & set(p.relative_to(root).parts[:-1])
-    ]
+    found = []
+    for directory, dirnames, filenames in os.walk(root):
+        # Pruned in place, so the walk never enters them: each worktree is a full
+        # checkout.
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        found += [
+            Path(directory, f) for f in filenames if f.endswith(".md") and f not in SKIP
+        ]
+    return sorted(found)
 
 
 def prose(text: str) -> list[tuple[int, str]]:

@@ -5,3 +5,5 @@ __pycache__/
 !.claude/settings.json
 !.claude/guard.json
 !.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/guard.py
