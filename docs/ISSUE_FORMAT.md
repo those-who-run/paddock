@@ -126,6 +126,10 @@ Every template adds the `needs triage` label. The maintainer removes it when
 the issue is accepted as a spec, the maintainer's own issues included. Until
 it is removed, agents don't work on the issue, whoever wrote it.
 
+A new issue lands on the
+[Race Control](https://github.com/orgs/those-who-run/projects/2) board on its
+own, with the status Needs triage ([`board.md`](board.md)).
+
 ## Writing
 
 - British English, plain sentences.

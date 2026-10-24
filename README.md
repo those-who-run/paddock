@@ -10,3 +10,9 @@ and is in maintenance from 1.0.0.
 
 The roadmap, the issue format and the ADRs arrive here as the first
 milestone's issues are done.
+
+Work is tracked on the
+[Race Control](https://github.com/orgs/those-who-run/projects/2) board, which
+every `paddock` issue joins on its own; [`docs/board.md`](docs/board.md) says
+what its views and statuses mean. The milestone order is in
+[`ROADMAP.md`](ROADMAP.md), not on the board.
