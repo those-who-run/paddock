@@ -1,7 +1,7 @@
 # 0002: Contracts
 
 **Status:** Accepted, 2026-10-22. Asked for by #8.
-Superseded in part by [0008](0008-contracts-tooling-and-tags.md) (points 1 and 6).
+Superseded in part by [0008](0008-contracts-tooling-and-tags.md): how `buf generate` gets its plugin (point 1) and the Go module's place and tag scheme (point 6).
 
 ## Context
 

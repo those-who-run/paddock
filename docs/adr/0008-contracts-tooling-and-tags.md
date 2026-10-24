@@ -1,8 +1,8 @@
 # 0008: Contracts' tooling and tags, local plugins and a root module
 
-**Status:** Accepted, 2026-10-24. Asked for by #23. Supersedes
-[ADR 0002](0002-contracts.md), points 1 (how `buf generate` gets its plugin) and
-6 (the Go module's place and tag scheme).
+**Status:** Accepted, 2026-10-24. Asked for by #23. Supersedes in part
+[ADR 0002](0002-contracts.md): how `buf generate` gets its plugin (point 1) and
+the Go module's place and tag scheme (point 6).
 
 ## Context
 
@@ -20,7 +20,10 @@ contract. Two of its details are settled differently, or were left open:
 
 #23 sets up `contracts` and needs both. The maintainer settled them in the
 triage of #23 on 2026-10-23
-([the decision](https://github.com/those-who-run/paddock/issues/23#issuecomment-6367527236)).
+([the decision](https://github.com/those-who-run/paddock/issues/23#issuecomment-6367527236)),
+and on 2026-10-24 that they go in a new record, with only a status line in
+ADR 0002
+([the decisions before the build](https://github.com/those-who-run/paddock/issues/23#issuecomment-6387946102)).
 An accepted record is not edited, so this record carries those choices.
 
 ## Decision
@@ -71,17 +74,23 @@ choice on the Go module's place and tag scheme.
 #23 builds `contracts` on these two points and writes the module path, the tag
 scheme and how a consumer pins it into `contracts`' README (its fourth
 acceptance criterion). This record and its row in [`README.md`](README.md) mark
-the decision; ADR 0002's status line and its index row say "Superseded in part
-by 0008 (points 1 and 6)", as the [process](README.md#how) describes. The rest
-of ADR 0002 still holds.
+the decision; ADR 0002's status line and its index row say it is superseded in
+part by 0008, for how `buf generate` gets its plugin (point 1) and the Go
+module's place and tag scheme (point 6), as the [process](README.md#how)
+describes. The rest of ADR 0002, the rest of those two points included, still
+holds.
 
 ## Consequences
 
 - **`tools/go.mod` grows.** `buf` brings a large dependency tree into it. Each
   module's licence goes through dependency review like any other.
-- **`protoc-gen-go` follows `buf`'s protobuf version.** Both are tools in one
-  module, so `protoc-gen-go` runs at the `google.golang.org/protobuf` version
-  that `buf` requires, and they move together in the weekly PR.
+- **The generator and the runtime move together.** `protoc-gen-go` is part of
+  the `google.golang.org/protobuf` module, so it runs at the version
+  `tools/go.mod` selects, at least the one `buf` requires. The generated code
+  needs that same module as its runtime, required in the root `go.mod`, which
+  is a separate module from `tools/go.mod`. The root module's version has to
+  be a released one compatible with the generator, never behind it, so the
+  two change together, in the same PR.
 - **Generated code counts neither way for the coverage floor.** From
   `those-who-run/.github`'s v0.2.4, go.yml leaves files with Go's
   `// Code generated … DO NOT EDIT.` line out of the total, so the floor
@@ -105,6 +114,8 @@ Changing any point here needs a new record that supersedes this one.
 ## References
 
 - [ADR 0002](0002-contracts.md), points 1 and 6.
-- #23, and the maintainer's triage decision on it.
+- #23, and the maintainer's decisions on it of
+  [2026-10-23](https://github.com/those-who-run/paddock/issues/23#issuecomment-6367527236)
+  and [2026-10-24](https://github.com/those-who-run/paddock/issues/23#issuecomment-6387946102).
 - Go modules in subdirectories: https://go.dev/ref/mod#vcs-version
 - Generated Go files: https://go.dev/s/generatedcode
