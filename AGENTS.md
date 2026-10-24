@@ -177,6 +177,24 @@ that repository:
 It never repeats or weakens a rule from this file. The Go service template
 ships that thin file, so a new repository starts with it.
 
+## In paddock
+
+paddock has no language of its own, so what is specific to it is short.
+
+- Definition of done: `make check` passes. It runs what CI runs: the commit
+  hooks on every file (CI's `checks / checks`) and `make test` (CI's `test`):
+  every internal Markdown link and anchor resolves, `docs/labels.md` and
+  `.github/labels.yml` list the same labels, the guard and settings in
+  `.claude/` are `those-who-run/.github`'s `agent/` at the commit CI pins,
+  and the tests of those checks. It needs `python3`, `pre-commit` and the
+  network. Docs change in the same PR as what they describe.
+- A new clone runs `pre-commit install` once, so the hooks run on every
+  commit and commit message.
+- The guard and settings are copies: a change to them is made in
+  `those-who-run/.github`, then copied here unchanged with the bump of the
+  `checks.yml` pin in `.github/workflows/ci.yml`. `.claude/guard.json` holds
+  paddock's own values.
+
 ## Pointers
 
 - Decisions: [`docs/adr/README.md`](docs/adr/README.md). A decision more
