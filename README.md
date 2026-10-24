@@ -8,8 +8,9 @@ v1, the current release, lives in
 [those-who-run/those-who-run](https://github.com/those-who-run/those-who-run)
 and is in maintenance from 1.0.0.
 
-The roadmap, the issue format and the ADRs arrive here as the first
-milestone's issues are done.
+The roadmap is [`ROADMAP.md`](ROADMAP.md), the issue format is
+[`docs/ISSUE_FORMAT.md`](docs/ISSUE_FORMAT.md), and the decisions are in
+[`docs/adr`](docs/adr/README.md).
 
 Work is tracked on the
 [Race Control](https://github.com/orgs/those-who-run/projects/2) board, which
