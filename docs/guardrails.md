@@ -60,9 +60,11 @@ matches `those-who-run/.github` at the pinned commit. `make check` runs the
 same locally. The ruleset requires those two checks once the maintainer adds
 them to `scripts/repos.json` in `those-who-run/.github` and applies it.
 Renovate, through the shared preset in `those-who-run/.github` that
-`renovate.json` extends, proposes updates to the pinned actions after 7 days
-and to the commit hooks after 14, and none merges without the maintainer. paddock publishes nothing, so it has no
-`release` environment.
+`renovate.json` extends at a release tag, proposes updates to the pinned
+actions after 7 days and to the commit hooks after 14, and none merges without
+the maintainer. A change to the preset reaches paddock only through the PR
+that bumps that tag. paddock publishes nothing, so it has no `release`
+environment.
 
 ## Known gaps
 

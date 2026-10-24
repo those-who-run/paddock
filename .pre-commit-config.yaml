@@ -5,9 +5,9 @@
 # plus paddock's link and labels checks. `make check` runs them with the rest of CI.
 #
 # The external hooks are pinned to a commit SHA, the tag in the `frozen:` comment;
-# Renovate bumps them: renovate.json extends those-who-run/.github's shared preset,
-# which turns on Renovate's pre-commit manager (off by default) and keeps the
-# comment in step with the SHA. tests/test_precommit_config.py, which `make test`
+# Renovate bumps them: renovate.json extends those-who-run/.github's shared preset
+# at a release tag, which turns on Renovate's pre-commit manager (off by default)
+# and keeps the comment in step with the SHA. tests/test_precommit_config.py, which `make test`
 # and CI's `test` job run, fails a hand edit to `rev: vX.Y.Z`.
 default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit, manual]
