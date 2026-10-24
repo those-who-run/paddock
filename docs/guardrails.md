@@ -57,8 +57,8 @@ commit hooks, `.github/CODEOWNERS` and CI with two jobs: `checks / checks`
 from `checks.yml`, and `test`, which checks the Markdown links, that
 `docs/labels.md` and `.github/labels.yml` agree, and that the guard copy
 matches `those-who-run/.github` at the pinned commit. `make check` runs the
-same locally. The ruleset requires those two checks once the maintainer adds
-them to `scripts/repos.json` in `those-who-run/.github` and applies it.
+same locally. The ruleset requires those two checks, set from paddock's entry
+in `scripts/repos.json` in `those-who-run/.github`.
 Renovate, through the shared preset in `those-who-run/.github` that
 `renovate.json` extends at a release tag, proposes updates to the pinned
 actions after 7 days and to the commit hooks after 14, and none merges without
@@ -83,16 +83,17 @@ the ruleset can ask for an approval the agent can't give.
 - **The maintainer** is the only admin and the only code owner.
   [`.github/CODEOWNERS`](../.github/CODEOWNERS) names him on every path
   (`* @ciaranRoche`). `those-who-run/.github` and paddock have it, and the Go
-  template gets it in #21. GitHub reads the file from the base branch, so a
+  template is to ship it (decided on #13, #21). GitHub reads the file from the base branch, so a
   PR can't change who approves it.
 - **The `main` ruleset** requires code-owner review and one approval, and
-  dismisses an approval when new commits are pushed
-  (`protect-repo.sh --code-owners`). An approval from the agent's account
+  dismisses an approval when new commits are pushed (paddock's entry in
+  `scripts/repos.json` in `those-who-run/.github`, with `approvals: 1` and
+  `code_owners: true`, applied by `protect-repo.sh`). An approval from the agent's account
   doesn't count, because it isn't a code owner, so the maintainer approves
   every merge.
 - **Dependency updates** don't auto-merge in v2. Renovate groups them into
-  one PR per repository per week, and the maintainer approves it like any
-  other.
+  one PR per repository per week, and security fixes come at once in a PR
+  of their own; the maintainer approves each like any other.
 
 ## Known gaps
 
@@ -133,13 +134,13 @@ before.
 2. **Required reviewers on sensitive paths:** `.github/**`, `.claude/**`,
    `AGENTS.md`, `proto/**` and the deploy YAML need the maintainer's approval
    whatever else the ruleset allows. Covers the test guard's own copy, the
-   guard's copies and the rules. paddock already needs it on every path,
-   through `CODEOWNERS` and code-owner review
+   guard's copies and the rules. paddock and `those-who-run/.github` already
+   need it on every path, through `CODEOWNERS` and code-owner review
    (see [Agent identity](#agent-identity)).
 3. **An agent identity with a required approval.** Agents work as their own
    account with the Write role, never Admin, and every PR needs an approval
    the agent can't give itself. Closes the gap that the ruleset can't tell
-   the two apart. Done in paddock (#236, see
+   the two apart. Done in paddock and `those-who-run/.github` (#236, see
    [Agent identity](#agent-identity)); this step takes it to every
    repository.
 4. **The guard as a plugin**, once copying it between repositories hurts, so
