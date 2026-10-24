@@ -5,6 +5,7 @@ still open and marked **Open** (points 6 and 7). If the maintainer settles
 them before this merges, the points say what was chosen. After it merges, a
 later record settles each one, and this status line then says "Superseded in
 part by NNNN (point N)", as the [process](README.md#how) describes.
+Superseded in part by [0007](0007-the-store-engine.md) (points 6 and 7).
 
 ## Context
 
@@ -137,6 +138,9 @@ Settles: #9 R1.5; #37 R6 and #38 R6 (writes safe to repeat).
 
 ### 6. The engine: DuckDB is the lean (Open)
 
+**Decided, 2026-10-24, in [0007](0007-the-store-engine.md): DuckDB,
+embedded in `logbook`.** What follows is the record as it was accepted.
+
 **Open.** The maintainer has not chosen yet. The lean is **DuckDB embedded
 in `logbook`**, writing the Parquet lap files itself (`COPY … TO`), using the
 official Go driver. The fallback is **SQLite plus Parquet in pure Go**.
@@ -155,9 +159,14 @@ Switching later, either way, changes no contract: nobody else sees the files
 (point 2). A switch is a `logbook` release that migrates its own data.
 
 Settles, once chosen: #9 R1.6 and the issue's second open question; #37's
-engine (its Approach follows the lean).
+engine (its Approach follows the lean). Settled by
+[0007](0007-the-store-engine.md), point 1.
 
 ### 7. One engine or two (Open)
+
+**Decided, 2026-10-24, in [0007](0007-the-store-engine.md): one engine,
+the index in `index.duckdb`.** What follows is the record as it was
+accepted.
 
 **Open.** If DuckDB is chosen, the index (sessions and laps) can live in
 DuckDB too, one engine with one file, since point 1 removes the reason v1
@@ -169,6 +178,7 @@ away.
 Like point 6, this changes no contract.
 
 Settles, once chosen: #9's third open question; #37's first open question.
+Settled by [0007](0007-the-store-engine.md), point 2.
 
 ## Not decided here
 
