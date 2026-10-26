@@ -1,0 +1,14 @@
+{
+  "$comment": [
+    "A stream the server must refuse: its subjects overlap EVENTS's twr.v1.*.evt.>. test/integration.sh runs bootstrap.sh on this directory after the real definitions and expects a non-zero exit with the server's message. It is not under streams/, so scripts/nats_check.py does not read it."
+  ],
+  "name": "OVERLAP",
+  "subjects": ["twr.v1.parity.evt.>"],
+  "retention": "limits",
+  "storage": "file",
+  "num_replicas": 1,
+  "discard": "old",
+  "max_age": 60000000000,
+  "max_bytes": 1048576,
+  "duplicate_window": 60000000000
+}
