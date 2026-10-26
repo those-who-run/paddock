@@ -15,7 +15,10 @@ Carried from v1's
 
 1. **Own car only.** GT7 sends nothing about other cars, flags, penalties,
    weather or tyre wear. Every feature works from our own car's telemetry, or
-   it is not on the list.
+   it is not on the list. One experiment steps outside it on purpose:
+   Coulthard brings outside reference data (F1 sessions from OpenF1) into the
+   pit wall as an optional plugin, read-only, and never into the engineer or
+   its callouts.
 2. **Voice first, eyes on the road.** In VR the engineer is the HUD: never
    talk mid-corner, never repeat the same sentence.
 3. **Numbers before words.** Measurements are computed deterministically and
@@ -100,6 +103,7 @@ named after F1 drivers, and these rules with it.
 | 20 | Vettel | feature | AI coach | Four titles, now the mentor |
 | 21 | Ricciardo | feature | Dash designer | Style first |
 | 22 | Stewart | feature | Ephemeral environment for end-to-end tests | Campaigned for safety when nobody else would |
+| 23 | Coulthard | feature | F1 weekend: a pit wall plugin (experiment) | Went from the cockpit to the commentary box, and watches every race weekend |
 
 ## Parity dependencies
 
@@ -263,6 +267,12 @@ Each is specced in full when it comes up.
   whole system in a throwaway cluster, a recording replayed through it, and a
   pull request that breaks a contract goes red before review. Lauda's
   portable base is what makes it possible.
+- **Coulthard, F1 weekend (experiment):** the pit wall's first plugin. An
+  optional component fetches F1 sessions from OpenF1 within its rate limit and
+  caches them, and the pit wall gains a Weekend section: classification, tyre
+  strategy, lap charts and driver telemetry, and a GT7 lap against an F1 lap at
+  a circuit both share. It tests how an outside source plugs into the UI
+  without touching the engineer, and stays an experiment until it earns more.
 
 ## Experiments
 
