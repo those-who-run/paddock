@@ -20,9 +20,13 @@ concurrency:
 # Actions and the reusable workflow are pinned by commit SHA (the tag in the
 # comment); Renovate bumps them (renovate.json).
 jobs:
-  # paddock's own checks, the same `make test` a laptop runs: the Markdown links,
-  # the labels page against labels.yml, the guard copy against .github's agent/ at
-  # the commit pinned for checks.yml below, and the tests of those checks.
+  # paddock's own checks, the same `make test` and `make nats-it` a laptop runs: the
+  # Markdown links, the labels page against labels.yml, the guard copy against
+  # .github's agent/ at the commit pinned for checks.yml below, the NATS definitions
+  # against contracts' subjects.yaml, and the tests of those checks; then the stream
+  # and KV bootstrap against a real nats-server, in the runner's docker, with the
+  # images scripts/nats_it.sh pins by digest. The overlap check runs first, so a
+  # definition that overlaps fails before it reaches a server.
   test:
     runs-on: ubuntu-latest
     permissions:
@@ -36,6 +40,8 @@ jobs:
           python-version: "3.13"
       - name: paddock's checks
         run: make test
+      - name: The NATS bootstrap against a real server
+        run: make nats-it
 
   # The commit hooks on every file, gitleaks over the PR's commits, the PR title and
   # dependency review. No `if:` or `needs:`, so the required check always reports.

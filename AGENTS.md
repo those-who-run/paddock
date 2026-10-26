@@ -182,12 +182,15 @@ ships that thin file, so a new repository starts with it.
 paddock has no language of its own, so what is specific to it is short.
 
 - Definition of done: `make check` passes. It runs what CI runs: the commit
-  hooks on every file (CI's `checks / checks`) and `make test` (CI's `test`):
-  every internal Markdown link and anchor resolves, `docs/labels.md` and
+  hooks on every file (CI's `checks / checks`), then `make test` and
+  `make nats-it` (CI's `test`). `make test` checks that every internal
+  Markdown link and anchor resolves, `docs/labels.md` and
   `.github/labels.yml` list the same labels, the guard and settings in
   `.claude/` are `those-who-run/.github`'s `agent/` at the commit CI pins,
-  and the tests of those checks. It needs `python3`, `pre-commit` and the
-  network. Docs change in the same PR as what they describe.
+  the stream definitions in `deploy/nats/` match `contracts`' subjects with
+  no overlaps, and the tests of those checks. `make nats-it` runs the NATS
+  bootstrap against a real server ([`deploy/nats/`](deploy/nats/README.md)).
+  It needs `python3`, `pre-commit`, the network and docker or podman. Docs change in the same PR as what they describe.
 - A new clone runs `pre-commit install` once, so the hooks run on every
   commit and commit message.
 - The guard and settings are copies: a change to them is made in
