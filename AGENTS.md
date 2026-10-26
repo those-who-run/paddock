@@ -190,7 +190,8 @@ paddock has no language of its own, so what is specific to it is short.
   the stream definitions in `deploy/nats/` match `contracts`' subjects with
   no overlaps, and the tests of those checks. `make nats-it` runs the NATS
   bootstrap against a real server ([`deploy/nats/`](deploy/nats/README.md)).
-  It needs `python3`, `pre-commit`, the network and docker or podman. Docs change in the same PR as what they describe.
+  It needs `python3`, `pre-commit`, the network and docker or podman. Docs
+  change in the same PR as what they describe.
 - A new clone runs `pre-commit install` once, so the hooks run on every
   commit and commit message.
 - The guard and settings are copies: a change to them is made in

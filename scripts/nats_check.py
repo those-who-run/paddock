@@ -9,8 +9,13 @@ checks, before anything runs:
   file (``telemetry.json`` is ``TELEMETRY``) and sets its limits: storage,
   replicas, retention, a discard policy, a duplicate window, and ``max_age`` or
   ``max_bytes``;
+- each stream file names every field the bootstrap compares, and only fields the
+  server returns as written (``-1``, not ``0``, for no limit), since a deleted
+  field would keep its old value on the server and a rewritten one would make
+  every run edit the stream;
 - each bucket file (``deploy/nats/kv/*.json``) names the bucket after the file and
-  sets its history, storage, replicas, ``max_value_size`` and ``max_bucket_size``;
+  sets its description, history, storage, replicas, ``max_value_size`` and
+  ``max_bucket_size``, and nothing else;
 - every stream subject is a valid NATS subject filter, and no two of them overlap
   (a subject both would capture), in one stream or across two;
 - every stream subject covers at least one subject in contracts' ``subjects.yaml``;
@@ -44,8 +49,28 @@ NATS = Path("deploy/nats")
 CONTRACTS_TAG = "v0.1.3"
 SUBJECTS_SHA256 = "5bc350f7874a02122b1667ddc02bb8a4980ff2d65470fd2304a6197fe37366b9"
 
-STREAM_FIELDS = ("subjects", "retention", "storage", "num_replicas", "discard", "duplicate_window")
-BUCKET_FIELDS = ("history", "storage", "replicas", "max_value_size", "max_bucket_size")
+# The bootstrap compares only the fields a file names, so a field deleted from a
+# file would keep its old value on the server, unnoticed. Every stream file names
+# all of these, and nothing else but STREAM_OPTIONAL: fields the server returns as
+# they were written. A field it leaves out or rewrites would differ on every run,
+# and the bootstrap would edit the stream every time.
+STREAM_FIELDS = (
+    "name", "description", "subjects", "retention", "storage", "num_replicas", "discard",
+    "max_age", "max_bytes", "duplicate_window", "max_msgs", "max_msgs_per_subject",
+    "max_msg_size", "max_consumers", "deny_delete", "deny_purge", "allow_rollup_hdrs",
+    "allow_direct",
+)  # fmt: skip
+STREAM_OPTIONAL = ("sealed", "mirror_direct")
+STREAM_CHOICES = {
+    "retention": ("limits", "interest", "workqueue"),
+    "storage": ("file", "memory"),
+    "discard": ("old", "new"),
+}
+# The server stores 0 for these as -1 (unlimited), so they are -1 or a positive limit.
+STREAM_LIMITS = ("max_bytes", "max_msgs", "max_msgs_per_subject", "max_msg_size", "max_consumers")
+STREAM_FLAGS = ("deny_delete", "deny_purge", "allow_rollup_hdrs", "allow_direct", *STREAM_OPTIONAL)
+# The same for a bucket, whose fields bootstrap.sh maps to nats kv add's flags.
+BUCKET_FIELDS = ("bucket", "description", "history", "storage", "replicas", "max_value_size", "max_bucket_size")
 
 SECTION = re.compile(r"^([a-z_]+):\s*$")
 ITEM = re.compile(r"^  - ([a-z_]+):\s*(.*?)\s*$")
@@ -115,6 +140,64 @@ def read_subjects(text: str) -> tuple[list[dict[str, str]], list[str]]:
     return entries, problems
 
 
+def is_int(v: object) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def stream_problems(rel: Path, s: dict) -> list[str]:
+    """What in one stream file is missing, or written as the server would not return it."""
+    problems = [f"{rel}: {f} is not set" for f in STREAM_FIELDS if f not in s]
+    for f in s:
+        if not f.startswith("$") and f not in STREAM_FIELDS + STREAM_OPTIONAL:
+            problems.append(
+                f"{rel}: {f} is not a field the check knows the server returns as written; "
+                "add it to nats_check.py once it does"
+            )
+    for f, choices in STREAM_CHOICES.items():
+        if f in s and s[f] not in choices:
+            problems.append(f"{rel}: {f} is {s[f]!r}, not one of {', '.join(choices)}")
+    if "description" in s and not (isinstance(s["description"], str) and s["description"]):
+        problems.append(f"{rel}: description is empty, which the server leaves out")
+    if "num_replicas" in s and not (is_int(s["num_replicas"]) and 1 <= s["num_replicas"] <= 5):
+        problems.append(f"{rel}: num_replicas is not 1 to 5")
+    for f in STREAM_LIMITS:
+        if f in s and not (is_int(s[f]) and (s[f] == -1 or s[f] > 0)):
+            problems.append(f"{rel}: {f} is {s[f]!r}: write -1 for no limit (the server stores 0 as -1)")
+    for f in STREAM_FLAGS:
+        if f in s and not isinstance(s[f], bool):
+            problems.append(f"{rel}: {f} is not true or false")
+    max_age, window = s.get("max_age", 0), s.get("duplicate_window", 0)
+    if not (is_int(max_age) and max_age >= 0):
+        problems.append(f"{rel}: max_age is not a number of nanoseconds")
+    if not (is_int(window) and window > 0):
+        problems.append(f"{rel}: duplicate_window is not a positive duration")
+    elif is_int(max_age) and 0 < max_age < window:
+        problems.append(f"{rel}: duplicate_window is longer than max_age, and the server would cut it to max_age")
+    if not ((is_int(max_age) and max_age > 0) or (is_int(s.get("max_bytes")) and s["max_bytes"] > 0)):
+        problems.append(f"{rel}: neither max_age nor max_bytes is set: the stream could fill the disk")
+    return problems
+
+
+def bucket_problems(rel: Path, b: dict) -> list[str]:
+    """What in one bucket file is missing, unknown or out of range."""
+    problems = [f"{rel}: {f} is not set" for f in BUCKET_FIELDS if f not in b]
+    for f in b:
+        if not f.startswith("$") and f not in BUCKET_FIELDS:
+            problems.append(f"{rel}: {f} is not a field bootstrap.sh knows for a bucket")
+    if "description" in b and not (isinstance(b["description"], str) and b["description"]):
+        problems.append(f"{rel}: description is empty, which the server leaves out")
+    if "storage" in b and b["storage"] not in ("file", "memory"):
+        problems.append(f"{rel}: storage is {b['storage']!r}, not file or memory")
+    if "history" in b and not (is_int(b["history"]) and 1 <= b["history"] <= 64):
+        problems.append(f"{rel}: history is not 1 to 64")
+    if "replicas" in b and not (is_int(b["replicas"]) and 1 <= b["replicas"] <= 5):
+        problems.append(f"{rel}: replicas is not 1 to 5")
+    for f in ("max_value_size", "max_bucket_size"):
+        if not (is_int(b.get(f)) and b[f] > 0):
+            problems.append(f"{rel}: {f} is not a positive number of bytes")
+    return problems
+
+
 def load(path: Path, problems: list[str]) -> dict | None:
     try:
         data = json.loads(path.read_text())
@@ -153,13 +236,7 @@ def check(root: Path = ROOT) -> tuple[list[str], str]:
         name = s.get("name")
         if name != path.stem.upper():
             problems.append(f"{rel}: name is {name!r}, not {path.stem.upper()!r} after the file")
-        for field in STREAM_FIELDS:
-            if field not in s:
-                problems.append(f"{rel}: {field} is not set")
-        if not (s.get("max_age", 0) > 0 or s.get("max_bytes", -1) > 0):
-            problems.append(f"{rel}: neither max_age nor max_bytes is set: the stream could fill the disk")
-        if s.get("duplicate_window", 0) <= 0:
-            problems.append(f"{rel}: duplicate_window is not a positive duration")
+        problems += stream_problems(rel, s)
         subjects = s.get("subjects")
         if not isinstance(subjects, list) or not subjects:
             problems.append(f"{rel}: subjects is not a list of subjects")
@@ -203,12 +280,7 @@ def check(root: Path = ROOT) -> tuple[list[str], str]:
         buckets.add(b.get("bucket"))
         if b.get("bucket") != path.stem:
             problems.append(f"{rel}: bucket is {b.get('bucket')!r}, not {path.stem!r} after the file")
-        for field in BUCKET_FIELDS:
-            if field not in b:
-                problems.append(f"{rel}: {field} is not set")
-        for field in ("max_value_size", "max_bucket_size"):
-            if not (isinstance(b.get(field), int) and b[field] > 0):
-                problems.append(f"{rel}: {field} is not a positive number of bytes")
+        problems += bucket_problems(rel, b)
     for e in entries:
         if "kv" in e and e["kv"] not in buckets:
             problems.append(f"subjects.yaml names KV bucket {e['kv']}, which has no file in {NATS}/kv")

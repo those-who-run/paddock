@@ -1,4 +1,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>those-who-run/.github#v0.2.8"]
+  "extends": ["github>those-who-run/.github#v0.2.8"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The NATS images deploy/nats is tested with (scripts/nats_it.sh) and the bootstrap example in its README, pinned by tag and digest (paddock#36). No built-in manager reads a shell script.",
+      "managerFilePatterns": ["/^scripts/nats_it\\.sh$/", "/^deploy/nats/README\\.md$/"],
+      "matchStrings": [
+        "(?<depName>docker\\.io/[a-z0-9._/-]+):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ]
 }

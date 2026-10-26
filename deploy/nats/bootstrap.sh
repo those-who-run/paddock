@@ -38,10 +38,24 @@ n() {
 	nats --no-context "$@"
 }
 
+# NATS_URL may carry a user and password (nats://user:pass@host:4222, or a list of
+# such URLs); whatever this script prints shows it without them, as a Job's log is
+# read by more people than hold the credentials.
+server=$(printf '%s' "$NATS_URL" | sed 's#//[^@/,]*@#//#g')
+
+# The config of the stream named $1, as compact JSON, or a clear error.
+config() {
+	if ! info=$(n stream info "$1" --json); then
+		echo "bootstrap: cannot read stream $1 on $server" >&2
+		exit 1
+	fi
+	printf '%s' "$info" | jq -c .config
+}
+
 # Also the check that the server answers and has JetStream: the CLI's own error
 # says which it is.
 if ! existing=$(n stream ls --names); then
-	echo "bootstrap: cannot list streams on $NATS_URL" >&2
+	echo "bootstrap: cannot list streams on $server" >&2
 	exit 1
 fi
 
@@ -74,7 +88,7 @@ for file in "$dir"/streams/*.json; do
 		echo "bootstrap: stream $name created"
 		continue
 	fi
-	have=$(n stream info "$name" --json | jq -c .config)
+	have=$(config "$name")
 	changed=$(differs "$want" "$have")
 	if [ -z "$changed" ]; then
 		echo "bootstrap: stream $name unchanged"
@@ -117,7 +131,7 @@ for file in "$dir"/kv/*.json; do
 		echo "bootstrap: bucket $bucket created"
 		continue
 	fi
-	have=$(n stream info "KV_$bucket" --json | jq -c .config)
+	have=$(config "KV_$bucket")
 	changed=$(differs "$want" "$have")
 	if [ -z "$changed" ]; then
 		echo "bootstrap: bucket $bucket unchanged"

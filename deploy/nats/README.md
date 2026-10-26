@@ -24,15 +24,17 @@ the `config` bucket are added by the milestones that first use them.
 ```sh
 docker run --rm --network host -v "$PWD/deploy/nats:/nats:ro" \
   -e NATS_URL=nats://localhost:4222 \
-  natsio/nats-box:0.20.0 sh /nats/bootstrap.sh /nats
+  docker.io/natsio/nats-box:0.20.0@sha256:d2f04223f40e016f77922a8115d34b0cd5fad2ec10b19b39316ae92d07f3d295 \
+  sh /nats/bootstrap.sh /nats
 ```
 
 It needs only the `nats` CLI and `jq`, both in `natsio/nats-box`, and is POSIX
 `sh`, since that image has no `bash`. It takes the server from `NATS_URL`
 (required) and the credentials from `NATS_CREDS`, or `NATS_USER` and
 `NATS_PASSWORD`, when they are set; nothing in the files is particular to one
-installation. It writes no files, so it runs as a non-root user on a read-only
-root file system.
+installation. A user and password written into `NATS_URL` also work, and the
+script never prints them. It writes no files, so it runs as a non-root user on
+a read-only root file system.
 
 For each stream it compares the fields its file names with `nats stream info`;
 for each bucket, the same through the bucket's stream, `KV_<bucket>`. It prints
@@ -45,8 +47,11 @@ one line for each:
 
 A second run in a row prints only `unchanged` and exits 0. It never deletes or
 purges anything. A definition the server refuses (subjects that overlap another
-stream, a change of storage or retention that cannot be made in place) stops it
-with the server's message and a non-zero exit, and the stream stays as it was.
+stream, a change of storage or retention that cannot be made in place) stops the
+run with the server's message and a non-zero exit. That stream or bucket stays
+as it was, but the run is not all or nothing: the files before it (streams, then
+buckets, each in name order) have already been applied, and the ones after it
+have not. Once the file is fixed, a rerun applies the rest.
 A lower limit is applied by the server as it would be to any stream: the
 messages beyond it are discarded.
 
@@ -59,8 +64,9 @@ put them back at `streams/` and `kv/` under the directory given to the script.
 - `make nats` (in `make test`, and a commit hook) reads the files, offline: every
   stream subject covers a subject in `subjects.yaml`, every subject there is
   captured by the stream its entry names and no other, no two stream subjects
-  overlap, and every stream and bucket sets its limits. A stream file that
-  overlaps another fails here, before it reaches a server.
+  overlap, every stream and bucket sets its limits, every field the bootstrap
+  compares is named, and every value is written as the server returns it. A
+  stream file that overlaps another fails here, before it reaches a server.
 - `make nats-it` starts an empty `nats-server -js` in a container and runs
   [`test/integration.sh`](test/integration.sh) in `nats-box`: the bootstrap
   creates both streams and the bucket with the settings of #36, a second run
@@ -68,8 +74,10 @@ put them back at `streams/` and `kv/` under the directory given to the script.
   `TELEMETRY` and one on `…frame.gt7.lo` in no stream, an event lands in
   `EVENTS` and is stored once when published twice with one `Nats-Msg-Id`, and
   an overlapping stream ([`test/refused/`](test/refused/streams/overlap.json))
-  is refused with the server's message. It needs docker or podman
-  (`CONTAINER` picks one).
+  is refused with the server's message. Then a copy with one limit changed in
+  each file is updated in place, and the next run is `unchanged`. A change of
+  the bucket's storage is refused. A user and password in `NATS_URL` never
+  appear in the output. It needs docker or podman (`CONTAINER` picks one).
 
 Both run in CI's `test` job. The images are pinned by digest in
 [`scripts/nats_it.sh`](../../scripts/nats_it.sh).
@@ -83,3 +91,14 @@ Both run in CI's `test` job. The images are pinned by digest in
   `SUBJECTS_SHA256` in [`scripts/nats_check.py`](../../scripts/nats_check.py).
 - Durations in the stream files are nanoseconds and sizes are bytes, as the
   `nats` CLI writes them (`nats stream add --output`).
+- Write each value as `nats stream info --json` returns it: `-1`, not `0`, for
+  no limit. The server stores `0` as `-1`, so a `0` would differ on every run
+  and the stream would be edited every time. `make nats` refuses it.
+- Never delete a field to remove a setting; set it to its default. The
+  bootstrap compares only the fields a file names, so a deleted field would keep
+  its old value on the server while every run said `unchanged`. `make nats`
+  fails a stream or bucket file that leaves out any field the bootstrap
+  compares.
+- The pinned images are bumped by Renovate, through the custom manager in
+  [`renovate.json`](../../renovate.json), in `scripts/nats_it.sh` and in the
+  example above.

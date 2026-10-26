@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -144,6 +145,72 @@ class Definitions(unittest.TestCase):
         path = self.nats / "subjects.yaml"
         path.write_text(path.read_text() + "\n")
         self.assertTrue(any("is not contracts' subjects.yaml at v0.1.3" in p for p in self.problems()))
+
+    def test_a_zero_the_server_stores_as_minus_one_fails(self) -> None:
+        # The server would return -1, so every run would edit the stream.
+        self.edit("streams/telemetry.json", max_msgs=0)
+        self.assertIn(
+            "deploy/nats/streams/telemetry.json: max_msgs is 0: write -1 for no limit (the server stores 0 as -1)",
+            self.problems(),
+        )
+
+    def test_a_deleted_field_fails(self) -> None:
+        # The bootstrap would keep the old value on the server and say unchanged.
+        self.edit("streams/events.json", max_msgs_per_subject=None)
+        self.assertIn("deploy/nats/streams/events.json: max_msgs_per_subject is not set", self.problems())
+        self.edit("kv/live.json", description=None)
+        self.assertIn("deploy/nats/kv/live.json: description is not set", self.problems())
+
+    def test_a_field_the_server_leaves_out_or_rewrites_fails(self) -> None:
+        self.edit("streams/events.json", compression="none", retention="Limits", description="", allow_direct=1)
+        problems = self.problems()
+        rel = "deploy/nats/streams/events.json"
+        self.assertTrue(any(p.startswith(f"{rel}: compression is not a field the check knows") for p in problems))
+        self.assertIn(f"{rel}: retention is 'Limits', not one of limits, interest, workqueue", problems)
+        self.assertIn(f"{rel}: description is empty, which the server leaves out", problems)
+        self.assertIn(f"{rel}: allow_direct is not true or false", problems)
+
+    def test_a_duplicate_window_longer_than_max_age_fails(self) -> None:
+        self.edit("streams/events.json", max_age=60_000_000_000)
+        self.assertIn(
+            "deploy/nats/streams/events.json: duplicate_window is longer than max_age, "
+            "and the server would cut it to max_age",
+            self.problems(),
+        )
+
+    def test_a_bucket_value_out_of_range_or_unknown_fails(self) -> None:
+        self.edit("kv/live.json", history=0, ttl="1h", storage="disk")
+        problems = self.problems()
+        rel = "deploy/nats/kv/live.json"
+        self.assertIn(f"{rel}: history is not 1 to 64", problems)
+        self.assertIn(f"{rel}: ttl is not a field bootstrap.sh knows for a bucket", problems)
+        self.assertIn(f"{rel}: storage is 'disk', not file or memory", problems)
+
+
+class ImagePins(unittest.TestCase):
+    """Renovate's custom manager (renovate.json) finds every pinned NATS image, and
+    the README's example runs the image the integration test uses."""
+
+    def refs(self, rel: str) -> list[tuple[str, str, str]]:
+        config = json.loads((ROOT / "renovate.json").read_text())
+        (manager,) = config["customManagers"]
+        self.assertTrue(any(re.search(p.strip("/"), rel) for p in manager["managerFilePatterns"]), rel)
+        text = (ROOT / rel).read_text()
+        found = []
+        for pattern in manager["matchStrings"]:
+            rx = re.compile(pattern.replace("(?<", "(?P<"))
+            found += [(m["depName"], m["currentValue"], m["currentDigest"]) for m in rx.finditer(text)]
+        return found
+
+    def test_the_manager_finds_both_images_in_the_runner(self) -> None:
+        refs = self.refs("scripts/nats_it.sh")
+        self.assertEqual([r[0] for r in refs], ["docker.io/natsio/nats-box", "docker.io/library/nats"])
+        text = (ROOT / "scripts" / "nats_it.sh").read_text()
+        self.assertEqual(len(re.findall(r"^NATS_(?:BOX|SERVER)=", text, re.M)), len(refs))
+
+    def test_the_readme_runs_the_tested_nats_box(self) -> None:
+        (box, *_) = self.refs("scripts/nats_it.sh")
+        self.assertEqual(self.refs("deploy/nats/README.md"), [box])
 
 
 if __name__ == "__main__":

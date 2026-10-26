@@ -40,10 +40,12 @@ trap cleanup EXIT INT TERM
 
 # :z relabels the mount where SELinux is on (podman on Fedora) and is ignored
 # elsewhere.
+# The tmpfs at /work is for the test's changed copies of the definitions; the
+# bootstrap writes nothing.
 status=0
 "$CONTAINER" run --rm --network host --read-only --user 1000 \
-	-v "$root/deploy/nats:/nats:ro,z" \
-	-e "NATS_URL=nats://127.0.0.1:$PORT" \
+	-v "$root/deploy/nats:/nats:ro,z" --tmpfs /work:rw,mode=1777 \
+	-e "NATS_URL=nats://127.0.0.1:$PORT" -e WORK=/work \
 	"$NATS_BOX" sh /nats/test/integration.sh /nats || status=$?
 if [ "$status" -ne 0 ]; then
 	echo "== the server's log" >&2
