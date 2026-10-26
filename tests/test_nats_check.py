@@ -170,6 +170,13 @@ class Definitions(unittest.TestCase):
         self.assertIn(f"{rel}: description is empty, which the server leaves out", problems)
         self.assertIn(f"{rel}: allow_direct is not true or false", problems)
 
+    def test_sealed_is_refused(self) -> None:
+        # The server refuses a stream created sealed, so no file may set it.
+        self.edit("streams/events.json", sealed=False)
+        self.assertTrue(
+            any(p.startswith("deploy/nats/streams/events.json: sealed is not a field") for p in self.problems())
+        )
+
     def test_a_duplicate_window_longer_than_max_age_fails(self) -> None:
         self.edit("streams/events.json", max_age=60_000_000_000)
         self.assertIn(
