@@ -144,12 +144,12 @@ changed=$WORK/changed
 mkdir -p "$changed/streams" "$changed/kv"
 jq '.max_bytes = 1073741824' "$dir/streams/telemetry.json" >"$changed/streams/telemetry.json"
 jq '.duplicate_window = 60000000000' "$dir/streams/events.json" >"$changed/streams/events.json"
-jq '.max_bucket_size = 33554432' "$dir/kv/live.json" >"$changed/kv/live.json"
+jq '.max_bucket_size = 33554432 | .max_value_size = 32768' "$dir/kv/live.json" >"$changed/kv/live.json"
 if out=$("$dir/bootstrap.sh" "$changed"); then
 	echo "$out"
 	for want in "stream TELEMETRY differs in: max_bytes" "stream TELEMETRY updated" \
 		"stream EVENTS differs in: duplicate_window" "stream EVENTS updated" \
-		"bucket live differs in: max_bytes" "bucket live updated"; do
+		"bucket live differs in: max_msg_size max_bytes" "bucket live updated"; do
 		printf '%s\n' "$out" | grep -qxF "bootstrap: $want" || fail "the changed run did not say: $want"
 	done
 else
@@ -158,6 +158,7 @@ fi
 expect TELEMETRY max_bytes 1073741824
 expect EVENTS duplicate_window 60000000000
 expect KV_live max_bytes 33554432
+expect KV_live max_msg_size 32768
 expect_count TELEMETRY 1
 expect_count EVENTS 2
 out=$("$dir/bootstrap.sh" "$changed")
@@ -171,6 +172,7 @@ echo "$out"
 expect TELEMETRY max_bytes 2147483648
 expect EVENTS duplicate_window 120000000000
 expect KV_live max_bytes 67108864
+expect KV_live max_msg_size 65536
 
 echo "== R4: a bucket's storage cannot change in place, and the bucket stays as it was"
 memory=$WORK/memory
@@ -186,20 +188,32 @@ fi
 expect KV_live storage '"file"'
 
 echo "== R6: a user and password in NATS_URL are never printed"
+# The password holds an @ of its own, so a redaction that stops at the first @
+# leaks its tail.
 user=twr-throwaway-user
-password=twr-throwaway-password
+password=twr-throwaway@pass-word
 with_creds=$(printf '%s' "$NATS_URL" | sed "s#//#//$user:$password@#")
-# Against the server, which has no users and so accepts any, and against a port
-# nothing listens on, where the bootstrap reports the server it could not reach.
+# Against the server, which has no users and so accepts any.
 out=$(NATS_URL=$with_creds "$dir/bootstrap.sh" "$dir" 2>&1) || fail "the run with credentials in NATS_URL failed: $out"
 echo "$out"
-if out2=$(NATS_URL="nats://$user:$password@127.0.0.1:1" "$dir/bootstrap.sh" "$dir" 2>&1); then
-	fail "the run against a closed port succeeded"
-fi
-echo "$out2"
-printf '%s\n' "$out2" | grep -qF "127.0.0.1:1" || fail "the unreachable server is not named"
-for secret in "$user" "$password"; do
-	printf '%s\n%s\n' "$out" "$out2" | grep -qF "$secret" && fail "the output holds $secret"
+no_secret() {
+	for secret in "$user" twr-throwaway@ pass-word; do
+		printf '%s\n' "$1" | grep -qF "$secret" && fail "the output holds $secret: $1"
+	done
+	return 0
+}
+no_secret "$out"
+# Against a port nothing listens on, where the bootstrap names the server it could
+# not reach: with a scheme, without one, and in a list.
+for url in "nats://$user:$password@127.0.0.1:1" "$user:$password@127.0.0.1:1" \
+	"nats://127.0.0.1:2,nats://$user:$password@127.0.0.1:1"; do
+	if out=$(NATS_URL=$url "$dir/bootstrap.sh" "$dir" 2>&1); then
+		fail "the run against a closed port succeeded"
+	fi
+	echo "$out"
+	printf '%s\n' "$out" | grep -q "^bootstrap: cannot list streams on .*127\.0\.0\.1:1$" ||
+		fail "the unreachable server is not named"
+	no_secret "$out"
 done
 
 if [ "$failed" -ne 0 ]; then

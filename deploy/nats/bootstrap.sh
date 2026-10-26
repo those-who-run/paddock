@@ -38,10 +38,11 @@ n() {
 	nats --no-context "$@"
 }
 
-# NATS_URL may carry a user and password (nats://user:pass@host:4222, or a list of
-# such URLs); whatever this script prints shows it without them, as a Job's log is
-# read by more people than hold the credentials.
-server=$(printf '%s' "$NATS_URL" | sed 's#//[^@/,]*@#//#g')
+# NATS_URL may carry a user and password (nats://user:pass@host:4222, user:pass@host,
+# or a list of such URLs); whatever this script prints shows it without them, as a
+# Job's log is read by more people than hold the credentials. Each URL loses
+# everything up to its last @, since a password may hold an @ of its own.
+server=$(printf '%s' "$NATS_URL" | sed -E 's#(^|[ ,]|//)[^/, ]*@#\1#g')
 
 # The config of the stream named $1, as compact JSON, or a clear error.
 config() {

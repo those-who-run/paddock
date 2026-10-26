@@ -32,8 +32,10 @@ It needs only the `nats` CLI and `jq`, both in `natsio/nats-box`, and is POSIX
 `sh`, since that image has no `bash`. It takes the server from `NATS_URL`
 (required) and the credentials from `NATS_CREDS`, or `NATS_USER` and
 `NATS_PASSWORD`, when they are set; nothing in the files is particular to one
-installation. A user and password written into `NATS_URL` also work, and the
-script never prints them. It writes no files, so it runs as a non-root user on
+installation. Pass credentials through those variables, not in `NATS_URL`. A
+user and password written into the URL also work, and the script's own lines
+leave them out, but the `nats` CLI's error for a URL it cannot parse may print
+the URL whole. It writes no files, so it runs as a non-root user on
 a read-only root file system.
 
 For each stream it compares the fields its file names with `nats stream info`;

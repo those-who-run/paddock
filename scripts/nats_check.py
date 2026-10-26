@@ -60,7 +60,8 @@ STREAM_FIELDS = (
     "max_msg_size", "max_consumers", "deny_delete", "deny_purge", "allow_rollup_hdrs",
     "allow_direct",
 )  # fmt: skip
-STREAM_OPTIONAL = ("sealed", "mirror_direct")
+# sealed is left out: the server refuses a stream created sealed.
+STREAM_OPTIONAL = ("mirror_direct",)
 STREAM_CHOICES = {
     "retention": ("limits", "interest", "workqueue"),
     "storage": ("file", "memory"),
