@@ -2,7 +2,8 @@
 # `checks / checks` job (checks.yml in those-who-run/.github) runs them on every file,
 # and .claude/hooks/guard.py stops an agent from skipping them. They are the
 # language-neutral hooks of those-who-run/.github's own config, with the same pins,
-# plus paddock's link and labels checks. `make check` runs them with the rest of CI.
+# plus paddock's link, labels and NATS definitions checks. `make check` runs them with
+# the rest of CI.
 #
 # The external hooks are pinned to a commit SHA, the tag in the `frozen:` comment;
 # Renovate bumps them: renovate.json extends those-who-run/.github's shared preset
@@ -42,6 +43,12 @@ repos:
         entry: python3 scripts/labels_check.py
         language: system
         files: ^(docs/labels\.md|\.github/labels\.yml|scripts/labels_check\.py)$
+        pass_filenames: false
+      - id: nats
+        name: NATS definitions match contracts' subjects, no overlaps (scripts/nats_check.py)
+        entry: python3 scripts/nats_check.py
+        language: system
+        files: ^(deploy/nats/|scripts/nats_check\.py)
         pass_filenames: false
 
   # gitleaks: the staged changes, before they are committed. In `--all-files` runs

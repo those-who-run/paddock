@@ -8,6 +8,10 @@ v1, the current release, lives in
 [those-who-run/those-who-run](https://github.com/those-who-run/those-who-run)
 and is in maintenance from 1.0.0.
 
+The deployment lives under `deploy/`. The JetStream streams and KV buckets,
+and the script that creates them, are in
+[`deploy/nats/`](deploy/nats/README.md).
+
 The roadmap is [`ROADMAP.md`](ROADMAP.md), the issue format is
 [`docs/ISSUE_FORMAT.md`](docs/ISSUE_FORMAT.md), and the decisions are in
 [`docs/adr`](docs/adr/README.md).

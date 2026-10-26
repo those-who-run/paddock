@@ -1,0 +1,87 @@
+# The catalogue of NATS subjects and KV keys (ADR 0002, point 5, in paddock):
+# one entry per subject pattern or KV key, with the message it carries and how
+# it travels. A consumer subscribes by pattern and decodes by ce-type, so a
+# subject is as much a part of the contract as its message.
+#
+# internal/catalogue's tests check every entry (paddock#25): the message exists
+# in the generated code; a ce-type and a message are one to one, though a
+# message may travel on several subjects; a pattern follows ADR 0001's subject
+# scheme and goes to that scheme's stream; every placeholder is a known one and
+# allowed where it is; and every message in an events package (twr.events.*, any
+# version) has an entry or is listed under helpers. docs/subjects.md is
+# rendered from this file by `make generate`.
+#
+# An entry is a subject or a KV key. A subject's keys:
+#   pattern       the subject, with <placeholders> for its variable tokens
+#                 (docs/subjects.md lists them). An event published while no
+#                 session is open has _ in place of <sid> (paddock#70).
+#                 Callouts are one entry per level, callout.p0, .p1 and .p2,
+#                 each a subject a consumer subscribes to, sharing one message
+#                 and ce-type.
+#   ce_type       the CloudEvents type in the ce-type header, one to one with
+#                 a message: run.thosewho.<area>.<what>.v<N>
+#   message       the protobuf message, fully qualified
+#   content_type  the ce-datacontenttype header: application/json, protobuf's
+#                 JSON form (ADR 0002, point 2)
+#   stream        the JetStream stream that captures the subject (ADR 0001,
+#                 point 1)
+#   producers     the components that publish it
+#   consumers     the components that read it
+#   msg_id        the ce-id and Nats-Msg-Id scheme. An event's is
+#                 <sid>:<area>.<what>:<part>, with its ce-type's <area>.<what>
+#                 and at least one part, such as <sid>:lap.completed:<n>; one
+#                 that happens once per session ends in :1. On an evt._
+#                 subject, with no session open, <run> takes <sid>'s place.
+#   description   what it is, for the rendered table
+#
+# A KV key's: kv (the bucket), key (with placeholders), message, content_type,
+# producers (its writers), consumers (its readers) and description. It has no
+# pattern, stream, ce_type or msg_id: a value written with Put carries no
+# headers.
+#
+# helpers lists the messages in an events package that are parts of an event,
+# not events, so they need no entry.
+
+subjects:
+  - pattern: twr.v1.<src>.frame.gt7
+    ce_type: run.thosewho.frame.gt7.v1
+    message: twr.telemetry.v1.Frame
+    content_type: application/json
+    stream: TELEMETRY
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <run>:frame:<seq>
+    description: Every decoded GT7 packet, about 60 a second.
+
+  - pattern: twr.v1.<src>.evt.<sid>.session.started
+    ce_type: run.thosewho.session.started.v1
+    message: twr.events.v1.SessionStarted
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <sid>:session.started:1
+    description: A session began.
+
+  - pattern: twr.v1.<src>.evt.<sid>.lap.completed
+    ce_type: run.thosewho.lap.completed.v1
+    message: twr.events.v1.LapCompleted
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <sid>:lap.completed:<n>
+    description: A lap ended, complete or partial.
+
+  - pattern: twr.v1.<src>.evt.<sid>.session.ended
+    ce_type: run.thosewho.session.ended.v1
+    message: twr.events.v1.SessionEnded
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook, podium]
+    msg_id: <sid>:session.ended:1
+    description: A session ended, why, and its summary.
+
+helpers:
+  - twr.events.v1.SessionSummary
