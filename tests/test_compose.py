@@ -1,7 +1,9 @@
 """The walking skeleton's compose file (deploy/compose/compose.yaml, paddock#39): every
 image pinned by version tag and digest and never `latest` (R2), every port published
-on 127.0.0.1 only (R3), and the NATS images the same as those the bootstrap is tested
-with (scripts/nats_it.sh), so the laptop runs what CI checked.
+on 127.0.0.1 only and no service on the host's network (R3), every service built from
+a pinned image rather than `build:` alone, every service with its capabilities
+dropped and no new privileges, and the NATS images the same as those the bootstrap is
+tested with (scripts/nats_it.sh), so the laptop runs what CI checked.
 
 Standard library only, as paddock's other checks are, so the file is read line by
 line: an `image:` line and a quoted `"host:port:port"` item under `ports:`."""
@@ -22,6 +24,42 @@ PINNED = re.compile(
     r"^(?P<name>[a-z0-9.-]+(?::\d+)?/[a-z0-9._/-]+)"
     r":(?P<tag>[A-Za-z0-9._-]+)@sha256:[a-f0-9]{64}$"
 )
+
+
+def services(text: str) -> dict[str, list[str]]:
+    """Each service's lines under `services:`, by name: a service is a key two spaces
+    in, and its lines are those indented deeper, up to the next key at two spaces or
+    less."""
+    found: dict[str, list[str]] = {}
+    current: str | None = None
+    inside = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        depth = len(line) - len(line.lstrip())
+        if depth == 0:
+            inside = stripped == "services:"
+            current = None
+            continue
+        if not inside:
+            continue
+        if depth == 2 and stripped.endswith(":"):
+            current = stripped[:-1]
+            found[current] = []
+        elif current is not None:
+            found[current].append(line)
+    return found
+
+
+def keys(lines: list[str]) -> dict[str, str]:
+    """A service's own keys (four spaces in) and what follows each on its line."""
+    out: dict[str, str] = {}
+    for line in lines:
+        if len(line) - len(line.lstrip()) == 4 and ":" in line:
+            key, _, value = line.strip().partition(":")
+            out[key] = value.strip()
+    return out
 
 
 def images(text: str) -> list[str]:
@@ -80,6 +118,55 @@ class Images(unittest.TestCase):
         self.assertIsNone(PINNED.match("docker.io/library/nats:2.15.1-alpine"))
         self.assertIsNone(PINNED.match("docker.io/library/nats" + digest))
         self.assertIsNone(PINNED.match("nats:2.15.1" + digest))
+
+
+class Services(unittest.TestCase):
+    def setUp(self) -> None:
+        self.services = services(COMPOSE.read_text(encoding="utf-8"))
+
+    def test_the_services(self) -> None:
+        # R1; replay comes with ecu's replay (paddock#35).
+        self.assertEqual(sorted(self.services), ["logbook", "nats", "nats-bootstrap", "nats-box"])
+        self.assertEqual(keys(self.services["nats-box"]).get("profiles"), "[tools]")
+
+    def test_no_host_network_or_privilege(self) -> None:
+        # network_mode: host publishes every port with no ports: entry, past R3's check.
+        for name, lines in self.services.items():
+            with self.subTest(service=name):
+                own = keys(lines)
+                for refused in ("network_mode", "privileged", "cap_add", "pid", "ipc"):
+                    self.assertNotIn(refused, own)
+
+    def test_image_not_build(self) -> None:
+        for name, lines in self.services.items():
+            with self.subTest(service=name):
+                own = keys(lines)
+                self.assertIn("image", own, "a service runs a pinned image, not build: alone")
+                self.assertNotIn("build", own)
+
+    def test_hardened(self) -> None:
+        for name, lines in self.services.items():
+            with self.subTest(service=name):
+                own = keys(lines)
+                self.assertEqual(own.get("cap_drop"), "[ALL]")
+                self.assertEqual(own.get("security_opt"), '["no-new-privileges:true"]')
+        for name in ("nats-bootstrap", "logbook"):
+            with self.subTest(service=name):
+                self.assertEqual(keys(self.services[name]).get("read_only"), "true")
+
+    def test_logbook_amd64(self) -> None:
+        # ADR 0006: amd64 only, so an arm64 laptop runs it under emulation.
+        self.assertEqual(keys(self.services["logbook"]).get("platform"), "linux/amd64")
+
+    def test_parser(self) -> None:
+        text = (
+            "name: x\nservices:\n  a:\n    image: i\n    network_mode: host\n"
+            "    environment:\n      K: v\n  b:\n    build: .\nvolumes:\n  v:\n"
+        )
+        found = services(text)
+        self.assertEqual(sorted(found), ["a", "b"])
+        self.assertEqual(keys(found["a"]), {"image": "i", "network_mode": "host", "environment": ""})
+        self.assertEqual(keys(found["b"]), {"build": "."})
 
 
 class Ports(unittest.TestCase):

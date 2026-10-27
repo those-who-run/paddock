@@ -11,17 +11,23 @@ replay (#35).
 - Docker with compose v2 (`docker compose version`). `podman compose` works
   too: run the targets as `COMPOSE='podman compose' make up`.
 - `make` and `curl`.
+- On an arm64 machine (Apple Silicon), emulation of amd64 in Docker Desktop:
+  v2 images are built for `linux/amd64` only
+  ([ADR 0006](../../docs/adr/0006-images-on-ghcr.md)), and `compose.yaml` asks
+  for that platform for `logbook`. NATS and `nats-box` are multi-platform.
 - Ports 4222, 8222 and 8080 free on 127.0.0.1.
 
 ## The commands
 
-Run them from the root of `paddock`. Each prints the commands it runs.
+Run them from the root of `paddock`. Each prints the commands it runs. They
+name the compose project, `twr`, with `-p`, so `COMPOSE_PROJECT_NAME` does not
+change it.
 
 | Command | What it does |
 |---|---|
-| `make up` | Starts `nats`, runs the bootstrap once it is healthy, starts `logbook` once the bootstrap has exited 0, then waits up to 60 s for `logbook`'s `/healthz` to answer 200 |
+| `make up` | Starts `nats`, runs the bootstrap once it is healthy, starts `logbook` once the bootstrap has exited 0, then waits up to 60 s for `logbook`'s `/healthz` to answer 200. `nats-box` is not started |
 | `make sub` | Prints every message on `twr.>` through `nats-box`, until Ctrl-C |
-| `make export` | Stops `logbook`, prints its stored laps (`logbook export --data /data --laps`) as JSON lines, and starts it again |
+| `make export` | Stops `logbook`, prints its stored laps (`logbook export --data /data --laps`) as JSON lines, and starts it again, without rerunning the bootstrap |
 | `make down` | Stops and removes the containers; the volumes, and with them the streams and `logbook`'s data, stay |
 | `make reset` | `down`, and removes the volumes: the next `make up` starts empty |
 
@@ -32,11 +38,13 @@ Run them from the root of `paddock`. Each prints the commands it runs.
 | Service | Image | What |
 |---|---|---|
 | `nats` | `nats:2.15.1-alpine` | `-js -sd /data -m 8222`, JetStream on the `nats-data` volume; healthy once `/healthz?js-enabled-only=true` answers |
-| `nats-bootstrap` | `natsio/nats-box:0.20.0` | [`bootstrap.sh`](../nats/bootstrap.sh) with `deploy/nats` mounted read-only, as user 1000 on a read-only root file system, as the cluster's Job runs it (#43) |
-| `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.3` | `logbook run`, its store on the `logbook-data` volume at `/data` |
+| `nats-bootstrap` | `natsio/nats-box:0.20.0` | [`bootstrap.sh`](../nats/bootstrap.sh) with `deploy/nats` mounted read-only, as user 1000 on a read-only root file system, as the cluster's Job runs it (#43). It runs on every `make up` and changes nothing when the streams and bucket are already right |
+| `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.3` | `logbook run` as user 65532 on a read-only root file system, its store on the `logbook-data` volume at `/data`; `linux/amd64` |
 | `nats-box` | `natsio/nats-box:0.20.0` | Profile `tools`: only `make sub` or `docker compose run` starts it |
 
-Every image is pinned by version tag and digest, never `latest`. Renovate's
+Every service drops all Linux capabilities and runs with `no-new-privileges`,
+and none uses the host's network. Every image is pinned by version tag and
+digest, never `latest`. Renovate's
 docker-compose manager bumps the tag and digest together
 ([`renovate.json`](../../renovate.json) turns on `pinDigests` for it).
 The NATS images are the ones [`scripts/nats_it.sh`](../../scripts/nats_it.sh)
@@ -68,17 +76,18 @@ published meanwhile wait in the streams. It prints the laps of source `live`;
 for another source, run the export by hand:
 
 ```sh
-docker compose -f deploy/compose/compose.yaml stop logbook
-docker compose -f deploy/compose/compose.yaml run --rm --no-deps logbook \
+docker compose -p twr -f deploy/compose/compose.yaml stop logbook
+docker compose -p twr -f deploy/compose/compose.yaml run --rm --no-deps logbook \
   export --data /data --laps --src replay-<run>
-docker compose -f deploy/compose/compose.yaml start logbook
+docker compose -p twr -f deploy/compose/compose.yaml up -d --no-deps logbook
 ```
 
 ## The same as the cluster
 
 What the cluster also needs is the same here, so the kustomize base copies it
 rather than reinventing it: the definitions in `deploy/nats` and the script
-that applies them, the bootstrap's user and read-only root file system, the
+that applies them, the users and read-only root file systems of the bootstrap
+and `logbook`, every capability dropped and no new privileges, the
 environment variable names (`NATS_URL`, `TWR_NATS_URL`, `TWR_DATA_DIR`,
 `TWR_HEALTH_ADDR`) and `logbook`'s data at `/data`.
 
@@ -86,10 +95,15 @@ environment variable names (`NATS_URL`, `TWR_NATS_URL`, `TWR_DATA_DIR`,
 
 - `tests/test_compose.py` (in `make test`) reads `compose.yaml`: every image is
   pinned by tag and digest and none is `latest`, every port is published on
-  127.0.0.1 only, and the NATS images match `scripts/nats_it.sh`'s.
+  127.0.0.1 only, no service sets `network_mode`, `privileged`, `cap_add`,
+  `pid` or `ipc`, every service has an `image:` and no `build:`, drops all
+  capabilities and sets `no-new-privileges`, the bootstrap and `logbook` have
+  read-only root file systems, and the NATS images match
+  `scripts/nats_it.sh`'s.
 - `make compose-it` ([`scripts/compose_it.sh`](../../scripts/compose_it.sh),
   in `make check` and CI's `test` job) starts from `make reset`, runs
-  `make up`, checks NATS's `/healthz` with JetStream, that the bootstrap made
+  `make up`, checks that only `nats` and `logbook` run and the bootstrap exited
+  0, checks NATS's `/healthz` with JetStream, that the bootstrap made
   `TELEMETRY`, `EVENTS` and the `live` bucket, and that `logbook` reports
   connected, runs `make export` against the running stack, then `make reset`,
   and checks that no container or volume of the `twr` project is left. Replaying

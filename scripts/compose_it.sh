@@ -5,7 +5,8 @@
 #
 #   1. starts from a clean slate (`make reset`);
 #   2. brings the stack up (`make up`): nats healthy, the bootstrap exited 0, logbook
-#      answering 200 on /healthz (AC1);
+#      answering 200 on /healthz (AC1), and nothing else running: nats-box (profile
+#      `tools`) is not started by `up`;
 #   3. checks NATS's monitoring /healthz with JetStream, and that the bootstrap made
 #      TELEMETRY, EVENTS and the live bucket, through nats-box (profile `tools`);
 #   4. runs `make export` against the running stack: logbook is stopped, the export
@@ -28,13 +29,15 @@ MAKE=${MAKE:-make}
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 export COMPOSE
+# The project by name, as the Makefile passes it, so COMPOSE_PROJECT_NAME cannot make
+# the leftovers check look at another project and pass on nothing.
+project=twr
 
 compose() {
 	# shellcheck disable=SC2086 # COMPOSE is a command and its arguments
-	$COMPOSE -f deploy/compose/compose.yaml --profile tools "$@"
+	$COMPOSE -p "$project" -f deploy/compose/compose.yaml --profile tools "$@"
 }
 
-project=twr
 ok=0
 
 finish() {
@@ -45,7 +48,10 @@ finish() {
 	fi
 	$MAKE --no-print-directory reset >/dev/null 2>&1 || true
 }
-trap finish EXIT INT TERM
+# finish runs once, at exit; Ctrl-C or a TERM exits non-zero, which runs it.
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 fail() {
 	echo "compose-it: $*" >&2
@@ -57,6 +63,16 @@ $MAKE --no-print-directory reset
 
 echo "== make up (AC1)"
 $MAKE --no-print-directory up
+
+echo "== only nats and logbook run; the bootstrap exited 0"
+running=$(compose ps --status running --services | sort | tr '\n' ' ')
+echo "running: $running"
+[ "$running" = "logbook nats " ] || fail "running after make up: $running (want logbook nats)"
+bootstrap=$(compose ps -aq nats-bootstrap)
+[ -n "$bootstrap" ] || fail "no nats-bootstrap container"
+code=$("$CONTAINER" inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$bootstrap")
+echo "nats-bootstrap: $code"
+[ "$code" = "exited 0" ] || fail "nats-bootstrap is $code (want exited 0)"
 
 echo "== NATS answers with JetStream on 127.0.0.1:8222"
 curl -fsS --max-time 5 'http://127.0.0.1:8222/healthz?js-enabled-only=true' || fail "NATS /healthz is not ok"
