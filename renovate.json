@@ -11,5 +11,12 @@
       ],
       "datasourceTemplate": "docker"
     }
+  ],
+  "packageRules": [
+    {
+      "description": "The images deploy/compose/compose.yaml runs (paddock#39), pinned by tag and digest: the built-in docker-compose manager reads the file and bumps both. tests/test_compose.py fails an image without a digest.",
+      "matchManagers": ["docker-compose"],
+      "pinDigests": true
+    }
   ]
 }
