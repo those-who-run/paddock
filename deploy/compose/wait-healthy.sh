@@ -15,15 +15,16 @@ set -eu
 url=${1:-http://127.0.0.1:8080/healthz}
 limit=${WAIT_SECONDS:-60}
 
-waited=0
-body=
-while [ "$waited" -lt "$limit" ]; do
+# A deadline by the clock, not a count of tries: a try that waits for its 2 s timeout
+# would otherwise stretch the limit, and the "after N s" would be tries.
+start=$(date +%s)
+while :; do
 	if body=$(curl -fsS --max-time 2 "$url" 2>/dev/null); then
-		echo "logbook healthy after $waited s: $body"
+		echo "logbook healthy after $(($(date +%s) - start)) s: $body"
 		exit 0
 	fi
+	[ $(($(date +%s) - start)) -lt "$limit" ] || break
 	sleep 1
-	waited=$((waited + 1))
 done
 echo "logbook not healthy after $limit s at $url" >&2
 curl -sS --max-time 2 "$url" >&2 || true

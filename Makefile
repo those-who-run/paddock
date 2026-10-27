@@ -11,8 +11,11 @@
 PY ?= python3
 # The compose command; `COMPOSE='podman compose' make up` for podman.
 COMPOSE ?= docker compose
-# `--profile tools` so down and reset also stop and remove nats-box's containers.
-STACK = $(COMPOSE) -f deploy/compose/compose.yaml --profile tools
+# `-p twr` so COMPOSE_PROJECT_NAME in the environment cannot move the stack to another
+# project. `run nats-box` needs no profile flag, since naming a service enables its
+# profile; only down and reset pass `--profile tools`, so they also remove nats-box's
+# containers, and `up` does not start it.
+STACK = $(COMPOSE) -p twr -f deploy/compose/compose.yaml
 
 .PHONY: help
 help:
@@ -79,17 +82,18 @@ sub:
 	$(STACK) run --rm nats-box nats --no-context sub 'twr.>'
 
 # `logbook export` takes the store's lock and refuses while logbook runs, so logbook
-# is stopped for it and started again whether or not the export worked.
+# is stopped for it and started again whether or not the export worked. --no-deps on
+# both, so neither reruns the bootstrap.
 .PHONY: export
 export:
 	$(STACK) stop logbook
 	$(STACK) run --rm --no-deps -T logbook export --data /data --laps; \
-		status=$$?; $(STACK) start logbook; exit $$status
+		status=$$?; $(STACK) up -d --no-deps logbook; exit $$status
 
 .PHONY: down
 down:
-	$(STACK) down --remove-orphans
+	$(STACK) --profile tools down --remove-orphans
 
 .PHONY: reset
 reset:
-	$(STACK) down --remove-orphans --volumes
+	$(STACK) --profile tools down --remove-orphans --volumes
