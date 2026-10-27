@@ -33,7 +33,7 @@ Run them from the root of `paddock`. Each prints the commands it runs.
 |---|---|---|
 | `nats` | `nats:2.15.1-alpine` | `-js -sd /data -m 8222`, JetStream on the `nats-data` volume; healthy once `/healthz?js-enabled-only=true` answers |
 | `nats-bootstrap` | `natsio/nats-box:0.20.0` | [`bootstrap.sh`](../nats/bootstrap.sh) with `deploy/nats` mounted read-only, as user 1000 on a read-only root file system, as the cluster's Job runs it (#43) |
-| `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.2` | `logbook run`, its store on the `logbook-data` volume at `/data` |
+| `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.3` | `logbook run`, its store on the `logbook-data` volume at `/data` |
 | `nats-box` | `natsio/nats-box:0.20.0` | Profile `tools`: only `make sub` or `docker compose run` starts it |
 
 Every image is pinned by version tag and digest, never `latest`. Renovate's
