@@ -20,13 +20,15 @@ concurrency:
 # Actions and the reusable workflow are pinned by commit SHA (the tag in the
 # comment); Renovate bumps them (renovate.json).
 jobs:
-  # paddock's own checks, the same `make test` and `make nats-it` a laptop runs: the
-  # Markdown links, the labels page against labels.yml, the guard copy against
-  # .github's agent/ at the commit pinned for checks.yml below, the NATS definitions
-  # against contracts' subjects.yaml, and the tests of those checks; then the stream
-  # and KV bootstrap against a real nats-server, in the runner's docker, with the
+  # paddock's own checks, the same `make test`, `make nats-it` and `make compose-it`
+  # a laptop runs: the Markdown links, the labels page against labels.yml, the guard
+  # copy against .github's agent/ at the commit pinned for checks.yml below, the NATS
+  # definitions against contracts' subjects.yaml, and the tests of those checks; then
+  # the stream and KV bootstrap against a real nats-server, in the runner's docker, with the
   # images scripts/nats_it.sh pins by digest. The overlap check runs first, so a
-  # definition that overlaps fails before it reaches a server.
+  # definition that overlaps fails before it reaches a server. Last, the walking
+  # skeleton in deploy/compose comes up from nothing in the runner's docker compose,
+  # is checked and is torn down (scripts/compose_it.sh, paddock#39).
   test:
     runs-on: ubuntu-latest
     permissions:
@@ -42,6 +44,8 @@ jobs:
         run: make test
       - name: The NATS bootstrap against a real server
         run: make nats-it
+      - name: The walking skeleton, from nothing to reset
+        run: make compose-it
 
   # The commit hooks on every file, gitleaks over the PR's commits, the PR title and
   # dependency review. No `if:` or `needs:`, so the required check always reports.

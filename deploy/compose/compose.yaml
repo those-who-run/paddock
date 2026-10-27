@@ -1,0 +1,93 @@
+# The walking skeleton on a laptop (paddock#39): NATS with JetStream, the stream and
+# KV bootstrap, logbook, and nats-box for looking at the bus. No PS5, no cluster.
+# The make targets in paddock's Makefile run it (`make up`, `make sub`, `make export`,
+# `make down`, `make reset`); deploy/compose/README.md says how.
+#
+# Every image is pinned by version tag and by the digest of its index; Renovate's
+# docker-compose manager bumps both (renovate.json turns on pinDigests for it).
+# tests/test_compose.py fails an image with no digest, a `latest` tag, a port that is
+# published beyond 127.0.0.1, or a NATS image that differs from scripts/nats_it.sh's.
+#
+# What the cluster also needs is kept the same here, so the kustomize base copies it
+# rather than reinventing it: the definitions in deploy/nats, the bootstrap run as
+# user 1000 on a read-only root file system, the environment variable names, and
+# logbook's data at /data.
+#
+# `replay` (ecu replay, profile `replay`) is added with ecu's replay (paddock#35),
+# once ecu has a released image.
+
+name: twr
+
+services:
+  nats:
+    image: docker.io/library/nats:2.15.1-alpine@sha256:7ae34c25dfd6fe2e01c6483eabef20d796690fdcac6c4d94ca780a6cf9877fde
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+    healthcheck:
+      # Healthy once JetStream is up, not only the server: the bootstrap needs it.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz?js-enabled-only=true"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  # deploy/nats/bootstrap.sh once, after nats is healthy; logbook starts only when it
+  # has exited 0. A second `make up` runs it again, which changes nothing.
+  nats-bootstrap:
+    image: docker.io/natsio/nats-box:0.20.0@sha256:d2f04223f40e016f77922a8115d34b0cd5fad2ec10b19b39316ae92d07f3d295
+    command: ["sh", "/nats/bootstrap.sh", "/nats"]
+    user: "1000"
+    read_only: true
+    environment:
+      NATS_URL: nats://nats:4222
+    volumes:
+      - type: bind
+        source: ../nats
+        target: /nats
+        read_only: true
+        # Relabels the mount where SELinux is on (podman on Fedora); ignored elsewhere.
+        bind:
+          selinux: z
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: "no"
+
+  # logbook's image is distroless, with no shell or HTTP client, so compose cannot
+  # probe /healthz from inside it. `make up` polls it from the host, on the port
+  # published below, until it answers 200.
+  logbook:
+    # The digest is added once 0.1.2 is published; tests/test_compose.py fails until then.
+    image: ghcr.io/those-who-run/twr-logbook:0.1.2
+    environment:
+      TWR_NATS_URL: nats://nats:4222
+      TWR_DATA_DIR: /data
+      TWR_HEALTH_ADDR: ":8080"
+      LOG_LEVEL: info
+    volumes:
+      - logbook-data:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      nats-bootstrap:
+        condition: service_completed_successfully
+
+  # For looking at the bus: `make sub`, or
+  # `docker compose -f deploy/compose/compose.yaml run --rm nats-box`
+  # for a shell with the nats CLI pointed at the server.
+  nats-box:
+    image: docker.io/natsio/nats-box:0.20.0@sha256:d2f04223f40e016f77922a8115d34b0cd5fad2ec10b19b39316ae92d07f3d295
+    profiles: [tools]
+    environment:
+      NATS_URL: nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+
+volumes:
+  nats-data:
+  logbook-data:

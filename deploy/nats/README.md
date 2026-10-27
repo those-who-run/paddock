@@ -103,4 +103,6 @@ Both run in CI's `test` job. The images are pinned by digest in
   compares.
 - The pinned images are bumped by Renovate, through the custom manager in
   [`renovate.json`](../../renovate.json), in `scripts/nats_it.sh` and in the
-  example above.
+  example above, and through the docker-compose manager in
+  [`deploy/compose/compose.yaml`](../compose/compose.yaml), which runs the same
+  images (`tests/test_compose.py` fails when they differ).
