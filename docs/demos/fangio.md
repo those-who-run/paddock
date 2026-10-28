@@ -14,8 +14,8 @@ The agent worked as its own account, `mo-chara-croche`, with the Write role
 
 The maintainer ran the near misses live, in a Claude Code session as the
 agent's account in a fresh clone of the repository
-([Near misses](#near-misses)). The approval of the publish waits on him and
-is marked pending below.
+([Near misses](#near-misses)). The publish and its provenance are still to
+be recorded ([The release path](#the-release-path)).
 
 ## What was run
 
@@ -122,12 +122,19 @@ tagged `v0.1.0` and dispatched the
 [release run](https://github.com/those-who-run/shakedown-fangio/actions/runs/40687006313):
 its `image / build` passed and `publish / publish` waits for the maintainer's
 approval in the `release` environment. The agent's account can't approve it
-(`current_user_can_approve: false`). The push to
-`ghcr.io/those-who-run/twr-shakedown-fangio` is pending, run by the
-maintainer.
+(`current_user_can_approve: false`). At 13:50 UTC the run still showed
+`publish / publish` waiting for that approval.
 
-A release PR for the exercise PR's `feat` comes only after the maintainer
-merges #10.
+The approval, the publish to `ghcr.io/those-who-run/twr-shakedown-fangio`
+and the provenance check: to be recorded.
+
+The maintainer merged the exercise PR,
+[shakedown-fangio#10](https://github.com/those-who-run/shakedown-fangio/pull/10),
+at 13:36:06. release-please then opened
+[shakedown-fangio#12](https://github.com/those-who-run/shakedown-fangio/pull/12)
+(`chore(release): 0.1.1`), with `test`, `checks / checks`, `go / check` and
+`image / build` green on its head, `9b920b6`. It waits for the maintainer's
+review and merge.
 
 ## Not yet run
 
@@ -142,42 +149,46 @@ These checks from the triage decision on #28 are not in this record yet:
 
 ## Gaps
 
-Each gap gets a `guardrail` issue; until it is filed, it says so.
+Each gap has a `guardrail` issue, or a line saying why none is needed.
 
 - **The guard's reason for an ask on PR writes is out of date.** On
   `gh pr merge`, `gh pr review` and the API calls that post, it says "it posts
   in public, in the maintainer's name", but agents now work as their own
-  account. Being fixed in
+  account. No issue: being fixed in
   [those-who-run/.github#53](https://github.com/those-who-run/.github/pull/53).
 - **Reading a guard verdict by hand logs it as a real try.** The guard's own
   docstring says to pipe a command into it to see the verdict, and each block
   or ask is then written to the guard log as if an agent had tried the
-  command. Follow-up: to be filed.
+  command. Follow-up: #282.
 - **The guard covers only a Claude Code session started in the repository.**
   An agent session started in another directory and working on a clone runs
   that directory's settings, not the clone's guard. This demo's run was one
   such session, so its commands were checked against the guard by hand rather
   than by the hook, and the live near misses were run in a separate session
-  started in a clone of the repository. Follow-up: to be filed.
+  started in a clone of the repository. Follow-up: #284.
 - **`make check` and the Go hooks stop when `GOTOOLCHAIN=local` and the
   installed Go is older than `go.mod`'s.** The error names the version, but
-  not the fix (`GOTOOLCHAIN=auto`, which `AGENTS.md` mentions). Follow-up: to
-  be filed.
+  not the fix (`GOTOOLCHAIN=auto`, which `AGENTS.md` mentions). Follow-up:
+  #283.
 - **`make hooks` fails when `pre-commit` is not installed.** It stops with
   "make: pre-commit: No such file or directory". The template lists
   `pre-commit` as a prerequisite but doesn't check for it or say how to
   install it. It is the same kind of gap as the `GOTOOLCHAIN` one, and one
-  prerequisite check would cover both. Follow-up: to be filed.
-- **A merge to `main` leaves every open PR behind, and the agent can't update
-  the branch through GitHub.** The required checks are strict, so the release
-  PR's merge set #10 to `BEHIND`; `viewerCanUpdateBranch` is false for the
-  agent's account, so it merged `main` in itself, which costs a full CI run.
-  Follow-up: to be filed.
+  prerequisite check would cover both. Follow-up: #283.
+- **A merge to `main` leaves every open PR behind.** The required checks are
+  strict, so the release PR's merge set #10 to `BEHIND`, and the branch
+  needed `main` merged in and a new CI run before it could merge. The agent's
+  account can update a branch that is behind (`viewerCanUpdateBranch` was
+  true for this report's PR while it was behind); the agent merged `main` in
+  itself here. Follow-up: #277, the merge queue, which tests each PR on the
+  latest `main` without updating branches by hand.
 - **The merge state doesn't say which requirement blocks.** While `test`
   failed, `mergeStateStatus` was `BLOCKED`, as it is for a missing review
-  alone; the failing check shows only in the check rollup. Follow-up: to be
-  filed.
+  alone; the failing check shows only in the check rollup. No issue: this is
+  how GitHub reports it, and `gh pr checks` or the check rollup names the
+  failing check.
 - **The agent can't read who may bypass a ruleset.** For a Write account the
   API returns no `bypass_actors`, only `current_user_can_bypass`, so the
-  record can show that the agent has no bypass but not who has one.
-  Follow-up: to be filed.
+  record can show that the agent has no bypass but not who has one. No issue:
+  `make protect-check` in `those-who-run/.github` runs with the maintainer's
+  login, which can read them.
