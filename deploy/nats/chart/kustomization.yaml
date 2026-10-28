@@ -1,0 +1,29 @@
+# NATS from its official Helm chart (paddock#42, ADR 0004 point 8), inflated by
+# kustomize: `kustomize build --enable-helm deploy/nats/chart`. kustomize runs `helm`
+# to fetch and render the chart, so helm must be on the PATH; Argo CD needs
+# `kustomize.buildOptions: --enable-helm`. The chart is fetched into charts/ here,
+# which git ignores. deploy/nats/README.md says what the overlay sets.
+#
+# Use kustomize 5.7.x or earlier: from 5.8.0 an overlay's namespace is not applied to
+# this chart's objects (kubernetes-sigs/kustomize#6058). `make deploy-render` pins
+# 5.7.1 and fails on a version with the bug. `kubectl apply -k` cannot inflate a
+# chart, so apply `kustomize build --enable-helm <dir> | kubectl apply -f -`.
+#
+# The release name `nats` makes the client Service `nats`, so a component in the same
+# namespace reaches the server at nats://nats:4222.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+helmCharts:
+  - name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    # The chart's version is the server's: 2.15.1 is nats 2.15.1, the version compose
+    # and scripts/nats_it.sh run. values.yaml pins the image itself.
+    version: 2.15.1
+    releaseName: nats
+    valuesFile: values.yaml
+    # The chart's `helm test` Pod is not something to apply.
+    skipTests: true
+
+# The WebSocket's Ingress is not here: the base exposes nothing until an overlay
+# includes deploy/components/nats-websocket and gives it a host.

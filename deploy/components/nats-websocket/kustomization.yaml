@@ -1,0 +1,14 @@
+# The NATS WebSocket from outside the cluster (paddock#42): an Ingress to the `nats`
+# Service's websocket port, which deploy/nats/chart runs. A component, so the base
+# exposes nothing until an overlay includes it:
+#
+#   components:
+#     - <path to paddock>/deploy/components/nats-websocket
+#
+# and patches in the host, the ingress class and the TLS secret, which nothing here
+# names (deploy/nats/README.md has the patch).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - ingress.yaml
