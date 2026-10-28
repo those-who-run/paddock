@@ -14,8 +14,8 @@ The agent worked as its own account, `mo-chara-croche`, with the Write role
 
 The maintainer ran the near misses live, in a Claude Code session as the
 agent's account in a fresh clone of the repository
-([Near misses](#near-misses)). The publish and its provenance are still to
-be recorded ([The release path](#the-release-path)).
+([Near misses](#near-misses)), and approved the publish
+([The release path](#the-release-path)).
 
 ## What was run
 
@@ -120,13 +120,28 @@ The maintainer merged the release PR,
 `go / check` and `image / build` green on its head, `0ecb1d9`. The merge
 tagged `v0.1.0` and dispatched the
 [release run](https://github.com/those-who-run/shakedown-fangio/actions/runs/40687006313):
-its `image / build` passed and `publish / publish` waits for the maintainer's
-approval in the `release` environment. The agent's account can't approve it
-(`current_user_can_approve: false`). At 13:50 UTC the run still showed
-`publish / publish` waiting for that approval.
+its `image / build` passed and `publish / publish` waited for the
+maintainer's approval in the `release` environment. The agent's account
+couldn't approve it (`current_user_can_approve: false`).
 
-The approval, the publish to `ghcr.io/those-who-run/twr-shakedown-fangio`
-and the provenance check: to be recorded.
+The maintainer approved it, and `publish / publish` succeeded at 13:49:32 UTC:
+approved by the maintainer, the image was published. The publish ran only
+after that approval.
+
+- The image is `ghcr.io/those-who-run/twr-shakedown-fangio:0.1.0`, digest
+  `sha256:6293ea96586f81d5490bec03e67d395ae4da0b54879a04c07320a3cdcfb69b80`,
+  and pulls without credentials.
+- `gh attestation verify oci://ghcr.io/those-who-run/twr-shakedown-fangio:0.1.0 -R those-who-run/shakedown-fangio --signer-repo those-who-run/.github`
+  passes for both predicate types, SLSA provenance
+  (`https://slsa.dev/provenance/v1`) and the SPDX SBOM
+  (`https://spdx.dev/Document/v2.3`).
+- Both attestations are signed by
+  `those-who-run/.github/.github/workflows/image-publish.yml` at
+  `e0b35e637ee2da5521811e6d73d22377af7504cd`, from `those-who-run/shakedown-fangio`
+  at `refs/tags/v0.1.0`.
+
+This covers R6, and #16's check that the image is pushed with its
+provenance through the release environment's approval.
 
 The maintainer merged the exercise PR,
 [shakedown-fangio#10](https://github.com/those-who-run/shakedown-fangio/pull/10),
@@ -142,8 +157,6 @@ These checks from the triage decision on #28 are not in this record yet:
 
 - #14: a PR title that isn't a Conventional Commit fails `checks`, and a commit
   with a fake secret fails it.
-- #16: the published image and its provenance, after the maintainer approves
-  the publish.
 - #18: the organisation's PR template and issue settings in the new
   repository.
 
