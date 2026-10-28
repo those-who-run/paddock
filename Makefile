@@ -2,8 +2,8 @@
 # what CI runs, the commit hooks on every file (CI's `checks / checks`), and
 # `make test`, `make nats-it` and `make compose-it` (CI's `test`, which calls these
 # same targets so the three can't drift). Needs python3 and pre-commit; the guard copy
-# check needs the network, nats-it docker or podman, and compose-it docker with
-# compose v2 and curl.
+# check needs the network, deploy-render the network, curl and tar, nats-it docker or
+# podman, and compose-it docker with compose v2 and curl.
 #
 # The walking skeleton (deploy/compose, paddock#39) has its own targets: up, sub,
 # export, down and reset. `replay` comes with ecu's replay (paddock#35).
@@ -25,6 +25,7 @@ help:
 	@echo "labels - docs/labels.md and .github/labels.yml list the same labels"
 	@echo "guard  - .claude/ holds those-who-run/.github's guard and settings at the pinned commit"
 	@echo "nats   - deploy/nats/: stream subjects match contracts' subjects.yaml, no overlaps, every limit set (offline)"
+	@echo "deploy-render - kustomize build --enable-helm of deploy/'s kustomizations, kubeconform strict, and their checks"
 	@echo "nats-it - deploy/nats/bootstrap.sh twice against a real nats-server -js, and what the streams capture"
 	@echo "compose-it - the walking skeleton from nothing: up, NATS, the bootstrap, logbook's health, export, reset"
 	@echo
@@ -43,7 +44,7 @@ check:
 	$(MAKE) compose-it
 
 .PHONY: test
-test: links labels guard nats
+test: links labels guard nats deploy-render
 	$(PY) -m unittest discover -s tests
 
 .PHONY: links
@@ -61,6 +62,10 @@ guard:
 .PHONY: nats
 nats:
 	$(PY) scripts/nats_check.py
+
+.PHONY: deploy-render
+deploy-render:
+	scripts/deploy_render.sh
 
 .PHONY: nats-it
 nats-it:

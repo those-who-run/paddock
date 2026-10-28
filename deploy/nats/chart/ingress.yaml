@@ -1,0 +1,21 @@
+# The WebSocket listener from outside the cluster (paddock#42 R3). TLS ends here; the
+# listener behind it is plain WebSocket. The chart has an Ingress of its own, but it
+# renders only with a host, and the base names none (ADR 0004, point 8), so this one
+# is written out and the overlay adds the host, the ingress class and the TLS secret
+# with a patch (deploy/nats/README.md shows it). What a WebSocket client may do is
+# set in values.yaml: subscribe to twr.> and its replies, nothing else.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nats-ws
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nats
+                port:
+                  name: websocket

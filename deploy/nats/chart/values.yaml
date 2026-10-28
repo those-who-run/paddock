@@ -1,0 +1,137 @@
+# Values for the nats-io/k8s `nats` chart (paddock#42), pinned in kustomization.yaml.
+# Only what differs from the chart's defaults is here; the chart's own values.yaml at
+# the pinned version says what the rest are. Nothing here is particular to one
+# environment (ADR 0004, point 8): the volume's storage class and size, and the
+# WebSocket Ingress's host, class and TLS secret, come from the overlay.
+
+config:
+  # One server, no clustering (the chart's default): one node, and the streams have
+  # one replica each (deploy/nats/streams).
+  cluster:
+    enabled: false
+
+  jetstream:
+    enabled: true
+    # File storage only. memoryStore stays off, which writes max_memory_store: 0.
+    fileStore:
+      enabled: true
+      # The chart would write the PVC's size here as a literal, inside the config
+      # file, where an overlay cannot reach it. It reads NATS_JS_MAX_FILE_STORE
+      # instead (container.env below), so the overlay sets the volume's size and
+      # this limit in one patch of the StatefulSet. Left out, the server would take
+      # 75% of the free space it finds, which on a 5 GiB volume is too little for
+      # the streams below and on a node-local volume is the node's disk.
+      maxSize: $NATS_JS_MAX_FILE_STORE
+      pvc:
+        enabled: true
+        # TELEMETRY 2 GiB + EVENTS 1 GiB + the `live` bucket's 64 MiB, with room for
+        # the file store's own overhead (deploy/nats/README.md). The overlay sets its
+        # own size and the storage class; the base names no class, so the cluster's
+        # default is used. paddock#256 measures the real figure.
+        size: 5Gi
+
+  # TLS ends at the Ingress (ingress.yaml), so the listener speaks plain WebSocket in
+  # the cluster (the chart writes no_tls). Its port, 8080, is on the `nats` Service.
+  websocket:
+    enabled: true
+    merge:
+      no_auth_user: ws
+
+  # Who may do what (paddock#42 R6). There is no authentication in the cluster: the
+  # namespace is the boundary, so a client on 4222 that sends no credentials is `twr`
+  # and may do anything. A WebSocket client, which can come from outside through the
+  # Ingress, is `ws` and may only subscribe to twr.> and to its own replies.
+  # allowed_connection_types keeps either name from being used on the other listener:
+  # neither has a password, so without it a WebSocket client could name itself `twr`.
+  merge:
+    no_auth_user: twr
+    authorization:
+      users:
+        - user: twr
+          allowed_connection_types: [STANDARD]
+        - user: ws
+          allowed_connection_types: [WEBSOCKET]
+          permissions:
+            publish:
+              deny: [">"]
+            subscribe:
+              allow: ["twr.>", "_INBOX.>"]
+
+# Every image is pinned by tag and by the digest of its index, the same strings as
+# deploy/compose/compose.yaml and scripts/nats_it.sh. fullImageName takes the string
+# whole; the chart's `digest` would drop the tag.
+container:
+  image:
+    fullImageName: docker.io/library/nats:2.15.1-alpine@sha256:7ae34c25dfd6fe2e01c6483eabef20d796690fdcac6c4d94ca780a6cf9877fde
+  # The figures are a starting point until paddock#256 measures them. JetStream's
+  # file store is read through the page cache, which is not the container's own
+  # memory, so the server itself stays small; the limit is there so a runaway
+  # subscriber backlog cannot take the node, and GOMEMLIMIT keeps the Go heap under
+  # it rather than being killed at it.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  env:
+    GOMEMLIMIT: 900MiB
+    # JetStream's file store limit, the same as the PVC's size (config.jetstream).
+    NATS_JS_MAX_FILE_STORE: 5Gi
+  # As compose runs it: every capability dropped and no new privileges. The image
+  # runs as root, so the volume needs no fsGroup; the server writes only to /data and
+  # its pid file's emptyDir.
+  merge:
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+
+# The config reloader would be one more image to pin. Without it, the checksum
+# annotation restarts the server when its config changes.
+reloader:
+  enabled: false
+podTemplate:
+  configChecksumAnnotation: true
+
+# With one replica a budget can only allow the pod to go, so it adds nothing.
+podDisruptionBudget:
+  enabled: false
+
+# The Prometheus exporter, beside the server, on 7777 (`prom-metrics`). No
+# PodMonitor: that needs the Prometheus operator's CRDs, which the base does not
+# assume.
+promExporter:
+  enabled: true
+  image:
+    fullImageName: docker.io/natsio/prometheus-nats-exporter:0.20.2@sha256:c623b608e148e31e1c1c878673a197f1828e58ce90de4f01d22f1baa84c8fee9
+  merge:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+
+# nats-box for looking at the bus from inside the cluster:
+# `kubectl exec deploy/nats-box -- nats sub 'twr.>'`. Its context points at
+# nats://nats, so it is `twr`. Its start-up writes the context link under its home,
+# so its root file system stays writable.
+natsBox:
+  enabled: true
+  container:
+    image:
+      fullImageName: docker.io/natsio/nats-box:0.20.0@sha256:d2f04223f40e016f77922a8115d34b0cd5fad2ec10b19b39316ae92d07f3d295
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+    merge:
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]

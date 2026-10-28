@@ -64,6 +64,76 @@ mounted with the others. With a single ConfigMap, the volume's `items` would
 have to list every file, and a file left out of that list would never be
 mounted, so the Job would pass without creating it.
 
+## NATS on a cluster
+
+[`chart/`](chart/kustomization.yaml) is NATS for the cluster (#42), from the
+official `nats` chart of [nats-io/k8s](https://github.com/nats-io/k8s/tree/main/helm/charts/nats)
+at 2.15.1, the server version compose runs. kustomize inflates it, so it renders
+with one command and no Argo CD:
+
+```sh
+kustomize build --enable-helm deploy/nats/chart
+```
+
+kustomize runs `helm` to fetch the chart, so `helm` must be on the `PATH`. Argo CD
+needs `kustomize.buildOptions: --enable-helm` in `argocd-cm`. Only what differs from
+the chart's defaults is in [`chart/values.yaml`](chart/values.yaml), each with the
+reason:
+
+- one server, no clustering; JetStream on file storage at `/data` on a 5 GiB
+  volume (`nats-js`), memory storage off;
+- the client port 4222 and the WebSocket's 8080 on the `nats` Service, a ClusterIP,
+  so a component in the namespace uses `nats://nats:4222`; monitoring 8222 only on
+  the headless Service;
+- the WebSocket with no TLS in the cluster, behind the Ingress `nats-ws`
+  ([`chart/ingress.yaml`](chart/ingress.yaml)), where TLS ends;
+- no authentication in the cluster, as decided on #42: the namespace is the
+  boundary. A client with no credentials is `twr` on 4222, and may do anything, and
+  `ws` on the WebSocket, and may only subscribe to `twr.>` and `_INBOX.>`. Each user
+  is allowed only its own listener, so a WebSocket client cannot name itself `twr`;
+- the Prometheus exporter beside the server on 7777, and the `nats-box` Deployment:
+  `kubectl exec deploy/nats-box -- nats sub 'twr.>'`;
+- every image pinned by tag and digest, the same as compose's; no config reloader,
+  so a change to the config restarts the server through the checksum annotation.
+
+The base names no namespace, host, ingress class, TLS secret or storage class (ADR
+0004, point 8). The overlay adds them with patches like these, which set the
+example overlay's placeholders. The volume's size and the server's file store
+limit, `NATS_JS_MAX_FILE_STORE`, are set together, since the config cannot read
+the volume's size:
+
+```yaml
+patches:
+  - target: {kind: Ingress, name: nats-ws}
+    patch: |
+      - {op: add, path: /spec/ingressClassName, value: my-ingress-class}
+      - {op: add, path: /spec/rules/0/host, value: nats.example.com}
+      - op: add
+        path: /spec/tls
+        value: [{hosts: [nats.example.com], secretName: twr-nats-tls}]
+  - target: {kind: StatefulSet, name: nats}
+    patch: |
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: my-storage-class
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 5Gi
+  - patch: |
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata: {name: nats}
+      spec:
+        template:
+          spec:
+            containers:
+              - name: nats
+                env: [{name: NATS_JS_MAX_FILE_STORE, value: 5Gi}]
+```
+
+NATS's volume need not survive removing the stack: the streams are buffers, and
+`logbook`'s volume is the one that keeps results (#42).
+
 ## Checks
 
 - `make nats` (in `make test`, and a commit hook) reads the files, offline: every
@@ -84,7 +154,17 @@ mounted, so the Job would pass without creating it.
   the bucket's storage is refused. A user and password in `NATS_URL` never
   appear in the output. It needs docker or podman (`CONTAINER` picks one).
 
-Both run in CI's `test` job. The images are pinned by digest in
+- `make deploy-render` (in `make test`) renders [`chart/`](chart/kustomization.yaml)
+  with the kustomize, helm and kubeconform that
+  [`scripts/deploy_render.sh`](../../scripts/deploy_render.sh) pins, validates it
+  with kubeconform in strict mode, and runs
+  [`scripts/deploy_check.py`](../../scripts/deploy_check.py) on it: no namespace,
+  storage class, node pinning or host port, every image pinned by tag and digest,
+  one replica, JetStream on file storage with the volume's size as its limit, only
+  4222 and 8080 on the `nats` Service, an Ingress with no host, class or TLS, the
+  exporter and `nats-box`, and the two users above.
+
+All three run in CI's `test` job. The images are pinned by digest in
 [`scripts/nats_it.sh`](../../scripts/nats_it.sh).
 
 ## Changing a definition
@@ -105,7 +185,11 @@ Both run in CI's `test` job. The images are pinned by digest in
   fails a stream or bucket file that leaves out any field the bootstrap
   compares.
 - The pinned images are bumped by Renovate, through the custom manager in
-  [`renovate.json`](../../renovate.json), in `scripts/nats_it.sh` and in the
-  example above, and through the docker-compose manager in
+  [`renovate.json`](../../renovate.json), in `scripts/nats_it.sh`, in the
+  bootstrap example above and in [`chart/values.yaml`](chart/values.yaml), and
+  through the docker-compose manager in
   [`deploy/compose/compose.yaml`](../compose/compose.yaml), which runs the same
-  images (`tests/test_compose.py` fails when they differ).
+  images (`tests/test_compose.py` and `tests/test_deploy_check.py` fail when they
+  differ). Its kustomize manager bumps the chart's version in
+  [`chart/kustomization.yaml`](chart/kustomization.yaml); bump the images with it,
+  as the chart's version is the server's.

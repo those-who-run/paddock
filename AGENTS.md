@@ -188,7 +188,9 @@ paddock has no language of its own, so what is specific to it is short.
   `.github/labels.yml` list the same labels, the guard and settings in
   `.claude/` are `those-who-run/.github`'s `agent/` at the commit CI pins,
   the stream definitions in `deploy/nats/` match `contracts`' subjects with
-  no overlaps, and the tests of those checks. `make nats-it` runs the NATS
+  no overlaps, the cluster manifests under `deploy/` render and pass
+  kubeconform and their checks (`make deploy-render`), and the tests of those
+  checks. `make nats-it` runs the NATS
   bootstrap against a real server ([`deploy/nats/`](deploy/nats/README.md)).
   It needs `python3`, `pre-commit`, the network and docker or podman. Docs
   change in the same PR as what they describe.

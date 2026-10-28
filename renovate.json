@@ -4,8 +4,8 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "The NATS images deploy/nats is tested with (scripts/nats_it.sh) and the bootstrap example in its README, pinned by tag and digest (paddock#36). No built-in manager reads a shell script.",
-      "managerFilePatterns": ["/^scripts/nats_it\\.sh$/", "/^deploy/nats/README\\.md$/"],
+      "description": "The NATS images deploy/nats is tested with (scripts/nats_it.sh), the bootstrap example in its README, and the chart's values (paddock#42), pinned by tag and digest (paddock#36). No built-in manager reads a shell script, and the helm-values manager does not read fullImageName.",
+      "managerFilePatterns": ["/^scripts/nats_it\\.sh$/", "/^deploy/nats/README\\.md$/", "/^deploy/nats/chart/values\\.yaml$/"],
       "matchStrings": [
         "(?<depName>docker\\.io/[a-z0-9._/-]+):(?<currentValue>[A-Za-z0-9._-]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],

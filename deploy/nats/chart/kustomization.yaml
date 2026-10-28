@@ -1,0 +1,24 @@
+# NATS from its official Helm chart (paddock#42, ADR 0004 point 8), inflated by
+# kustomize: `kustomize build --enable-helm deploy/nats/chart`. kustomize runs `helm`
+# to fetch and render the chart, so helm must be on the PATH; Argo CD needs
+# `kustomize.buildOptions: --enable-helm`. The chart is fetched into charts/ here,
+# which git ignores. deploy/nats/README.md says what the overlay sets.
+#
+# The release name `nats` makes the client Service `nats`, so a component in the same
+# namespace reaches the server at nats://nats:4222.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+helmCharts:
+  - name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    # The chart's version is the server's: 2.15.1 is nats 2.15.1, the version compose
+    # and scripts/nats_it.sh run. values.yaml pins the image itself.
+    version: 2.15.1
+    releaseName: nats
+    valuesFile: values.yaml
+    # The chart's `helm test` Pod is not something to apply.
+    skipTests: true
+
+resources:
+  - ingress.yaml
