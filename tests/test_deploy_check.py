@@ -4,7 +4,8 @@ renders one server with JetStream on file storage, 4222 and the WebSocket in the
 cluster only, and a WebSocket client that may only subscribe (R6).
 
 GOOD is a cut-down `kustomize build --enable-helm deploy/nats/chart`, in the style
-kustomize writes; each test breaks one thing in it. `make deploy-render` runs the
+kustomize writes, and INGRESS what deploy/components/nats-websocket adds to it; each
+test breaks one thing in them. `make deploy-render` runs the
 check on the real render."""
 
 from __future__ import annotations
@@ -51,8 +52,7 @@ data:
               }},
               "subscribe": {{
                 "allow": [
-                  "twr.>",
-                  "_INBOX.>"
+                  "twr.>"
                 ]
               }}
             }},
@@ -113,9 +113,13 @@ metadata:
 spec:
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
       - image: {BOX}
         name: nats-box
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -125,6 +129,7 @@ spec:
   replicas: 1
   template:
     spec:
+      automountServiceAccountToken: false
       containers:
       - env:
         - name: NATS_JS_MAX_FILE_STORE
@@ -133,6 +138,9 @@ spec:
         name: nats
       - image: docker.io/natsio/prometheus-nats-exporter:0.20.2@sha256:{"b" * 64}
         name: prom-exporter
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
   volumeClaimTemplates:
   - metadata:
       name: nats-js
@@ -140,6 +148,10 @@ spec:
       resources:
         requests:
           storage: 5Gi
+"""
+
+# What deploy/components/nats-websocket adds to the base.
+INGRESS = """\
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -181,7 +193,7 @@ class Render(unittest.TestCase):
         self.assertEqual(
             [str(d) for d in docs],
             ["ConfigMap/nats-config", "Service/nats", "Service/nats-headless",
-             "Deployment/nats-box", "StatefulSet/nats", "Ingress/nats-ws"],
+             "Deployment/nats-box", "StatefulSet/nats"],
         )
 
     def test_portable(self) -> None:
@@ -211,19 +223,56 @@ class Render(unittest.TestCase):
     def test_r3(self) -> None:
         self.assertFails(broken("    port: 8080\n", "    port: 8080\n  - name: monitor\n    port: 8222\n"), "R3")
         self.assertFails(broken('"no_tls": true', '"no_tls": false'), "R3")
-        self.assertFails(broken("  - http:\n", "  - host: nats.example.com\n    http:\n"), "R3")
-        self.assertFails(broken("  rules:\n", "  ingressClassName: my-ingress-class\n  rules:\n"), "R3")
-        self.assertFails(broken("              name: websocket", "              name: nats"), "R3")
+        # The base exposes nothing: the Ingress comes only with the component.
+        self.assertFails(GOOD + INGRESS, "R3")
 
     def test_r4(self) -> None:
         self.assertFails(broken("        name: prom-exporter", "        name: other"), "R4")
+
+    def test_pods(self) -> None:
+        self.assertFails(GOOD.replace("automountServiceAccountToken: false", "automountServiceAccountToken: true", 1), "pod")
+        self.assertFails(GOOD.replace("automountServiceAccountToken: false\n", "", 1), "pod")
+        self.assertFails(GOOD.replace("type: RuntimeDefault", "type: Unconfined", 1), "pod")
+        self.assertEqual(GOOD.count("type: RuntimeDefault"), 2)
 
     def test_r6(self) -> None:
         self.assertFails(broken('"no_auth_user": "ws"', '"no_auth_user": "twr"'), "R6")
         self.assertFails(broken('"STANDARD"', '"STANDARD", "WEBSOCKET"'), "R6")
         self.assertFails(broken('"deny": [\n                  ">"\n                ]', '"allow": [">"]'), "R6")
-        self.assertFails(broken('"_INBOX.>"', '"_INBOX.>", "$JS.API.>"'), "R6")
+        self.assertFails(broken('"twr.>"\n', '"twr.>",\n                  "_INBOX.>"\n'), "R6")
+        self.assertFails(broken('"twr.>"\n', '"twr.>",\n                  "$JS.API.>"\n'), "R6")
         self.assertFails(broken('"user": "twr"', '"user": "twr", "password": "x"'), "R6")
+
+
+class WebSocketComponent(unittest.TestCase):
+    """deploy/components/nats-websocket, rendered over the base."""
+
+    def check(self, text: str) -> list[str]:
+        return deploy_check.check(deploy_check.NATS_WEBSOCKET, text)
+
+    def test_good(self) -> None:
+        self.assertEqual(self.check(GOOD + INGRESS), [])
+
+    def test_no_ingress(self) -> None:
+        self.assertTrue(any(p.startswith("R3:") for p in self.check(GOOD)))
+
+    def test_nothing_the_overlay_sets(self) -> None:
+        for old, new in (("  - http:\n", "  - host: nats.example.com\n    http:\n"),
+                         ("  rules:\n", "  ingressClassName: my-ingress-class\n  rules:\n"),
+                         ("  rules:\n", "  tls:\n  - secretName: twr-nats-tls\n  rules:\n")):
+            with self.subTest(new=new):
+                found = self.check(GOOD + INGRESS.replace(old, new))
+                self.assertTrue(any(p.startswith("R3:") for p in found), found)
+
+    def test_backend(self) -> None:
+        found = self.check(GOOD + INGRESS.replace("              name: websocket", "              name: nats"))
+        self.assertTrue(any(p.startswith("R3:") for p in found), found)
+
+    def test_the_component_is_a_component(self) -> None:
+        text = (ROOT / deploy_check.NATS_WEBSOCKET / "kustomization.yaml").read_text()
+        self.assertIn("\nkind: Component\n", text)
+        chart = (ROOT / NATS / "kustomization.yaml").read_text()
+        self.assertNotIn("ingress.yaml", chart)
 
 
 def in_namespace(text: str, namespace: str) -> str:
@@ -239,18 +288,18 @@ class NamespaceProbe(unittest.TestCase):
         return deploy_check.namespaced(deploy_check.documents(text), "probe")
 
     def test_every_object_in_the_namespace(self) -> None:
-        self.assertEqual(self.check(in_namespace(GOOD, "probe")), [])
+        self.assertEqual(self.check(in_namespace(GOOD + INGRESS, "probe")), [])
 
     def test_objects_left_out(self) -> None:
         # What kustomize 5.8 renders: the overlay's namespace on the Ingress only.
-        text = in_namespace(GOOD, "probe").replace("  namespace: probe\n", "", 5)
+        text = in_namespace(GOOD + INGRESS, "probe").replace("  namespace: probe\n", "", 5)
         found = self.check(text)
         self.assertEqual(len(found), 5, found)
         self.assertTrue(all(p.startswith("namespace: ") for p in found))
         self.assertIn("ConfigMap/nats-config", found[0])
 
     def test_another_namespace(self) -> None:
-        self.assertEqual(len(self.check(in_namespace(GOOD, "other"))), 6)
+        self.assertEqual(len(self.check(in_namespace(GOOD + INGRESS, "other"))), 6)
 
     def test_cluster_scoped_kinds_are_left_alone(self) -> None:
         text = "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: probe\n"

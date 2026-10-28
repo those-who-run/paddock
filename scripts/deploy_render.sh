@@ -3,7 +3,8 @@
 # deploy-render`, which `make test` and so CI's `test` job run. For each kustomization
 # under deploy/ it runs `kustomize build --enable-helm`, validates the output with kubeconform
 # in strict mode against the Kubernetes version below, and runs the checks of
-# scripts/deploy_check.py on it. Then it builds the kustomization again through a
+# scripts/deploy_check.py on it. A component is built through an overlay over the
+# base (below), as an environment would include it. Then it builds it again through a
 # throwaway overlay that sets `namespace: probe`, and fails if any namespaced object
 # comes out without it: an overlay's namespace has to reach every object, the
 # chart's included, and a kustomize bump has broken that before (#6058, below).
@@ -22,11 +23,17 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
-# Every kustomization under deploy/, so a new one is checked without a change here.
-# The overlays set what a base must not (a namespace, a storage class), so they are
-# left to their own checks (paddock#47).
-KUSTOMIZATIONS=$(find deploy -name kustomization.yaml -not -path 'deploy/overlays/*' \
-	-not -path '*/charts/*' | sed 's#/kustomization.yaml$##' | sort)
+# Every kustomization and component under deploy/, so a new one is checked without a
+# change here. The overlays set what a base must not (a namespace, a storage class),
+# so they are left to their own checks (paddock#47).
+all=$(find deploy -name kustomization.yaml -not -path 'deploy/overlays/*' -not -path '*/charts/*' | sort)
+KUSTOMIZATIONS=$(for f in $all; do if ! grep -q '^kind: Component$' "$f"; then dirname "$f"; fi; done)
+COMPONENTS=$(for f in $all; do if grep -q '^kind: Component$' "$f"; then dirname "$f"; fi; done)
+
+# A component cannot be built alone, so it is built through an overlay over this
+# base: the base once it exists (paddock#44), NATS's chart until then.
+COMPONENT_BASE=deploy/base
+[ -d "$COMPONENT_BASE" ] || COMPONENT_BASE=deploy/nats/chart
 
 # The Kubernetes version the manifests are validated against.
 KUBERNETES_VERSION=1.33.0
@@ -116,18 +123,41 @@ trap 'rm -rf "$out"' EXIT INT TERM
 probe=.cache/namespace-probe
 rm -rf "$probe"
 
-for k in $KUSTOMIZATIONS; do
+# overlay DIR NAMESPACE RESOURCE [COMPONENT]: write a throwaway overlay in DIR over
+# RESOURCE, with COMPONENT if given and `namespace: NAMESPACE` if not empty.
+overlay() {
+	mkdir -p "$1"
+	{
+		printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n'
+		[ -z "$2" ] || printf 'namespace: %s\n' "$2"
+		printf 'resources:\n  - ../../../%s\n' "$3"
+		[ -z "${4:-}" ] || printf 'components:\n  - ../../../%s\n' "$4"
+	} >"$1/kustomization.yaml"
+}
+
+build() {
+	"$kustomize" build --enable-helm --helm-command "$helm" "$1"
+}
+
+for k in $KUSTOMIZATIONS $COMPONENTS; do
 	name=$(printf '%s' "$k" | tr / _)
 	rendered=$out/$name.yaml
-	echo "deploy-render: $k"
-	"$kustomize" build --enable-helm --helm-command "$helm" "$k" >"$rendered"
+	case " $(echo $COMPONENTS) " in
+	*" $k "*)
+		echo "deploy-render: $k, over $COMPONENT_BASE"
+		overlay "$probe/$name-plain" "" "$COMPONENT_BASE" "$k"
+		build "$probe/$name-plain" >"$rendered"
+		overlay "$probe/$name" probe "$COMPONENT_BASE" "$k"
+		;;
+	*)
+		echo "deploy-render: $k"
+		build "$k" >"$rendered"
+		overlay "$probe/$name" probe "$k"
+		;;
+	esac
 	"$kubeconform" -strict -summary -kubernetes-version "$KUBERNETES_VERSION" "$rendered"
 	python3 scripts/deploy_check.py "$k" "$rendered"
-
-	mkdir -p "$probe/$name"
-	printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: probe\nresources:\n  - ../../../%s\n' \
-		"$k" >"$probe/$name/kustomization.yaml"
-	"$kustomize" build --enable-helm --helm-command "$helm" "$probe/$name" >"$out/$name.probe.yaml"
+	build "$probe/$name" >"$out/$name.probe.yaml"
 	python3 scripts/deploy_check.py --namespace probe "$k" "$out/$name.probe.yaml"
 done
 rm -rf "$probe"

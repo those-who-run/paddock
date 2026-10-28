@@ -25,5 +25,5 @@ helmCharts:
     # The chart's `helm test` Pod is not something to apply.
     skipTests: true
 
-resources:
-  - ingress.yaml
+# The WebSocket's Ingress is not here: the base exposes nothing until an overlay
+# includes deploy/components/nats-websocket and gives it a host.

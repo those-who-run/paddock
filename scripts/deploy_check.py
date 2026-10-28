@@ -16,12 +16,18 @@ For ``deploy/nats/chart``, what paddock#42 asks of NATS:
   ``/data``, memory storage off (``max_memory_store: 0``); the file store's limit
   read from ``NATS_JS_MAX_FILE_STORE``, which is the volume's size;
 - R3: the ``nats`` Service is a ClusterIP with 4222 and the WebSocket's 8080 only;
-  monitoring 8222 is on no Service but the headless one; the WebSocket has no TLS,
-  and the Ingress ``nats-ws`` goes to it with no host, class or TLS of its own;
+  monitoring 8222 is on no Service but the headless one; the WebSocket has no TLS;
+  and there is no Ingress: the base exposes nothing;
 - R4: the exporter beside the server, and the ``nats-box`` Deployment;
 - R6: a client with no credentials is ``twr`` on 4222 and ``ws`` on the WebSocket;
   ``twr`` is allowed only standard connections, and ``ws`` only WebSocket ones, may
-  publish nothing and may subscribe to ``twr.>`` and ``_INBOX.>`` only.
+  publish nothing and may subscribe to ``twr.>`` only;
+- the server's and nats-box's pods mount no service account token and run with the
+  runtime's default seccomp profile.
+
+For ``deploy/components/nats-websocket``, rendered over the base: the Ingress
+``nats-ws`` goes to the ``nats`` Service's websocket port, with no host, class or
+TLS of its own, which the overlay that includes it sets.
 
 With ``--namespace NS``, the render is of a throwaway overlay that sets
 ``namespace: NS`` over the kustomization, and the only check is that every namespaced
@@ -41,6 +47,7 @@ import re
 import sys
 
 NATS_CHART = "deploy/nats/chart"
+NATS_WEBSOCKET = "deploy/components/nats-websocket"
 
 PINNED = re.compile(r"^[a-z0-9.-]+(?::\d+)?/[a-z0-9._/-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$")
 IMAGE = re.compile(r"^\s*(?:- )?image: (\S+)$")
@@ -177,8 +184,15 @@ def nats_chart(docs: list[Doc]) -> list[str]:
     cm = need("ConfigMap", "nats-config")
     sts = need("StatefulSet", "nats")
     svc = need("Service", "nats")
-    ingress = need("Ingress", "nats-ws")
-    need("Deployment", "nats-box")
+    box = need("Deployment", "nats-box")
+
+    for doc in (sts, box):
+        if doc is None:
+            continue
+        if values(doc.lines, "automountServiceAccountToken") != ["false"]:
+            problems.append(f"pod: {doc} mounts a service account token")
+        if values(doc.lines, "type") != ["RuntimeDefault"]:
+            problems.append(f"pod: {doc} does not run with the RuntimeDefault seccomp profile")
 
     if cm is not None:
         text = literal_block(cm.lines, "nats.conf")
@@ -210,12 +224,22 @@ def nats_chart(docs: list[Doc]) -> list[str]:
         if doc.kind == "Service" and doc.name != "nats-headless" and "8222" in values(doc.lines, "port"):
             problems.append(f"R3: {doc} publishes monitoring on 8222")
 
-    if ingress is not None:
-        for key in ("host", "ingressClassName", "tls", "secretName"):
-            if any(re.match(rf"^\s*(- )?{key}:", line) for line in ingress.lines):
-                problems.append(f"R3: {ingress} sets {key}, which the overlay sets")
-        if values(ingress.lines, "name")[1:] != ["nats", "websocket"]:
-            problems.append(f"R3: {ingress} does not go to the nats Service's websocket port")
+    for doc in docs:
+        if doc.kind == "Ingress":
+            problems.append(f"R3: {doc} is in the base, which exposes nothing until an overlay includes {NATS_WEBSOCKET}")
+    return problems
+
+
+def nats_websocket(docs: list[Doc]) -> list[str]:
+    ingress = find(docs, "Ingress", "nats-ws")
+    if ingress is None:
+        return [f"R3: no Ingress/nats-ws through {NATS_WEBSOCKET}"]
+    problems = []
+    for key in ("host", "ingressClassName", "tls", "secretName"):
+        if any(re.match(rf"^\s*(- )?{key}:", line) for line in ingress.lines):
+            problems.append(f"R3: {ingress} sets {key}, which the overlay sets")
+    if values(ingress.lines, "name")[1:] != ["nats", "websocket"]:
+        problems.append(f"R3: {ingress} does not go to the nats Service's websocket port")
     return problems
 
 
@@ -246,7 +270,7 @@ def nats_config(where: str, conf: dict) -> list[str]:
     perms = ws_user.get("permissions", {})
     if perms.get("publish") != {"deny": [">"]}:
         problems.append(f"R6: {where}: ws may publish: {perms.get('publish')}")
-    if perms.get("subscribe") != {"allow": ["twr.>", "_INBOX.>"]}:
+    if perms.get("subscribe") != {"allow": ["twr.>"]}:
         problems.append(f"R6: {where}: ws may subscribe to {perms.get('subscribe')}")
     if any(k in u for u in users.values() for k in ("password", "nkey")):
         problems.append(f"R6: {where} has a credential in the config, where a Secret belongs")
@@ -258,6 +282,8 @@ def check(kustomization: str, text: str) -> list[str]:
     problems = portable(docs)
     if kustomization.rstrip("/") == NATS_CHART:
         problems += nats_chart(docs)
+    if kustomization.rstrip("/") == NATS_WEBSOCKET:
+        problems += nats_websocket(docs)
     return problems
 
 

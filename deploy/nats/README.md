@@ -86,11 +86,12 @@ kustomize build --enable-helm <dir> | kubectl apply -f -
 Use kustomize 5.7.x or earlier, not 5.8: from 5.8.0 an overlay's `namespace:`
 is not applied to what `helmCharts` renders
 ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)).
-The Ingress lands in the overlay's namespace, but NATS's ConfigMap, Services,
-StatefulSet and `nats-box` land in whatever namespace the apply defaults to. 5.4.3
+Only the objects that are not the chart's (the WebSocket's Ingress) land in the
+overlay's namespace; NATS's ConfigMap, Services, StatefulSet and `nats-box` land
+in whatever namespace the apply defaults to. 5.4.3
 to 5.7.1 namespace every object. `make deploy-render` pins 5.7.1 and builds each
-kustomization through an overlay with `namespace: probe`, failing if any object
-comes out without it, so a later kustomize cannot bring the bug back unnoticed.
+kustomization and component through an overlay with `namespace: probe`, failing if
+any object comes out without it, so a later kustomize cannot bring the bug back unnoticed.
 
 Argo CD needs `kustomize.buildOptions: --enable-helm` in `argocd-cm`. Its
 Application must also set `spec.destination.namespace` explicitly: with a
@@ -105,24 +106,34 @@ Only what differs from the chart's defaults is in
 - the client port 4222 and the WebSocket's 8080 on the `nats` Service, a ClusterIP,
   so a component in the namespace uses `nats://nats:4222`; monitoring 8222 only on
   the headless Service;
-- the WebSocket with no TLS in the cluster, behind the Ingress `nats-ws`
-  ([`chart/ingress.yaml`](chart/ingress.yaml)), where TLS ends;
+- the WebSocket with no TLS in the cluster. Nothing outside the cluster reaches it
+  until an overlay includes the component
+  [`deploy/components/nats-websocket`](../components/nats-websocket/kustomization.yaml),
+  the Ingress `nats-ws`, where TLS ends;
 - no authentication in the cluster, as decided on #42: the namespace is the
   boundary. A client with no credentials is `twr` on 4222, and may do anything, and
-  `ws` on the WebSocket, and may only subscribe to `twr.>` and `_INBOX.>`. Each user
-  is allowed only its own listener, so a WebSocket client cannot name itself `twr`;
+  `ws` on the WebSocket, and may only subscribe to `twr.>`. Not to `_INBOX.>`,
+  which #42 R6 names: `ws` cannot publish, so it makes no request that needs a
+  reply inbox, and `_INBOX.>` would let it read the replies to requests made in the
+  cluster. Each user is allowed only its own listener, so a WebSocket client cannot
+  name itself `twr`;
+- no service account token and the runtime's default seccomp profile for the
+  server's and `nats-box`'s pods, and a memory limit on every container;
 - the Prometheus exporter beside the server on 7777, and the `nats-box` Deployment:
   `kubectl exec deploy/nats-box -- nats sub 'twr.>'`;
 - every image pinned by tag and digest, the same as compose's; no config reloader,
   so a change to the config restarts the server through the checksum annotation.
 
 The base names no namespace, host, ingress class, TLS secret or storage class (ADR
-0004, point 8). The overlay adds them with patches like these, which set the
-example overlay's placeholders. The volume's size and the server's file store
-limit, `NATS_JS_MAX_FILE_STORE`, are set together, since the config cannot read
-the volume's size:
+0004, point 8). An overlay that publishes the WebSocket includes the component and
+patches its Ingress; every overlay sets the volume. These set the example overlay's
+placeholders. The volume's size and the server's file store limit,
+`NATS_JS_MAX_FILE_STORE`, are set together, since the config cannot read the
+volume's size:
 
 ```yaml
+components:
+  - <path to paddock>/deploy/components/nats-websocket
 patches:
   - target: {kind: Ingress, name: nats-ws}
     patch: |
@@ -181,8 +192,10 @@ NATS's volume need not survive removing the stack: the streams are buffers, and
   [`scripts/deploy_check.py`](../../scripts/deploy_check.py) on it: no namespace,
   storage class, node pinning or host port, every image pinned by tag and digest,
   one replica, JetStream on file storage with the volume's size as its limit, only
-  4222 and 8080 on the `nats` Service, an Ingress with no host, class or TLS, the
-  exporter and `nats-box`, and the two users above.
+  4222 and 8080 on the `nats` Service, no Ingress in the base, the pods' token and
+  seccomp profile, the exporter and `nats-box`, and the two users above; and,
+  rendered over the base, that the component's Ingress has no host, class or TLS
+  and goes to the WebSocket.
 
 All three run in CI's `test` job. The images are pinned by digest in
 [`scripts/nats_it.sh`](../../scripts/nats_it.sh).

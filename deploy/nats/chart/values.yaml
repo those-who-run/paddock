@@ -40,7 +40,10 @@ config:
   # Who may do what (paddock#42 R6). There is no authentication in the cluster: the
   # namespace is the boundary, so a client on 4222 that sends no credentials is `twr`
   # and may do anything. A WebSocket client, which can come from outside through the
-  # Ingress, is `ws` and may only subscribe to twr.> and to its own replies.
+  # Ingress, is `ws` and may only subscribe to twr.>. Not _INBOX.>: `ws` cannot
+  # publish, so it never makes a request that needs a reply inbox, and _INBOX.> would
+  # let it read the replies to requests made inside the cluster. A browser KV watch
+  # (Verstappen) gets an inbox prefix of its own then.
   # allowed_connection_types keeps either name from being used on the other listener:
   # neither has a password, so without it a WebSocket client could name itself `twr`.
   merge:
@@ -55,7 +58,7 @@ config:
             publish:
               deny: [">"]
             subscribe:
-              allow: ["twr.>", "_INBOX.>"]
+              allow: ["twr.>"]
 
 # Every image is pinned by tag and by the digest of its index, the same strings as
 # deploy/compose/compose.yaml and scripts/nats_it.sh. fullImageName takes the string
@@ -94,6 +97,14 @@ reloader:
   enabled: false
 podTemplate:
   configChecksumAnnotation: true
+  # Nothing in the pod talks to the Kubernetes API, and the runtime's default
+  # seccomp profile is enough for the server and the exporter.
+  merge:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
 
 # With one replica a budget can only allow the pod to go, so it adds nothing.
 podDisruptionBudget:
@@ -106,11 +117,15 @@ promExporter:
   enabled: true
   image:
     fullImageName: docker.io/natsio/prometheus-nats-exporter:0.20.2@sha256:c623b608e148e31e1c1c878673a197f1828e58ce90de4f01d22f1baa84c8fee9
+  # It holds one scrape of /varz, /connz, /subz, /routez and /jsz at a time, a few
+  # MiB with one server; the limit only stops a leak from taking the node.
   merge:
     resources:
       requests:
         cpu: 10m
         memory: 32Mi
+      limits:
+        memory: 64Mi
     securityContext:
       allowPrivilegeEscalation: false
       readOnlyRootFilesystem: true
@@ -123,13 +138,25 @@ promExporter:
 # so its root file system stays writable.
 natsBox:
   enabled: true
+  podTemplate:
+    merge:
+      spec:
+        automountServiceAccountToken: false
+        securityContext:
+          seccompProfile:
+            type: RuntimeDefault
   container:
     image:
       fullImageName: docker.io/natsio/nats-box:0.20.0@sha256:d2f04223f40e016f77922a8115d34b0cd5fad2ec10b19b39316ae92d07f3d295
+    # Idle but for someone's `nats sub` or `nats stream view`, which buffer what
+    # they print; 128 MiB is room for a burst of TELEMETRY frames on a slow
+    # terminal, and the limit stops a forgotten subscription from taking the node.
     resources:
       requests:
         cpu: 10m
         memory: 32Mi
+      limits:
+        memory: 128Mi
     merge:
       securityContext:
         allowPrivilegeEscalation: false
