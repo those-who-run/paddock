@@ -1,0 +1,109 @@
+# deploy/nats/bootstrap.sh against the cluster's NATS (paddock#43): it waits up to
+# 5 min for JetStream, then creates or updates the streams and buckets from the files
+# compose mounts, and exits. A rerun with nothing changed prints only `unchanged`.
+#
+# A Job's template cannot be changed in place, so this one is made to run again:
+# - Argo CD runs it as a Sync hook and deletes the last one before each sync
+#   (BeforeHookCreation), so it runs on every sync. Where Argo CD is not used the
+#   annotations do nothing.
+# - It deletes itself 10 min after it finishes, so the next `kubectl apply -k` creates
+#   it again. An apply within those 10 min needs `kubectl delete job
+#   twr-nats-bootstrap` first (deploy/nats/README.md).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: twr-nats-bootstrap
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 600
+  # A refused definition fails the same way every time, so one retry is for a pod
+  # lost to its node, not for the server's answer.
+  backoffLimit: 1
+  # The 5 min wait, then the bootstrap itself, which takes seconds.
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      # It needs no Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # As compose runs it: user 1000, a read-only root file system, every capability
+      # dropped. The script writes no files.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: docker.io/natsio/nats-box:0.20.0@sha256:d2f04223f40e016f77922a8115d34b0cd5fad2ec10b19b39316ae92d07f3d295
+          # The image's own working directory is not readable by user 1000, and the
+          # nats CLI looks at it; /tmp is.
+          workingDir: /tmp
+          env:
+            # The `nats` Service of the chart (deploy/nats/chart, release `nats`) in
+            # the same namespace. An overlay may point it elsewhere.
+            - name: NATS_URL
+              value: nats://nats:4222
+            - name: WAIT_SECONDS
+              value: "300"
+          # Credentials, when NATS has any: an overlay creates this Secret with
+          # NATS_USER and NATS_PASSWORD (or NATS_CREDS and a volume). #42 sets none,
+          # so it is optional and normally absent.
+          envFrom:
+            - secretRef:
+                name: twr-nats-bootstrap
+                optional: true
+          # `stream ls` answers only once the server is up with JetStream on, the
+          # same call bootstrap.sh starts with. Until then it is retried quietly; at
+          # the deadline it runs once more so the log shows why it failed.
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              start=$(date +%s)
+              until nats --no-context stream ls --names >/dev/null 2>&1; do
+                if [ $(($(date +%s) - start)) -ge "$WAIT_SECONDS" ]; then
+                  echo "bootstrap: no JetStream after $WAIT_SECONDS s" >&2
+                  nats --no-context stream ls --names >/dev/null
+                  exit 1
+                fi
+                sleep 2
+              done
+              echo "bootstrap: JetStream up after $(($(date +%s) - start)) s"
+              exec sh /bootstrap/bootstrap.sh /nats
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: script
+              mountPath: /bootstrap
+              readOnly: true
+            - name: streams
+              mountPath: /nats/streams
+              readOnly: true
+            - name: kv
+              mountPath: /nats/kv
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: twr-nats-bootstrap-script
+        - name: streams
+          configMap:
+            name: twr-nats-streams
+        - name: kv
+          configMap:
+            name: twr-nats-kv

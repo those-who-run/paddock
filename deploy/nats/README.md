@@ -57,6 +57,38 @@ have not. Once the file is fixed, a rerun applies the rest.
 A lower limit is applied by the server as it would be to any stream: the
 messages beyond it are discarded.
 
+### On a cluster
+
+[`kustomization.yaml`](kustomization.yaml) runs the script as the Job
+`twr-nats-bootstrap` ([`bootstrap-job.yaml`](bootstrap-job.yaml), #43), in the
+same `nats-box` image as compose, with the same files. The base (#44) includes
+this directory; it also renders on its own with `kustomize build deploy/nats`.
+
+- It connects to `NATS_URL`, `nats://nats:4222` by default: the `nats` Service of
+  the chart in `deploy/nats/chart/` (#42), in the same namespace.
+  An overlay may patch it. Credentials, if NATS ever has any, come from the
+  optional Secret `twr-nats-bootstrap` (`NATS_USER` and `NATS_PASSWORD`); #42 sets
+  none.
+- It waits up to 5 min (`WAIT_SECONDS`) for the server to answer with JetStream,
+  then runs the script. At the deadline it fails with the CLI's own error, and a
+  refused definition fails with the server's message, as above.
+- It runs as user 1000 on a read-only root file system, with every capability
+  dropped and no service account token: it needs no Kubernetes API.
+- **It runs again** on every Argo CD sync: it is a `Sync` hook with
+  `hook-delete-policy: BeforeHookCreation`. With `kubectl apply -k`, it deletes
+  itself 10 min after it finishes (`ttlSecondsAfterFinished: 600`), so the next
+  apply creates it again. An apply within 10 min of the last one needs
+  `kubectl delete job twr-nats-bootstrap` first, since a Job's template cannot be
+  changed in place. A rerun with nothing changed prints only `unchanged`.
+- The generated ConfigMaps' names carry a hash of their contents, so a changed
+  definition changes the Job's spec.
+
+A new definition file has to be added to its directory's `configMapGenerator`
+in [`kustomization.yaml`](kustomization.yaml), since kustomize takes no globs.
+`tests/test_bootstrap_job.py` (in `make test`) fails when a file in `streams/` or
+`kv/` is not there, and checks the Job's image is compose's, its user, file
+system and token, its URL and wait, and the rerun annotations.
+
 For the cluster's Job (#43): a ConfigMap has no directories, so the files go in
 two ConfigMaps, one for `streams/` and one for `kv/`, mounted at `streams/` and
 `kv/` under the directory given to the script. A new definition file is then
@@ -90,7 +122,9 @@ Both run in CI's `test` job. The images are pinned by digest in
 ## Changing a definition
 
 - A new stream or bucket is a new file named after it (`streams/callouts.json`
-  is `CALLOUTS`), with every limit set and a `$comment` with the working.
+  is `CALLOUTS`), with every limit set and a `$comment` with the working, and a
+  line in its directory's `configMapGenerator` in
+  [`kustomization.yaml`](kustomization.yaml), so the cluster's Job mounts it.
 - When `contracts` adds subjects, copy its `subjects.yaml` from the new tag over
   [`subjects.yaml`](subjects.yaml), and change `CONTRACTS_TAG` and
   `SUBJECTS_SHA256` in [`scripts/nats_check.py`](../../scripts/nats_check.py).
