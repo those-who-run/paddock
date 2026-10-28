@@ -93,7 +93,7 @@ The PR then stayed blocked only for the maintainer's review
 | `git push origin main` | Live, and the ruleset read. | Live: blocked by the guard (`git-push`). The `main` ruleset allows changes only through a pull request, with no bypass for the agent; its refusal was not tried live, so the ruleset read is the evidence for it. |
 | `git tag v0.0.1` and its push | Guard verdict, and the tag rulesets read. | Blocked (`git-tag`, `git-push`). The `release tag creation` ruleset stops `v*` tags being created and `release tags` stops them being moved or deleted, with no bypass for the agent. Live: both blocked by the guard. |
 | `gh workflow run release.yml` | Live. | Blocked (`gh-workflow-run`). |
-| The `release` environment | Read through the API. | The maintainer is the required reviewer, prevent self-review is off, admins can't bypass, and deployments come only from `main` and `v*` tags. It carries #19's AC3; the second `protect-repo.sh --all` printing `release environment: unchanged` is the maintainer's to record. |
+| The `release` environment | Read through the API. | The maintainer is the required reviewer, prevent self-review is off, admins can't bypass, and deployments come only from `main` and `v*` tags. It carries #19's AC3: the maintainer's `make protect` run on 2026-10-28 printed `release environment: changed` for `shakedown-fangio`, which it created, and `release environment: unchanged` for ecu and logbook, which already had one; a check after it reported `no drift`. |
 
 ## Near misses
 
@@ -193,6 +193,10 @@ into a public repository's history. The live CI case was left out on purpose.
   On #10 it
   [succeeded](https://github.com/those-who-run/shakedown-fangio/actions/runs/40687658953/job/122814070023#step:12:1).
 
+The maintainer accepted these for #14's AC3 in place of a live CI case: the
+local gitleaks hook failing on the test pattern, and the `gitleaks-pr` step
+passing on #10.
+
 ### #18: the organisation's PR template and issue settings
 
 - `shakedown-fangio` has no PR template of its own (none in `.github/`, `docs/`
@@ -207,6 +211,8 @@ into a public repository's history. The live CI case was left out on purpose.
   not the template's headings or its "AI assistance" and "New direct
   dependencies" lines: `gh pr create --body` replaces the template rather than
   filling it. See [Gaps](#gaps).
+
+The maintainer accepted the community profile as the evidence for #18's AC2.
 
 ## Gaps
 
