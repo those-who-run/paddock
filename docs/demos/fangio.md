@@ -46,7 +46,10 @@ agent's account in a fresh clone of the repository
 | PR opened | 12:19:24 | 1 min 14 s |
 | All required checks green | 12:21:09 | 2 min 59 s |
 
-From creation to a green PR took 3.0 min, of which CI took 1.8 min; its
+The repository was made from the template earlier, when
+[shakedown-fangio#8](https://github.com/those-who-run/shakedown-fangio/pull/8)
+merged at 12:04:15; the times above start with the agent's run. From the start
+of that run to a green PR took 3.0 min, of which CI took 1.8 min; its
 longest job, `checks / checks`, took 1.5 min. The failing commit was pushed at
 12:21:48 and its checks had all finished by 12:24:47; the fix was pushed at
 12:25:13 and was green by 12:26:58.
@@ -124,9 +127,8 @@ its `image / build` passed and `publish / publish` waited for the
 maintainer's approval in the `release` environment. The agent's account
 couldn't approve it (`current_user_can_approve: false`).
 
-The maintainer approved it, and `publish / publish` succeeded at 13:49:32 UTC:
-approved by the maintainer, the image was published. The publish ran only
-after that approval.
+Approved by the maintainer, the image was published: `publish / publish` ran
+only after that approval, and succeeded at 13:49:32 UTC.
 
 - The image is `ghcr.io/those-who-run/twr-shakedown-fangio:0.1.0`, digest
   `sha256:6293ea96586f81d5490bec03e67d395ae4da0b54879a04c07320a3cdcfb69b80`,
@@ -141,15 +143,17 @@ after that approval.
   at `refs/tags/v0.1.0`.
 
 This covers R6, and #16's check that the image is pushed with its
-provenance through the release environment's approval.
+provenance through the release environment's approval. It doesn't cover
+#16's AC2 (a failing smoke command fails the job) or AC3 (a push from a
+branch fails), so #16 stays open.
 
 The maintainer merged the exercise PR,
 [shakedown-fangio#10](https://github.com/those-who-run/shakedown-fangio/pull/10),
 at 13:36:06. release-please then opened
 [shakedown-fangio#12](https://github.com/those-who-run/shakedown-fangio/pull/12)
 (`chore(release): 0.1.1`), with `test`, `checks / checks`, `go / check` and
-`image / build` green on its head, `9b920b6`. It waits for the maintainer's
-review and merge.
+`image / build` green on its head, `9b920b6`. It was closed unmerged at
+14:11:31 UTC.
 
 ## The checks folded in from #14 and #18
 
