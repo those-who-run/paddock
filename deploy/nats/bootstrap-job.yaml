@@ -6,9 +6,10 @@
 # - Argo CD runs it as a Sync hook and deletes the last one before each sync
 #   (BeforeHookCreation), so it runs on every sync. Where Argo CD is not used the
 #   annotations do nothing.
-# - It deletes itself 10 min after it finishes, so the next `kubectl apply -k` creates
-#   it again. An apply within those 10 min needs `kubectl delete job
-#   twr-nats-bootstrap` first (deploy/nats/README.md).
+# - It deletes itself 10 min after it finishes, so the next apply (`kustomize build
+#   --enable-helm <dir> | kubectl apply -f -`; `kubectl apply -k` cannot inflate the
+#   NATS chart the base includes) creates it again. An apply within those 10 min
+#   needs `kubectl delete job twr-nats-bootstrap` first (deploy/nats/README.md).
 apiVersion: batch/v1
 kind: Job
 metadata:

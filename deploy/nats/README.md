@@ -75,13 +75,19 @@ this directory; it also renders on its own with `kustomize build deploy/nats`.
 - It runs as user 1000 on a read-only root file system, with every capability
   dropped and no service account token: it needs no Kubernetes API.
 - **It runs again** on every Argo CD sync: it is a `Sync` hook with
-  `hook-delete-policy: BeforeHookCreation`. With `kubectl apply -k`, it deletes
-  itself 10 min after it finishes (`ttlSecondsAfterFinished: 600`), so the next
-  apply creates it again. An apply within 10 min of the last one needs
+  `hook-delete-policy: BeforeHookCreation`. Without Argo CD, apply with
+  `kustomize build --enable-helm <dir> | kubectl apply -f -`, since `kubectl
+  apply -k` cannot inflate NATS's chart, which the base includes. The Job
+  deletes itself 10 min after it finishes (`ttlSecondsAfterFinished: 600`), so
+  the next apply creates it again. An apply within 10 min of the last one needs
   `kubectl delete job twr-nats-bootstrap` first, since a Job's template cannot be
   changed in place. A rerun with nothing changed prints only `unchanged`.
 - The generated ConfigMaps' names carry a hash of their contents, so a changed
   definition changes the Job's spec.
+- An Argo CD Application sets `spec.destination.namespace` explicitly. kustomize
+  5.8 leaves the chart's objects out of an overlay's `namespace:`
+  ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)),
+  and they then go to the destination namespace, which must be the Job's.
 
 A new definition file has to be added to its directory's `configMapGenerator`
 in [`kustomization.yaml`](kustomization.yaml), since kustomize takes no globs.
