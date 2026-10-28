@@ -28,10 +28,14 @@
 #   producers     the components that publish it
 #   consumers     the components that read it
 #   msg_id        the ce-id and Nats-Msg-Id scheme. An event's is
-#                 <sid>:<area>.<what>:<part>, with its ce-type's <area>.<what>
-#                 and at least one part, such as <sid>:lap.completed:<n>; one
-#                 that happens once per session ends in :1. On an evt._
-#                 subject, with no session open, <run> takes <sid>'s place.
+#                 <src>:<sid>:<area>.<what>:<part>, with its ce-type's
+#                 <area>.<what> and at least one part, such as
+#                 <src>:<sid>:lap.completed:<n>; one that happens once per
+#                 session ends in :1. On an evt._ subject, with no session
+#                 open, <run> takes <sid>'s place. The source comes first
+#                 because EVENTS deduplicates by Nats-Msg-Id across the whole
+#                 stream, and two sources can carry the same session id
+#                 (paddock#279). A frame's is <run>:frame:<seq>, without it.
 #   description   what it is, for the rendered table
 #
 # A KV key's: kv (the bucket), key (with placeholders), message, content_type,
@@ -60,7 +64,7 @@ subjects:
     stream: EVENTS
     producers: [ecu]
     consumers: [logbook]
-    msg_id: <sid>:session.started:1
+    msg_id: <src>:<sid>:session.started:1
     description: A session began.
 
   - pattern: twr.v1.<src>.evt.<sid>.lap.completed
@@ -70,7 +74,7 @@ subjects:
     stream: EVENTS
     producers: [ecu]
     consumers: [logbook]
-    msg_id: <sid>:lap.completed:<n>
+    msg_id: <src>:<sid>:lap.completed:<n>
     description: A lap ended, complete or partial.
 
   - pattern: twr.v1.<src>.evt.<sid>.session.ended
@@ -80,7 +84,7 @@ subjects:
     stream: EVENTS
     producers: [ecu]
     consumers: [logbook, podium]
-    msg_id: <sid>:session.ended:1
+    msg_id: <src>:<sid>:session.ended:1
     description: A session ended, why, and its summary.
 
 helpers:

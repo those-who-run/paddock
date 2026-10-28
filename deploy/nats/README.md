@@ -11,7 +11,7 @@ between the laptop and the cluster. The streams and buckets are
 | [`streams/telemetry.json`](streams/telemetry.json) | `TELEMETRY`: full-rate frames, `twr.v1.*.frame.gt7` (not the 20 Hz `.lo` copy) | file, limits, 2 h, 2 GiB, discard old, 2 min duplicate window, 1 replica |
 | [`streams/events.json`](streams/events.json) | `EVENTS`: domain events, `twr.v1.*.evt.>` | file, limits, 30 d, 1 GiB, discard old, 2 min duplicate window, 1 replica |
 | [`kv/live.json`](kv/live.json) | `live`: the current state, every key carrying its source | file, history 1, 64 KiB a value, 64 MiB, 1 replica |
-| [`subjects.yaml`](subjects.yaml) | A copy of `contracts`' `subjects.yaml` at `v0.1.3`, for the check below | |
+| [`subjects.yaml`](subjects.yaml) | A copy of `contracts`' `subjects.yaml` at `v0.1.5`, for the check below | |
 | [`bootstrap.sh`](bootstrap.sh) | Creates what is missing, updates what differs | |
 
 Each file's `$comment` says why each value is what it is. The limits are a
