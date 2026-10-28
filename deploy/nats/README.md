@@ -75,10 +75,30 @@ with one command and no Argo CD:
 kustomize build --enable-helm deploy/nats/chart
 ```
 
-kustomize runs `helm` to fetch the chart, so `helm` must be on the `PATH`. Argo CD
-needs `kustomize.buildOptions: --enable-helm` in `argocd-cm`. Only what differs from
-the chart's defaults is in [`chart/values.yaml`](chart/values.yaml), each with the
-reason:
+kustomize runs `helm` to fetch the chart, so `helm` must be on the `PATH`.
+`kubectl apply -k` cannot render it, as `kubectl`'s built-in kustomize has no
+`--enable-helm`. Without Argo CD, apply the build instead:
+
+```sh
+kustomize build --enable-helm <dir> | kubectl apply -f -
+```
+
+Use kustomize 5.7.x or earlier, not 5.8: from 5.8.0 an overlay's `namespace:`
+is not applied to what `helmCharts` renders
+([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)).
+The Ingress lands in the overlay's namespace, but NATS's ConfigMap, Services,
+StatefulSet and `nats-box` land in whatever namespace the apply defaults to. 5.4.3
+to 5.7.1 namespace every object. `make deploy-render` pins 5.7.1 and builds each
+kustomization through an overlay with `namespace: probe`, failing if any object
+comes out without it, so a later kustomize cannot bring the bug back unnoticed.
+
+Argo CD needs `kustomize.buildOptions: --enable-helm` in `argocd-cm`. Its
+Application must also set `spec.destination.namespace` explicitly: with a
+kustomize 5.8 in Argo CD, the objects the overlay's `namespace:` misses go there
+instead of to Argo CD's default.
+
+Only what differs from the chart's defaults is in
+[`chart/values.yaml`](chart/values.yaml), each with the reason:
 
 - one server, no clustering; JetStream on file storage at `/data` on a 5 GiB
   volume (`nats-js`), memory storage off;

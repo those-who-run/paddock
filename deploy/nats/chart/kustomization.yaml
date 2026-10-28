@@ -4,6 +4,11 @@
 # `kustomize.buildOptions: --enable-helm`. The chart is fetched into charts/ here,
 # which git ignores. deploy/nats/README.md says what the overlay sets.
 #
+# Use kustomize 5.7.x or earlier: from 5.8.0 an overlay's namespace is not applied to
+# this chart's objects (kubernetes-sigs/kustomize#6058). `make deploy-render` pins
+# 5.7.1 and fails on a version with the bug. `kubectl apply -k` cannot inflate a
+# chart, so apply `kustomize build --enable-helm <dir> | kubectl apply -f -`.
+#
 # The release name `nats` makes the client Service `nats`, so a component in the same
 # namespace reaches the server at nats://nats:4222.
 apiVersion: kustomize.config.k8s.io/v1beta1

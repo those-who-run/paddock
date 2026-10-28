@@ -9,7 +9,10 @@ check on the real render."""
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -221,6 +224,54 @@ class Render(unittest.TestCase):
         self.assertFails(broken('"deny": [\n                  ">"\n                ]', '"allow": [">"]'), "R6")
         self.assertFails(broken('"_INBOX.>"', '"_INBOX.>", "$JS.API.>"'), "R6")
         self.assertFails(broken('"user": "twr"', '"user": "twr", "password": "x"'), "R6")
+
+
+def in_namespace(text: str, namespace: str) -> str:
+    """GOOD as an overlay with `namespace:` renders it: each object's metadata names it."""
+    return text.replace("metadata:\n", f"metadata:\n  namespace: {namespace}\n")
+
+
+class NamespaceProbe(unittest.TestCase):
+    """The overlay probe (kustomize#6058): every namespaced object takes the overlay's
+    namespace."""
+
+    def check(self, text: str) -> list[str]:
+        return deploy_check.namespaced(deploy_check.documents(text), "probe")
+
+    def test_every_object_in_the_namespace(self) -> None:
+        self.assertEqual(self.check(in_namespace(GOOD, "probe")), [])
+
+    def test_objects_left_out(self) -> None:
+        # What kustomize 5.8 renders: the overlay's namespace on the Ingress only.
+        text = in_namespace(GOOD, "probe").replace("  namespace: probe\n", "", 5)
+        found = self.check(text)
+        self.assertEqual(len(found), 5, found)
+        self.assertTrue(all(p.startswith("namespace: ") for p in found))
+        self.assertIn("ConfigMap/nats-config", found[0])
+
+    def test_another_namespace(self) -> None:
+        self.assertEqual(len(self.check(in_namespace(GOOD, "other"))), 6)
+
+    def test_cluster_scoped_kinds_are_left_alone(self) -> None:
+        text = "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: probe\n"
+        self.assertEqual(self.check(text), [])
+
+    def test_a_label_named_namespace_is_not_metadata(self) -> None:
+        text = ("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  labels:\n    namespace: probe\n"
+                "  name: x\ndata:\n  namespace: probe\n")
+        self.assertEqual(len(self.check(text)), 1)
+
+    def test_main(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            good = Path(d, "good.yaml")
+            good.write_text(in_namespace(GOOD, "probe"))
+            bad = Path(d, "bad.yaml")
+            bad.write_text(GOOD)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(deploy_check.main(["x", "--namespace", "probe", NATS, str(good)]), 0)
+                self.assertEqual(deploy_check.main(["x", "--namespace", "probe", NATS, str(bad)]), 1)
+                self.assertEqual(deploy_check.main(["x", NATS, str(good.with_name("good.yaml"))]), 1)
+                self.assertEqual(deploy_check.main(["x", "--namespace"]), 2)
 
 
 class ChartImages(unittest.TestCase):

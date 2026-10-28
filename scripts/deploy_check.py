@@ -23,6 +23,12 @@ For ``deploy/nats/chart``, what paddock#42 asks of NATS:
   ``twr`` is allowed only standard connections, and ``ws`` only WebSocket ones, may
   publish nothing and may subscribe to ``twr.>`` and ``_INBOX.>`` only.
 
+With ``--namespace NS``, the render is of a throwaway overlay that sets
+``namespace: NS`` over the kustomization, and the only check is that every namespaced
+object carries it. kustomize 5.8 leaves helmCharts output out of an overlay's
+namespace (kubernetes-sigs/kustomize#6058); this catches that, or any other object
+an overlay would miss.
+
 kustomize writes a fixed, block style of YAML, and this reads it line by line,
 standard library only as paddock's other checks are. The server's config is the
 JSON the chart writes into the ``nats-config`` ConfigMap, read as JSON.
@@ -89,6 +95,34 @@ def portable(docs: list[Doc]) -> list[str]:
             m = IMAGE.match(line)
             if m and not PINNED.match(m.group(1)):
                 problems.append(f"pinned: {doc} has an image without a tag and digest: {m.group(1)}")
+    return problems
+
+
+# Kinds that live outside any namespace; every other kind must carry the overlay's.
+CLUSTER_SCOPED = {
+    "Namespace", "CustomResourceDefinition", "ClusterRole", "ClusterRoleBinding",
+    "PersistentVolume", "StorageClass", "IngressClass", "PriorityClass", "RuntimeClass",
+    "MutatingWebhookConfiguration", "ValidatingWebhookConfiguration", "APIService",
+}
+
+
+def namespaced(docs: list[Doc], namespace: str) -> list[str]:
+    problems = []
+    for doc in docs:
+        if doc.kind in CLUSTER_SCOPED:
+            continue
+        found = None
+        in_metadata = False
+        for line in doc.lines:
+            if re.match(r"^\S", line):
+                in_metadata = line == "metadata:"
+            elif in_metadata and (m := re.match(r"^  namespace: (\S+)$", line)):
+                found = m.group(1)
+        if found != namespace:
+            problems.append(
+                f"namespace: {doc} is in {found or 'no namespace'} through an overlay that sets "
+                f"{namespace} (kustomize#6058?)"
+            )
     return problems
 
 
@@ -228,16 +262,26 @@ def check(kustomization: str, text: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 3:
-        print("usage: deploy_check.py KUSTOMIZATION RENDERED.yaml", file=sys.stderr)
+    args = argv[1:]
+    namespace = None
+    if args[:1] == ["--namespace"] and len(args) >= 2:
+        namespace, args = args[1], args[2:]
+    if len(args) != 2:
+        print("usage: deploy_check.py [--namespace NS] KUSTOMIZATION RENDERED.yaml", file=sys.stderr)
         return 2
-    with open(argv[2], encoding="utf-8") as f:
-        problems = check(argv[1], f.read())
+    kustomization, rendered = args
+    with open(rendered, encoding="utf-8") as f:
+        text = f.read()
+    if namespace is None:
+        problems = check(kustomization, text)
+    else:
+        problems = namespaced(documents(text), namespace)
     for p in problems:
-        print(f"{argv[1]}: {p}", file=sys.stderr)
+        print(f"{kustomization}: {p}", file=sys.stderr)
     if problems:
         return 1
-    print(f"deploy-check: {argv[1]} ok")
+    what = f"every object in {namespace} through an overlay" if namespace else "ok"
+    print(f"deploy-check: {kustomization} {what}")
     return 0
 
 

@@ -3,7 +3,10 @@
 # deploy-render`, which `make test` and so CI's `test` job run. For each kustomization
 # under deploy/ it runs `kustomize build --enable-helm`, validates the output with kubeconform
 # in strict mode against the Kubernetes version below, and runs the checks of
-# scripts/deploy_check.py on it.
+# scripts/deploy_check.py on it. Then it builds the kustomization again through a
+# throwaway overlay that sets `namespace: probe`, and fails if any namespaced object
+# comes out without it: an overlay's namespace has to reach every object, the
+# chart's included, and a kustomize bump has broken that before (#6058, below).
 #
 # kustomize, helm and kubeconform are fetched at the versions pinned here, checked
 # against the sha256 written here, and kept in .cache/tools/ (git ignores it), so a
@@ -28,7 +31,10 @@ KUSTOMIZATIONS=$(find deploy -name kustomization.yaml -not -path 'deploy/overlay
 # The Kubernetes version the manifests are validated against.
 KUBERNETES_VERSION=1.33.0
 
-KUSTOMIZE_VERSION=5.8.3
+# Not 5.8: from 5.8.0 an overlay's `namespace:` is not applied to what helmCharts
+# renders (kubernetes-sigs/kustomize#6058), so NATS would land outside the overlay's
+# namespace. The namespace probe below fails on such a version.
+KUSTOMIZE_VERSION=5.7.1
 HELM_VERSION=3.22.0
 KUBECONFORM_VERSION=0.8.0
 
@@ -47,10 +53,10 @@ platform=$os-$arch
 # The sha256 of each release archive, from its release's checksums file.
 sha256_of() {
 	case "$1 $platform" in
-	"kustomize linux-amd64") echo cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61 ;;
-	"kustomize linux-arm64") echo 9867b76482cfc6d25b546abc1d2b5a32bd137505aba640649b4b378f64f6d68f ;;
-	"kustomize darwin-amd64") echo d08fb85846c3d977f0e2a66e7ff45f1b5264c294685e5e726e1a8bdfe0da8dee ;;
-	"kustomize darwin-arm64") echo 4cbb08e209d8fff47cd60bfb6407daaf5ee699f9b9295849a1065024fac2d1ef ;;
+	"kustomize linux-amd64") echo ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8 ;;
+	"kustomize linux-arm64") echo 4261a040217df3bd6896597c3986d1465925726e4f22a945304b5233a4dcdbda ;;
+	"kustomize darwin-amd64") echo 4a0dff80c5644df6bc8f51b342842969004cb6ba5f94dddaabbea7483493273d ;;
+	"kustomize darwin-arm64") echo 073e9d16d5a235e2ff83e62d6b76edb5d962adbc33be1e4860c4b3f1f39b33b9 ;;
 	"helm linux-amd64") echo 1e4ab49e429626cf6c6958d914248b78c9730803c2751b87627e171dc800e7bb ;;
 	"helm linux-arm64") echo f14e804dfee240f55525b667488fe9adca349e63e00c9af634c0beb1421ac310 ;;
 	"helm darwin-amd64") echo bd1d09f316558dda23698527859600936fed1371021ce0f2272d66b2fdcfa69c ;;
@@ -105,10 +111,23 @@ kubeconform=$(tool kubeconform "$KUBECONFORM_VERSION" \
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT INT TERM
 
+# The probe overlays live under .cache/ (ignored), inside paddock, since kustomize
+# takes a base by relative path only.
+probe=.cache/namespace-probe
+rm -rf "$probe"
+
 for k in $KUSTOMIZATIONS; do
-	rendered=$out/$(printf '%s' "$k" | tr / _).yaml
+	name=$(printf '%s' "$k" | tr / _)
+	rendered=$out/$name.yaml
 	echo "deploy-render: $k"
 	"$kustomize" build --enable-helm --helm-command "$helm" "$k" >"$rendered"
 	"$kubeconform" -strict -summary -kubernetes-version "$KUBERNETES_VERSION" "$rendered"
 	python3 scripts/deploy_check.py "$k" "$rendered"
+
+	mkdir -p "$probe/$name"
+	printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: probe\nresources:\n  - ../../../%s\n' \
+		"$k" >"$probe/$name/kustomization.yaml"
+	"$kustomize" build --enable-helm --helm-command "$helm" "$probe/$name" >"$out/$name.probe.yaml"
+	python3 scripts/deploy_check.py --namespace probe "$k" "$out/$name.probe.yaml"
 done
+rm -rf "$probe"
