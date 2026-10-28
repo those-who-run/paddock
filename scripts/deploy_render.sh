@@ -1,7 +1,7 @@
 #!/bin/sh
 # Render the cluster manifests under deploy/ and check them (paddock#42): `make
 # deploy-render`, which `make test` and so CI's `test` job run. For each kustomization
-# below it runs `kustomize build --enable-helm`, validates the output with kubeconform
+# under deploy/ it runs `kustomize build --enable-helm`, validates the output with kubeconform
 # in strict mode against the Kubernetes version below, and runs the checks of
 # scripts/deploy_check.py on it.
 #
@@ -19,8 +19,11 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
-# The kustomizations rendered, from the root of paddock.
-KUSTOMIZATIONS="deploy/nats/chart"
+# Every kustomization under deploy/, so a new one is checked without a change here.
+# The overlays set what a base must not (a namespace, a storage class), so they are
+# left to their own checks (paddock#47).
+KUSTOMIZATIONS=$(find deploy -name kustomization.yaml -not -path 'deploy/overlays/*' \
+	-not -path '*/charts/*' | sed 's#/kustomization.yaml$##' | sort)
 
 # The Kubernetes version the manifests are validated against.
 KUBERNETES_VERSION=1.33.0
