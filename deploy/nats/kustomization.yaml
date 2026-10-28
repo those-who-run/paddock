@@ -1,0 +1,29 @@
+# The stream and KV bootstrap as a Job (paddock#43): deploy/nats/bootstrap.sh in a
+# pinned nats-box, with the definitions compose mounts. The base (paddock#44) includes
+# this directory; it renders alone with `kustomize build deploy/nats`. The chart in
+# chart/ (paddock#42) is NATS itself, included by the base beside it.
+#
+# kustomize reads files only below this directory, which is why this kustomization
+# is here and not in a directory of its own.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - bootstrap-job.yaml
+
+# One ConfigMap a directory, mounted at streams/ and kv/, as decided on #43: a new
+# definition file is mounted with the others, with no volume `items` list to forget
+# it in. A ConfigMap still lists its files, so tests/test_bootstrap_job.py fails when
+# a file in streams/ or kv/ is missing here. The names carry a hash of the contents,
+# so a changed definition changes the Job.
+configMapGenerator:
+  - name: twr-nats-streams
+    files:
+      - streams/events.json
+      - streams/telemetry.json
+  - name: twr-nats-kv
+    files:
+      - kv/live.json
+  - name: twr-nats-bootstrap-script
+    files:
+      - bootstrap.sh
