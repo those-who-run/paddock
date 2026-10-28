@@ -58,8 +58,11 @@ A lower limit is applied by the server as it would be to any stream: the
 messages beyond it are discarded.
 
 For the cluster's Job (#43): a ConfigMap has no directories, so the files go in
-as keys (`telemetry.json`, `events.json`, `live.json`) and the volume's `items`
-put them back at `streams/` and `kv/` under the directory given to the script.
+two ConfigMaps, one for `streams/` and one for `kv/`, mounted at `streams/` and
+`kv/` under the directory given to the script. A new definition file is then
+mounted with the others. With a single ConfigMap, the volume's `items` would
+have to list every file, and a file left out of that list would never be
+mounted, so the Job would pass without creating it.
 
 ## Checks
 
