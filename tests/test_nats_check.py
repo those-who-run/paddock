@@ -144,7 +144,7 @@ class Definitions(unittest.TestCase):
     def test_a_changed_copy_of_subjects_yaml_fails(self) -> None:
         path = self.nats / "subjects.yaml"
         path.write_text(path.read_text() + "\n")
-        self.assertTrue(any("is not contracts' subjects.yaml at v0.1.3" in p for p in self.problems()))
+        self.assertTrue(any("is not contracts' subjects.yaml at v0.1.5" in p for p in self.problems()))
 
     def test_a_zero_the_server_stores_as_minus_one_fails(self) -> None:
         # The server would return -1, so every run would edit the stream.

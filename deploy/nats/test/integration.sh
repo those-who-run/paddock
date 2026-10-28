@@ -123,8 +123,8 @@ for s in TELEMETRY EVENTS KV_live; do
 done
 
 echo "== The duplicate window: one event published twice with one Nats-Msg-Id is stored once"
-n pub -H 'Nats-Msg-Id:parity:x:lap:2:completed' twr.v1.parity.evt.x.lap.completed '{"lap":2}'
-n pub -H 'Nats-Msg-Id:parity:x:lap:2:completed' twr.v1.parity.evt.x.lap.completed '{"lap":2}'
+n pub -H 'Nats-Msg-Id:parity:x:lap.completed:2' twr.v1.parity.evt.x.lap.completed '{"lap":2}'
+n pub -H 'Nats-Msg-Id:parity:x:lap.completed:2' twr.v1.parity.evt.x.lap.completed '{"lap":2}'
 expect_count EVENTS 2
 
 echo "== R4: a definition the server refuses exits non-zero with the server's message"
