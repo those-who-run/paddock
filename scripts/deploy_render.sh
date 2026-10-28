@@ -1,5 +1,5 @@
 #!/bin/sh
-# Render the cluster manifests under deploy/ and check them (paddock#42): `make
+# Render the cluster manifests under deploy/ and check them (paddock#42, #44): `make
 # deploy-render`, which `make test` and so CI's `test` job run. For each kustomization
 # under deploy/ it runs `kustomize build --enable-helm`, validates the output with kubeconform
 # in strict mode against the Kubernetes version below, and runs the checks of
@@ -30,10 +30,9 @@ all=$(find deploy -name kustomization.yaml -not -path 'deploy/overlays/*' -not -
 KUSTOMIZATIONS=$(for f in $all; do if ! grep -q '^kind: Component$' "$f"; then dirname "$f"; fi; done)
 COMPONENTS=$(for f in $all; do if grep -q '^kind: Component$' "$f"; then dirname "$f"; fi; done)
 
-# A component cannot be built alone, so it is built through an overlay over this
-# base: the base once it exists (paddock#44), NATS's chart until then.
+# A component cannot be built alone, so it is built through an overlay over the base
+# (paddock#44), as an environment includes it.
 COMPONENT_BASE=deploy/base
-[ -d "$COMPONENT_BASE" ] || COMPONENT_BASE=deploy/nats/chart
 
 # The Kubernetes version the manifests are validated against.
 KUBERNETES_VERSION=1.33.0

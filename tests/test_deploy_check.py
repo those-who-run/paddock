@@ -1,7 +1,10 @@
-"""The render check (scripts/deploy_check.py, paddock#42): a public base names no
-namespace, storage class, node or host port and pins every image, and NATS's chart
+"""The render check (scripts/deploy_check.py, paddock#42, #44): a public base names no
+namespace, storage class, node or host port and pins every image, NATS's chart
 renders one server with JetStream on file storage, 4222 and the WebSocket in the
-cluster only, and a WebSocket client that may only subscribe (R6).
+cluster only, and a WebSocket client that may only subscribe (R6), and the base
+(#44) runs compose's images and logbook as one StatefulSet replica whose volume is
+kept. BASE is GOOD with logbook and the base's label, and POLICIES what
+deploy/components/network-policy adds to it.
 
 GOOD is a cut-down `kustomize build --enable-helm deploy/nats/chart`, in the style
 kustomize writes, and INGRESS what deploy/components/nats-websocket adds to it; each
@@ -13,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -208,7 +212,7 @@ class Render(unittest.TestCase):
         self.assertFails(broken(BOX, "docker.io/natsio/nats-box@sha256:" + "d" * 64), "pinned")
 
     def test_other_kustomizations_get_only_the_portable_rules(self) -> None:
-        self.assertEqual(problems("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n", "deploy/base"), [])
+        self.assertEqual(problems("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: x\n", "deploy/nats"), [])
 
     def test_missing_objects(self) -> None:
         self.assertFails(broken("metadata:\n  name: nats-box\n", "metadata:\n  name: other\n"), "nats")
@@ -335,6 +339,277 @@ class ChartImages(unittest.TestCase):
             self.assertRegex(image, deploy_check.PINNED)
             if "prometheus-nats-exporter" not in image:
                 self.assertIn(f"image: {image}\n", compose)
+
+
+# logbook, as deploy/base/logbook.yaml renders, and what compose runs.
+LOGBOOK_IMAGE = "ghcr.io/those-who-run/twr-logbook:0.1.3@sha256:" + "e" * 64
+
+LOGBOOK = f"""\
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logbook
+spec:
+  clusterIP: None
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: logbook
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  serviceName: logbook
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: TWR_NATS_URL
+          value: nats://nats:4222
+        - name: TWR_DATA_DIR
+          value: /data
+        - name: TWR_HEALTH_ADDR
+          value: :8080
+        image: {LOGBOOK_IMAGE}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        name: logbook
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        resources:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      resources:
+        requests:
+          storage: 1Gi
+"""
+
+
+def labelled(text: str) -> str:
+    """Each object with the base's common label, as kustomize writes it."""
+    text = text.replace("metadata:\n  labels:\n", "metadata:\n  labels:\n    app.kubernetes.io/part-of: twr\n")
+    return text.replace("metadata:\n  name:", "metadata:\n  labels:\n    app.kubernetes.io/part-of: twr\n  name:")
+
+
+BASE = labelled(GOOD + LOGBOOK)
+COMPOSE = f"""\
+services:
+  nats:
+    image: docker.io/library/nats:2.15.1-alpine@sha256:{"a" * 64}
+  nats-bootstrap:
+    image: {BOX}
+  logbook:
+    image: {LOGBOOK_IMAGE}
+"""
+
+
+class Base(unittest.TestCase):
+    """deploy/base (paddock#44): the common label, compose's images, NATS at one
+    replica and logbook's StatefulSet."""
+
+    def check(self, text: str, compose: str = COMPOSE) -> list[str]:
+        return deploy_check.check(deploy_check.BASE, text, compose)
+
+    def assertFails(self, text: str, rule: str, compose: str = COMPOSE) -> None:
+        found = self.check(text, compose)
+        self.assertTrue(any(p.startswith(rule + ":") for p in found), found)
+
+    def broken(self, old: str, new: str) -> str:
+        self.assertEqual(BASE.count(old), 1, old)
+        return BASE.replace(old, new)
+
+    def test_good(self) -> None:
+        self.assertEqual(self.check(BASE), [])
+        self.assertEqual(BASE.count("app.kubernetes.io/part-of: twr"), 7)
+
+    def test_label(self) -> None:
+        text = BASE.replace("  labels:\n    app.kubernetes.io/part-of: twr\n  name: logbook\n", "  name: logbook\n", 1)
+        self.assertFails(text, "R1")
+
+    def test_images_are_composes(self) -> None:
+        # A bump of the base's logbook alone, or of compose's alone, fails.
+        self.assertFails(BASE.replace(LOGBOOK_IMAGE, LOGBOOK_IMAGE.replace("0.1.3", "0.1.4")), "R1")
+        self.assertFails(BASE, "R1", COMPOSE.replace("0.1.3", "0.1.4"))
+        self.assertFails(BASE, "R1", COMPOSE.replace("a" * 64, "f" * 64))
+        # The exporter is the one image compose does not run.
+        self.assertFails(BASE.replace("prometheus-nats-exporter", "other-exporter"), "R1")
+
+    def test_nats_one_replica(self) -> None:
+        self.assertFails(BASE.replace("  replicas: 1\n", "  replicas: 2\n", 1), "replicas")
+
+    def test_no_ingress(self) -> None:
+        self.assertFails(BASE + labelled(INGRESS), "R3")
+
+    def test_logbook_replicas_exactly_one(self) -> None:
+        for count in ("0", "2"):
+            with self.subTest(count=count):
+                text = BASE.replace("  podManagementPolicy: OrderedReady\n  replicas: 1\n",
+                                    f"  podManagementPolicy: OrderedReady\n  replicas: {count}\n")
+                self.assertFails(text, "replicas")
+        self.assertFails(self.broken("  podManagementPolicy: OrderedReady\n  replicas: 1\n",
+                                     "  podManagementPolicy: OrderedReady\n"), "replicas")
+
+    def test_retention(self) -> None:
+        self.assertFails(self.broken("whenDeleted: Retain", "whenDeleted: Delete"), "retention")
+        self.assertFails(self.broken("whenScaled: Retain", "whenScaled: Delete"), "retention")
+        self.assertFails(self.broken("  persistentVolumeClaimRetentionPolicy:\n    whenDeleted: Retain\n"
+                                     "    whenScaled: Retain\n", ""), "retention")
+
+    def test_no_storage_class(self) -> None:
+        text = self.broken("      name: data\n    spec:\n", "      name: data\n    spec:\n      storageClassName: x\n")
+        self.assertFails(text, "storage")
+        self.assertFails(text, "portable")
+
+    def test_r2(self) -> None:
+        for old, new in (("OrderedReady", "Parallel"),
+                         ("- mountPath: /data", "- mountPath: /var/lib/logbook"),
+                         ("value: nats://nats:4222", "value: nats://localhost:4222"),
+                         ("value: :8080", "value: :9090"),
+                         ("        readinessProbe:\n", "        otherProbe:\n"),
+                         ("        livenessProbe:\n", "        otherProbe:\n"),
+                         ("  clusterIP: None\n  ports:\n  - name: http\n", "  ports:\n  - name: http\n"),
+                         ("  serviceName: logbook\n", "")):
+            with self.subTest(old=old):
+                self.assertFails(self.broken(old, new), "R2")
+        text = BASE.replace("path: /healthz", "path: /", 1)
+        self.assertFails(text, "R2")
+
+    def test_pod(self) -> None:
+        sts = BASE.index("name: logbook\nspec:\n  persistent")
+        for old, new in (("automountServiceAccountToken: false", "automountServiceAccountToken: true"),
+                         ("runAsNonRoot: true", "runAsNonRoot: false"),
+                         ("readOnlyRootFilesystem: true", "readOnlyRootFilesystem: false"),
+                         ("type: RuntimeDefault", "type: Unconfined")):
+            with self.subTest(old=old):
+                text = BASE[:sts] + BASE[sts:].replace(old, new)
+                self.assertFails(text, "pod")
+
+    def test_r5(self) -> None:
+        self.assertFails(self.broken("          limits:\n            memory: 1Gi\n", ""), "R5")
+        self.assertFails(self.broken("          requests:\n            cpu: 50m\n            memory: 128Mi\n", ""), "R5")
+
+    def test_missing_logbook(self) -> None:
+        self.assertFails(labelled(GOOD), "R2")
+
+    def test_the_base_pins_composes_logbook(self) -> None:
+        """deploy/base/kustomization.yaml's images: block is compose's logbook, by tag
+        and digest, offline (make deploy-render checks the render)."""
+        text = (ROOT / "deploy" / "base" / "kustomization.yaml").read_text()
+        tag = re.search(r"^    newTag: (\S+)$", text, re.M)
+        digest = re.search(r"^    digest: (sha256:[a-f0-9]{64})$", text, re.M)
+        assert tag is not None and digest is not None
+        self.assertIn("  - name: ghcr.io/those-who-run/twr-logbook\n", text)
+        compose = (ROOT / "deploy" / "compose" / "compose.yaml").read_text()
+        self.assertIn(f"image: ghcr.io/those-who-run/twr-logbook:{tag.group(1)}@{digest.group(1)}\n", compose)
+
+
+# What deploy/components/network-policy adds to the base.
+POLICIES = """\
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: my-ingress-namespace
+    ports:
+    - port: 8080
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: nats
+      app.kubernetes.io/name: nats
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: logbook
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: logbook
+  policyTypes:
+  - Ingress
+"""
+
+
+class NetworkPolicyComponent(unittest.TestCase):
+    """deploy/components/network-policy, rendered over the base."""
+
+    def check(self, text: str) -> list[str]:
+        return deploy_check.check(deploy_check.NETWORK_POLICY, text)
+
+    def assertFails(self, text: str) -> None:
+        found = self.check(text)
+        self.assertTrue(any(p.startswith("R7:") for p in found), found)
+
+    def test_good(self) -> None:
+        self.assertEqual(self.check(BASE + POLICIES), [])
+
+    def test_broken(self) -> None:
+        for old, new in (("  name: logbook\nspec:\n  ingress", "  name: other\nspec:\n  ingress"),
+                         ("      app.kubernetes.io/component: nats\n", ""),
+                         ("    - podSelector: {}\n  - from", "    - podSelector: {app: x}\n  - from"),
+                         ("my-ingress-namespace", "kube-system\n          other: x"),
+                         ("    - port: 8080\n", "    - port: 4222\n"),
+                         ("    ports:\n    - port: 8080\n      protocol: TCP\n", ""),
+                         ("  - from:\n    - podSelector: {}\n  podSelector:\n    matchLabels:\n      app.kubernetes.io/name: logbook",
+                          "  - from:\n    - namespaceSelector: {}\n    - podSelector: {}\n  podSelector:\n    matchLabels:\n      app.kubernetes.io/name: logbook")):
+            with self.subTest(old=old):
+                self.assertEqual(POLICIES.count(old), 1, old)
+                self.assertFails(BASE + POLICIES.replace(old, new))
+
+    def test_no_policies(self) -> None:
+        self.assertFails(BASE)
+
+    def test_the_component_is_a_component(self) -> None:
+        text = (ROOT / deploy_check.NETWORK_POLICY / "kustomization.yaml").read_text()
+        self.assertIn("\nkind: Component\n", text)
+        base = (ROOT / deploy_check.BASE / "kustomization.yaml").read_text()
+        self.assertNotIn("network-policy", base.split("resources:", 1)[1].split("labels:", 1)[0])
 
 
 if __name__ == "__main__":

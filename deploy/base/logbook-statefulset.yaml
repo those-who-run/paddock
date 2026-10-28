@@ -1,0 +1,124 @@
+# logbook (paddock#44 R2): the store of sessions, laps and frames, fed from NATS. It
+# runs as compose runs it (deploy/compose/compose.yaml): the same image, environment
+# and data path, user 65532 on a read-only root file system.
+#
+# A StatefulSet of exactly one: the store is one DuckDB file that one process writes
+# and locks, so two pods on the volume must never run at once. OrderedReady and one
+# replica mean a replaced pod starts only once the old one is gone.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: logbook
+spec:
+  serviceName: logbook
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  # The store is the volume that is kept (paddock#44, #52): removing the StatefulSet
+  # or scaling it to 0 leaves the PVC and its data, and the next pod mounts it again.
+  # NATS's volume, by contrast, is a buffer that may go with the stack.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: logbook
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: logbook
+    spec:
+      # It needs no Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # On SIGTERM logbook finishes the write in progress, hands back the events it
+      # holds and closes the store; that takes well under this.
+      terminationGracePeriodSeconds: 30
+      # The image's user, by number. fsGroup makes a fresh volume writable by it
+      # where the storage does not already allow that.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # The image is amd64 only (ADR 0006). The base pins no node, so a cluster with
+      # other architectures selects amd64 nodes in its overlay.
+      containers:
+        - name: logbook
+          image: ghcr.io/those-who-run/twr-logbook
+          env:
+            # The chart's `nats` Service (deploy/nats/chart) in the same namespace.
+            - name: TWR_NATS_URL
+              value: nats://nats:4222
+            - name: TWR_DATA_DIR
+              value: /data
+            - name: TWR_HEALTH_ADDR
+              value: ":8080"
+            - name: LOG_LEVEL
+              value: info
+          ports:
+            - name: http
+              containerPort: 8080
+          # /healthz answers 200 once logbook is connected to NATS and both its
+          # consumers are bound, and 503 before, so it is ready only once the
+          # bootstrap Job has made the streams. The start-up probe gives that up to
+          # 10 min, the Job's own deadline, before liveness counts. Liveness then
+          # restarts logbook after 1 min without NATS; a restart resumes from what
+          # the store and the server hold, so it loses nothing.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          # A starting point until paddock#256 measures it. DuckDB, inside logbook,
+          # takes up to 80% of the memory it finds for its buffers, and in a
+          # container it reads the limit: without one that is 80% of the node. 1 GiB
+          # is room for a session's staged frames and a lap's write, and keeps a
+          # runaway from taking memory the rest of the node needs.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # For anything that wants a temporary file, as compose's tmpfs.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+  # The overlay sets the size, and the storage class if not the cluster's default.
+  # A StatefulSet's claim template cannot change once applied, so set the size
+  # before the first apply.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
