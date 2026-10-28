@@ -372,7 +372,36 @@ def network_policy(docs: list[Doc]) -> list[str]:
         problems.append(f"R7: {nats} opens ports {values(nats.lines, 'port')} to the ingress controller, not 8080 only")
     if any("namespaceSelector:" in line for line in book.lines):
         problems.append(f"R7: {book} lets in another namespace")
+    for doc in (nats, book):
+        if block(doc.lines, "policyTypes") != ["- Ingress"]:
+            problems.append(f"R7: {doc}'s policyTypes are {block(doc.lines, 'policyTypes')}, not Ingress only")
+        if sum("podSelector: {}" in line for line in doc.lines) != 1 or any("ipBlock:" in line for line in doc.lines):
+            problems.append(f"R7: {doc} lets in more than the namespace's own pods and the ingress controller")
+    selector = block(nats.lines, "namespaceSelector")
+    if sum("namespaceSelector:" in line for line in nats.lines) != 1 or selector != [
+        "matchLabels:", f"kubernetes.io/metadata.name: {INGRESS_NAMESPACE}"
+    ]:
+        problems.append(f"R7: {nats} lets in other namespaces than the ingress controller's: {selector}")
     return problems
+
+
+def block(lines: list[str], key: str) -> list[str]:
+    """The stripped lines under the first `key:` line: those indented deeper, and the
+    items of a list kustomize writes at the key's own indentation."""
+    for i, line in enumerate(lines):
+        m = re.match(rf"^(\s*)(- )?{re.escape(key)}:$", line)
+        if not m:
+            continue
+        indent = len(m.group(1))
+        out = []
+        for following in lines[i + 1 :]:
+            depth = len(following) - len(following.lstrip())
+            same_level_item = depth == indent and not m.group(2) and following.lstrip().startswith("- ")
+            if depth <= indent and not same_level_item:
+                break
+            out.append(following.strip())
+        return out
+    return []
 
 
 def nats_config(where: str, conf: dict) -> list[str]:

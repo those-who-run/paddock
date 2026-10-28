@@ -32,7 +32,7 @@ headless Service. Every object carries `app.kubernetes.io/part-of: twr`.
   consumers are bound. It runs as user 65532 on a read-only root file system
   with no service account token. The image is amd64 only (ADR 0006).
 - **Images** are pinned by tag and digest, the same strings as compose:
-  `logbook` in the base's `images:` block (0.1.3), NATS, `nats-box` and the
+  `logbook` in the base's `images:` block (0.1.4), NATS, `nats-box` and the
   exporter in `nats/chart/values.yaml` and `nats/bootstrap-job.yaml`. Each is
   pinned in one place. `make deploy-render` fails when an image in the base's
   render is not compose's, or compose runs one the base does not.

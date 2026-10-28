@@ -602,6 +602,40 @@ class NetworkPolicyComponent(unittest.TestCase):
                 self.assertEqual(POLICIES.count(old), 1, old)
                 self.assertFails(BASE + POLICIES.replace(old, new))
 
+    def test_ingress_only(self) -> None:
+        # Both policies stay Ingress only: an Egress type with no egress rules would cut
+        # NATS and logbook off from everything, the probes' DNS included.
+        for nth in (1, 2):
+            with self.subTest(policy=nth):
+                parts = POLICIES.split("  policyTypes:\n  - Ingress\n")
+                self.assertEqual(len(parts), 3)
+                text = "  policyTypes:\n  - Ingress\n".join(parts[:nth]) + \
+                    "  policyTypes:\n  - Ingress\n  - Egress\n" + "  policyTypes:\n  - Ingress\n".join(parts[nth:])
+                self.assertFails(BASE + text)
+
+    def test_only_the_ingress_namespace(self) -> None:
+        # NATS's second rule names the ingress controller's namespace and nothing more.
+        selector = "        matchLabels:\n          kubernetes.io/metadata.name: my-ingress-namespace\n"
+        for new in ("        {}\n",
+                    selector + "          other: x\n",
+                    "        matchExpressions:\n        - key: kubernetes.io/metadata.name\n          operator: Exists\n",
+                    selector + "    - ipBlock:\n        cidr: 0.0.0.0/0\n"):
+            with self.subTest(new=new):
+                self.assertEqual(POLICIES.count(selector), 1)
+                self.assertFails(BASE + POLICIES.replace(selector, new))
+        # A second namespace beside it, as its own peer.
+        self.assertFails(BASE + POLICIES.replace(
+            "    - namespaceSelector:\n", "    - namespaceSelector: {}\n    - namespaceSelector:\n"))
+        # Another pod selector beside the namespace's own pods.
+        self.assertFails(BASE + POLICIES.replace(
+            "    - podSelector: {}\n  - from", "    - podSelector: {}\n      namespaceSelector: {}\n  - from"))
+
+    def test_block(self) -> None:
+        lines = POLICIES.splitlines()
+        self.assertEqual(deploy_check.block(lines, "policyTypes"), ["- Ingress"])
+        self.assertEqual(deploy_check.block(lines, "namespaceSelector"),
+                         ["matchLabels:", "kubernetes.io/metadata.name: my-ingress-namespace"])
+
     def test_no_policies(self) -> None:
         self.assertFails(BASE)
 
