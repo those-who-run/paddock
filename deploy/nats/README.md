@@ -79,9 +79,14 @@ this directory; it also renders on its own with `kustomize build deploy/nats`.
   `kustomize build --enable-helm <dir> | kubectl apply -f -`, since `kubectl
   apply -k` cannot inflate NATS's chart, which the base includes. The Job
   deletes itself 10 min after it finishes (`ttlSecondsAfterFinished: 600`), so
-  the next apply creates it again. An apply within 10 min of the last one needs
-  `kubectl delete job twr-nats-bootstrap` first, since a Job's template cannot be
-  changed in place. A rerun with nothing changed prints only `unchanged`.
+  the next apply creates it again. Within those 10 min, an apply with nothing
+  changed leaves the finished Job as it is and does not run it again, which is
+  harmless. An apply with a changed definition changes the Job's template (below),
+  which cannot be changed in place, and fails with `field is immutable`: run
+  `kubectl delete job twr-nats-bootstrap` first. Without Argo CD, a failed Job's
+  log also goes with it after 10 min, so read it (`kubectl logs
+  job/twr-nats-bootstrap`) before then. A rerun with nothing changed prints only
+  `unchanged`.
 - The generated ConfigMaps' names carry a hash of their contents, so a changed
   definition changes the Job's spec.
 - An Argo CD Application sets `spec.destination.namespace` explicitly. kustomize

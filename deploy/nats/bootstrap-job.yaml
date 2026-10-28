@@ -8,8 +8,9 @@
 #   annotations do nothing.
 # - It deletes itself 10 min after it finishes, so the next apply (`kustomize build
 #   --enable-helm <dir> | kubectl apply -f -`; `kubectl apply -k` cannot inflate the
-#   NATS chart the base includes) creates it again. An apply within those 10 min
-#   needs `kubectl delete job twr-nats-bootstrap` first (deploy/nats/README.md).
+#   NATS chart the base includes) creates it again. Within those 10 min an unchanged
+#   apply leaves it be, and one with a changed definition fails with `field is
+#   immutable` until the Job is deleted (deploy/nats/README.md).
 apiVersion: batch/v1
 kind: Job
 metadata:
