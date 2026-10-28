@@ -151,14 +151,58 @@ at 13:36:06. release-please then opened
 `image / build` green on its head, `9b920b6`. It waits for the maintainer's
 review and merge.
 
-## Not yet run
+## The checks folded in from #14 and #18
 
-These checks from the triage decision on #28 are not in this record yet:
+### #14: the PR title
 
-- #14: a PR title that isn't a Conventional Commit fails `checks`, and a commit
-  with a fake secret fails it.
-- #18: the organisation's PR template and issue settings in the new
-  repository.
+[shakedown-fangio#13](https://github.com/those-who-run/shakedown-fangio/pull/13)
+was opened at 14:10 UTC from a fresh branch with a one-line comment change and
+the title "update docs". `checks / checks` failed on its first step,
+"PR title is a conventional commit"
+([job](https://github.com/those-who-run/shakedown-fangio/actions/runs/40703311793/job/122868646015)),
+with "The PR title is not a Conventional Commit: 'update docs'". `test`,
+`go / check` and `image / build` passed.
+
+The maintainer closed #13 at 14:11:15, before the title was changed to a
+Conventional Commit, so the passing run was not seen on #13 itself. A title
+edit starts no run, and the agent's token can't re-run a job, so an empty
+commit was pushed to start one; it reached the branch after the PR was closed
+and started nothing. The passing case is the same step on #10, whose title is a
+Conventional Commit:
+[step 3 of `checks / checks`](https://github.com/those-who-run/shakedown-fangio/actions/runs/40687658953/job/122814070023#step:3:1)
+succeeded.
+
+### #14: secrets
+
+Nothing secret-shaped was committed or pushed, not even a fake, so none goes
+into a public repository's history. The live CI case was left out on purpose.
+
+- **The commit hook.** In a clone with the hooks installed, a scratch file
+  holding gitleaks' AWS access key test pattern was staged and
+  `pre-commit run gitleaks --files <file>` run on it. The hook failed (exit
+  code 1) with rule `aws-access-token`, "leaks found: 1". The file was then
+  unstaged and deleted.
+- **CI.** `checks / checks` runs gitleaks over every commit in the PR, in its
+  step "No secrets in the PR's commits"
+  ([source in `checks.yml`](https://github.com/those-who-run/.github/blob/e0b35e637ee2da5521811e6d73d22377af7504cd/.github/workflows/checks.yml#L213),
+  at the commit #10 pinned), so a commit made without the hooks is caught too.
+  On #10 it
+  [succeeded](https://github.com/those-who-run/shakedown-fangio/actions/runs/40687658953/job/122814070023#step:12:1).
+
+### #18: the organisation's PR template and issue settings
+
+- `shakedown-fangio` has no PR template of its own (none in `.github/`, `docs/`
+  or the root), so the organisation's applies:
+  [`PULL_REQUEST_TEMPLATE.md`](https://github.com/those-who-run/.github/blob/main/PULL_REQUEST_TEMPLATE.md)
+  in `those-who-run/.github`. GitHub's community profile for the repository
+  names that file as its PR template, and the organisation's code of conduct
+  and contributing guide as its own.
+- Issues are off: `has_issues: false`. The repository has no issue templates,
+  and the community profile shows none.
+- #10's body had the `Part of` line, what changed and how it was checked, but
+  not the template's headings or its "AI assistance" and "New direct
+  dependencies" lines: `gh pr create --body` replaces the template rather than
+  filling it. See [Gaps](#gaps).
 
 ## Gaps
 
@@ -205,3 +249,9 @@ Each gap has a `guardrail` issue, or a line saying why none is needed.
   record can show that the agent has no bypass but not who has one. No issue:
   `make protect-check` in `those-who-run/.github` runs with the maintainer's
   login, which can read them.
+- **A title edit doesn't run the title check again.** CI runs on
+  `pull_request`'s default activity types, which leave out `edited`, and a
+  re-run uses the old title; only a new push clears it. Follow-up: #285.
+- **An agent's PR body doesn't follow the organisation's PR template.**
+  `gh pr create --body` replaces it, and nothing tells the agent to write its
+  sections. Follow-up: #286.
