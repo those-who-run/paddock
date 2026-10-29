@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import subprocess
 import tempfile
 import unittest
@@ -31,6 +32,8 @@ def dot(*labels: str) -> str:
 
 PRIVATE_HOST = dot("nuc", "home", "arpa")
 N = "nats"
+CTX = "context"
+JS_API = "$JS.API." + "STREAM"
 ALLOW = "github.com  The org's code host.\nk8s.io  Kubernetes API groups.\n"
 
 
@@ -81,6 +84,15 @@ class Hosts(unittest.TestCase):
         # A URL's host fails whatever its top-level domain, even one HOST_TLDS leaves out.
         problems = scan("see https://" + dot("pitwall", "my-lab", "sh") + "/x\n")
         self.assertEqual(len(problems), 1, problems)
+
+    def test_a_host_after_user_at_fails_whatever_its_tld(self) -> None:
+        for line in ("ssh admin@" + dot("nuc", "xyzzy"), "git clone git@" + dot("gitea", "sh") + ":me/x"):
+            with self.subTest(line=line):
+                self.assertEqual(len(scan(line + "\n")), 1)
+
+    def test_at_signs_that_are_not_hosts_pass(self) -> None:
+        text = "img@sha256:abc tool@v1.2.3 x@users.noreply.github.com @contextlib.contextmanager me@example.com\n"
+        self.assertEqual(scan(text), [])
 
     def test_an_email_domain_fails(self) -> None:
         self.assertEqual(len(scan("mail me@" + "someone." + "ie\n")), 1)
@@ -136,6 +148,27 @@ class Hosts(unittest.TestCase):
         self.assertEqual(scan("https://${HOST}/x nats://$host:4222\n"), [])
 
 
+class Contexts(unittest.TestCase):
+    def test_a_cluster_context_fails(self) -> None:
+        for line in (
+            f"kubectl --{CTX} nuc get pods",
+            f"kubectl --{CTX}=nuc get pods",
+            f"kubectl config use-{CTX} nuc",
+            f"current-{CTX}: nuc",
+            f'nats --{CTX} "nuc-admin" sub x',
+        ):
+            with self.subTest(line=line):
+                problems = scan(line + "\n", "docs/x.md")
+                self.assertEqual(len(problems), 1, problems)
+                self.assertTrue(problems[0].startswith("context: docs/x.md:1: nuc"), problems)
+
+    def test_placeholders_pass(self) -> None:
+        for value in ("my-cluster", "<context>", '"$CTX"', "${CONTEXT}", "{{ .context }}", "example"):
+            with self.subTest(value=value):
+                self.assertEqual(scan(f"kubectl --{CTX} {value} get pods\n"), [])
+        self.assertEqual(scan(f'nats --no-{CTX} sub x\nflags = ["--{CTX}", "-H"]\n'), [])
+
+
 class Bootstrap(unittest.TestCase):
     # The scan reads Python too, so each command is built with N and never appears
     # whole in this file.
@@ -146,7 +179,10 @@ class Bootstrap(unittest.TestCase):
         self.assertTrue(problems[0].startswith("bootstrap: scripts/x.sh:2: "), problems)
 
     def test_each_form_fails(self) -> None:
-        for line in ("kv add live", "stream edit EVENTS", "str create X", "kv new b", "object add files", "obj add f"):
+        for line in (
+            "kv add live", "stream edit EVENTS", "str create X", "kv new b", "object add files", "obj add f",
+            "stream copy EVENTS E2", "stream restore ./backup",
+        ):
             with self.subTest(line=line):
                 self.assertEqual(len(scan(f"{N} {line}\n", "Makefile")), 1)
 
@@ -169,6 +205,14 @@ class Bootstrap(unittest.TestCase):
         problems = scan(text, "Makefile")
         self.assertEqual(len(problems), 1, problems)
         self.assertTrue(problems[0].startswith("bootstrap: Makefile:2: "), problems)
+
+    def test_a_js_api_request_fails(self) -> None:
+        for verb in ("CREATE", "UPDATE"):
+            with self.subTest(verb=verb):
+                text = f"{N} req '{JS_API}.{verb}.EVENTS' \"$(cat s.json)\"\n"
+                self.assertEqual(len(scan(text, "x.sh")), 1)
+                self.assertEqual(len(scan(f'nc.request("{JS_API}.{verb}.EVENTS", cfg)\n', "x.py")), 1)
+        self.assertEqual(scan(f"{N} req '{JS_API}.INFO.EVENTS' ''\n", "x.sh"), [])
 
     def test_python_fails(self) -> None:
         text = f'subprocess.run(["{N}", "kv", "add", "live"])\n'
@@ -198,6 +242,12 @@ class Allowlist(unittest.TestCase):
         _, problems = private_scan.read_allowlist("# c\n\ngithub.com\n")
         self.assertEqual(problems, ["allowlist: scripts/private_scan.allow:3: github.com has no reason"])
 
+    def test_a_home_network_name_is_refused(self) -> None:
+        for host in (dot("nuc", "lan"), dot("printer", "local"), dot("fritz", "box"), dot("x", "home", "arpa")):
+            with self.subTest(host=host):
+                _, problems = private_scan.read_allowlist(f"{host} why\n")
+                self.assertEqual(problems, [f"allowlist: scripts/private_scan.allow:1: {host} is a home network's name, never a public host"])
+
     def test_a_duplicate_or_a_non_host_fails(self) -> None:
         _, problems = private_scan.read_allowlist(f"{dot('a', 'com')} why\n{dot('a', 'com')} why\nlocalhost why\n")
         self.assertEqual(len(problems), 2, problems)
@@ -210,41 +260,89 @@ class Allowlist(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
-    def run_main(self, allow: str, files: dict[str, str]) -> tuple[int, str]:
+    USED = "github.com k8s.io\n"  # uses both entries of ALLOW
+
+    def run_main(
+        self, allow: str, files: dict[str, str | bytes], links: dict[str, str] | None = None
+    ) -> tuple[int, str, str]:
+        """main() on a fresh git repository holding the files and symlinks given:
+        its exit code, stderr and stdout."""
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "scripts").mkdir()
             (root / private_scan.ALLOW).write_text(allow)
-            for name, text in files.items():
-                (root / name).write_text(text)
+            for name, content in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                if isinstance(content, bytes):
+                    (root / name).write_bytes(content)
+                else:
+                    (root / name).write_text(content)
+            for name, target in (links or {}).items():
+                os.symlink(target, root / name)
             subprocess.run(["git", "init", "-q", d], check=True)
-            err = io.StringIO()
-            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            err, out = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
                 code = private_scan.main(root)
-            return code, err.getvalue()
+            return code, err.getvalue(), out.getvalue()
 
     def test_a_used_allowlist_passes(self) -> None:
-        code, err = self.run_main(ALLOW, {"a.md": "https://github.com/x networking.k8s.io/v1\n"})
+        code, err, _ = self.run_main(ALLOW, {"a.md": "https://github.com/x networking.k8s.io/v1\n"})
         self.assertEqual((code, err), (0, ""))
 
     def test_an_unused_entry_fails(self) -> None:
         # The allowlist names k8s.io itself; that must not count as a use.
-        code, err = self.run_main(ALLOW, {"a.md": "https://github.com/x\n"})
+        code, err, _ = self.run_main(ALLOW, {"a.md": "https://github.com/x\n"})
         self.assertEqual(code, 1)
         self.assertIn("allowlist: scripts/private_scan.allow:2: k8s.io is used by no file", err)
 
+    def test_a_private_value_fails(self) -> None:
+        code, err, _ = self.run_main(ALLOW, {"a.md": f"{self.USED}{PRIVATE_IP}\n"})
+        self.assertEqual(code, 1)
+        self.assertIn(f"address: a.md:2: {PRIVATE_IP}", err)
+
+    def test_a_file_with_a_nul_byte_is_read(self) -> None:
+        data = self.USED.encode() + b"\x00\x01" + PRIVATE_IP.encode() + b"\n"
+        code, err, _ = self.run_main(ALLOW, {"a.bin": data})
+        self.assertEqual(code, 1)
+        self.assertIn(f"address: a.bin:2: {PRIVATE_IP}", err)
+
+    def test_a_file_that_is_not_utf8_is_read(self) -> None:
+        data = self.USED.encode() + b"caf\xe9 " + PRIVATE_HOST.encode() + b"\n"
+        code, err, _ = self.run_main(ALLOW, {"latin1.txt": data})
+        self.assertEqual(code, 1)
+        self.assertIn(f"host: latin1.txt:2: {PRIVATE_HOST}", err)
+
+    def test_binary_files_are_skipped_by_extension_and_listed(self) -> None:
+        code, err, out = self.run_main(ALLOW, {"a.md": self.USED, "logo.png": b"\x89PNG " + PRIVATE_IP.encode()})
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("not read: logo.png (binary)", out)
+
     def test_go_module_files_are_not_read(self) -> None:
         mod = f"module x\nrequire {dot('honnef', 'co')}/go/tools v0.1.0\n"
-        files = {"go.mod": mod, "go.sum": mod, "go.work": mod, "go.work.sum": mod}
-        self.assertEqual(self.run_main(ALLOW, {"a.md": "github.com k8s.io\n", **files}), (0, ""))
-        code, err = self.run_main(ALLOW, {"a.md": "github.com k8s.io\n", "go.txt": mod})
+        files = {"a.md": self.USED, "go.mod": mod, "go.sum": mod, "x/go.work": mod, "x/go.work.sum": mod}
+        code, err, out = self.run_main(ALLOW, files)
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("go.sum (Go module)", out)
+        code, err, _ = self.run_main(ALLOW, {"a.md": self.USED, "go.txt": mod})
         self.assertEqual(code, 1)
         self.assertIn("host: go.txt:2: " + dot("honnef", "co"), err)
 
-    def test_a_private_value_fails(self) -> None:
-        code, err = self.run_main(ALLOW, {"a.md": f"github.com k8s.io {PRIVATE_IP}\n"})
+    def test_a_go_sum_outside_a_module_is_read(self) -> None:
+        mod = f"{dot('honnef', 'co')}/go/tools v0.1.0 h1:x\n"
+        code, err, _ = self.run_main(ALLOW, {"a.md": self.USED, "go.mod": "module x\n", "stray/go.sum": mod})
         self.assertEqual(code, 1)
-        self.assertIn(f"address: a.md:1: {PRIVATE_IP}", err)
+        self.assertIn("host: stray/go.sum:1: " + dot("honnef", "co"), err)
+
+    def test_a_symlink_is_read_as_its_target_path(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".txt") as outside:
+            outside.write(PRIVATE_IP + "\n")
+            outside.flush()
+            # What it points to is not read, only where.
+            code, err, _ = self.run_main(ALLOW, {"a.md": self.USED}, {"link": outside.name})
+            self.assertEqual((code, err), (0, ""))
+        code, err, _ = self.run_main(ALLOW, {"a.md": self.USED}, {"mnt": f"/mnt/{PRIVATE_HOST}/data"})
+        self.assertEqual(code, 1)
+        self.assertIn(f"host: mnt:1: {PRIVATE_HOST}", err)
 
 
 if __name__ == "__main__":

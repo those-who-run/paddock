@@ -13,8 +13,12 @@ does not ignore), Markdown, docs and ADRs included, line by line, for:
   ``localhost``), and not in the allowlist, scripts/private_scan.allow, where each
   public host has a reason. ``.local`` is mDNS, a home network's own names, so it
   is not a placeholder;
-- ``bootstrap``: a ``nats stream``, ``nats kv`` or ``nats object`` command that adds
-  or edits a stream or bucket anywhere but deploy/nats/bootstrap.sh, which is the
+- ``context``: the value of ``--context``, ``use-context`` or ``current-context:``
+  that is not a placeholder (``my-cluster``, ``<context>``, a template), since a
+  cluster context names one cluster;
+- ``bootstrap``: a ``nats stream``, ``nats kv`` or ``nats object`` command that adds,
+  edits, copies or restores a stream or bucket, or a request to
+  ``$JS.API.STREAM.CREATE``/``UPDATE``, anywhere but deploy/nats/bootstrap.sh, which is the
   one place they are defined. Only commands are read: shell, Makefiles, YAML,
   Python's argument lists and Markdown's code blocks, not their comments or prose, so a page may say
   what bootstrap.sh runs. A command split over lines with a backslash, or written
@@ -27,8 +31,11 @@ name ending in anything else (``compose.yaml``, ``sys.argv``, a NATS subject) is
 a host to this scan; HOST_TLDS leaves out the top-level domains that are also file
 extensions or code here (``.sh``, ``.py``, ``.md``, ``.app``, ``.build``).
 
-Go's go.mod, go.sum, go.work and go.work.sum are not read: they list module paths,
-not hosts, and ``go mod`` writes them.
+Every file is read whatever its encoding (bytes that are not UTF-8 become U+FFFD), and
+a symlink as git stores it: its target's path. Only files with a binary extension
+(BINARY_EXTENSIONS) are skipped, and the output lists them. So are a Go module's own
+files: go.mod, a go.sum beside a go.mod, go.work and a go.work.sum beside a go.work.
+They list module paths, not hosts, and ``go`` writes them; a go.sum elsewhere is read.
 
 Each failure names the rule, the file and the line. An allowlist entry no line uses
 fails too, so the list stays short. Standard library only, as paddock's other
@@ -40,15 +47,21 @@ checks are.
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
-# Go's module files list module paths, not hosts a deployment reaches, and `go mod`
-# writes them, so they are not scanned.
-SKIPPED_NAMES = {"go.mod", "go.sum", "go.work", "go.work.sum"}
+# A Go module's files list module paths, not hosts a deployment reaches, and `go`
+# writes them: go.mod and go.work themselves, and each .sum beside its file.
+GO_MODULE_FILES = {"go.mod": None, "go.work": None, "go.sum": "go.mod", "go.work.sum": "go.work"}
+# Files no scan can read as text. Anything else is read, whatever its bytes.
+BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".pdf", ".zip", ".gz", ".tgz", ".tar",
+    ".woff", ".woff2", ".ttf", ".otf",
+}
 ALLOW = Path("scripts/private_scan.allow")
 BOOTSTRAP = "deploy/nats/bootstrap.sh"
 
@@ -74,10 +87,11 @@ PLACEHOLDER_SUFFIXES = (
 # .sh, .py, .md or .go, which are file names here far more often than hosts, nor
 # .app, .page, .site, .build, .me or .info, which end code (metadata.labels.app)
 # as often. A name followed by ( is a call, not a host. A URL's host is read whatever its top-level domain.
-HOST_TLDS = (
-    "com net org io dev ai cloud co biz xyz tech online eu uk ie de fr nl es it "
-    "us ca au nz lan home homelab lab box private local internal intranet corp localdomain arpa"
-).split()
+PUBLIC_TLDS = "com net org io dev ai cloud co biz xyz tech online eu uk ie de fr nl es it us ca au nz".split()
+# The suffixes of names inside a home or company network: never a public host, so
+# never in the allowlist either.
+HOME_TLDS = "lan home homelab lab box private local internal intranet corp localdomain arpa".split()
+HOST_TLDS = PUBLIC_TLDS + HOME_TLDS
 HOST_LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
 # Starts after a non-name character, or after the dot of `*.name` or of a leading
 # `.name` (a NO_PROXY or cookie domain).
@@ -85,19 +99,29 @@ BARE_HOST = re.compile(
     rf"(?:(?<=\*\.)|(?<=^\.)|(?<=[\s\"'`=,(\[]\.)|(?<![\w.-]))((?:{HOST_LABEL}\.)+(?:{'|'.join(HOST_TLDS)}))(?![\w(-]|\.[a-z0-9])", re.IGNORECASE
 )
 ESCAPE = re.compile(r"\\[nrt]")
+# The host after `user@` (an email, `ssh user@host`, `git@host:`), read like a URL's
+# host whatever its top-level domain. The last label is letters, so `image@sha256:`
+# and `tool@v1.2.3` are not hosts.
+USER_HOST = re.compile(r"[\w.+-]@((?:[a-z0-9-]+\.)+[a-z]{2,})(?![\w-]|\.[a-z0-9])", re.IGNORECASE)
+# A cluster context: after `--context` or `--context=`, `use-context`, `current-context:`.
+CONTEXT = re.compile(r"(?:--context[= ]|\buse-context\s|\bcurrent-context:\s)\s*[\"']?([^\s\"'`]+)")
+# Context values that name no cluster: the docs' placeholders and templates.
+CONTEXT_PLACEHOLDER = re.compile(r"^(?:my-[\w-]+|<[^>]*>?|[$%{].*|\\?\$.*|example[\w-]*)$")
 # A URL's host: after the scheme and any user:password@, up to the port or path.
 URL_HOST = re.compile(r"\b[a-z][a-z0-9+.-]*://(?:[^\s/@'\"`<>]*@)?([^\s:/?#'\"`<>()\[\],;|\\]+)", re.IGNORECASE)
 
 # `nats stream add`, `nats kv edit`, `nats object add`, and the CLI's aliases, with
 # any flags between.
 NATS_DEFINE = re.compile(
-    r"\bnats\b.*?\b(?:stream|str|kv|object|obj)\b[\s\"',]+(?:add|create|new|edit|update)\b"
+    r"\bnats\b.*?\b(?:stream|str|kv|object|obj)\b[\s\"',]+(?:add|create|new|edit|update|copy|cp|restore)\b"
 )
+# The JetStream API a client creates or changes a stream through, in any language.
+JS_API_DEFINE = re.compile(r"\$JS\.API\.STREAM\.(?:CREATE|UPDATE)\.")
 # In Python only an argument list is a command (`["nats", "kv", "add", ...]`), so a
 # docstring or comment that names one is not.
 NATS_DEFINE_PY = re.compile(
     r"""["']nats["']\s*,\s*(?:["'][^"']*["']\s*,\s*)*?["'](?:stream|str|kv|object|obj)["']\s*,"""
-    r"""\s*["'](?:add|create|new|edit|update)["']"""
+    r"""\s*["'](?:add|create|new|edit|update|copy|cp|restore)["']"""
 )
 COMMAND_FILES = re.compile(r"(\.(sh|bash|ya?ml|mk|py)$)|(^|/)(Makefile|Dockerfile[^/]*|Containerfile[^/]*)$")
 # A YAML block list item that is a scalar (`- nats`, `- "stream"`, `- nats://x:4222`),
@@ -134,6 +158,8 @@ def read_allowlist(text: str, where: str = str(ALLOW)) -> tuple[Allowlist, list[
             problems.append(f"allowlist: {where}:{n}: {host} has no reason")
         elif not re.fullmatch(rf"(?:{HOST_LABEL}\.)+{HOST_LABEL}", host):
             problems.append(f"allowlist: {where}:{n}: {host} is not a host name")
+        elif host.rsplit(".", 1)[-1] in HOME_TLDS:
+            problems.append(f"allowlist: {where}:{n}: {host} is a home network's name, never a public host")
         elif host in entries:
             problems.append(f"allowlist: {where}:{n}: {host} is listed twice")
         else:
@@ -160,7 +186,7 @@ def addresses(line: str) -> list[str]:
 
 def hosts(line: str, allow: Allowlist) -> list[str]:
     """The host names on a line that are not placeholders, in-cluster or allowed."""
-    names = [m.group(1) for m in URL_HOST.finditer(line)] + [m.group(1) for m in BARE_HOST.finditer(line)]
+    names = [m.group(1) for m in (*URL_HOST.finditer(line), *USER_HOST.finditer(line), *BARE_HOST.finditer(line))]
     found: list[str] = []
     for name in names:
         host = name.lower().rstrip(".")
@@ -170,6 +196,11 @@ def hosts(line: str, allow: Allowlist) -> list[str]:
             continue
         found.append(host)
     return found
+
+
+def contexts(line: str) -> list[str]:
+    """The cluster contexts on a line that are not placeholders."""
+    return [m.group(1) for m in CONTEXT.finditer(line) if not CONTEXT_PLACEHOLDER.match(m.group(1))]
 
 
 def command_lines(path: str, lines: list[str]) -> list[tuple[int, str]]:
@@ -236,10 +267,12 @@ def scan(path: str, text: str, allow: Allowlist) -> list[str]:
                 f"host: {path}:{n}: {h} is not a placeholder; use example.com, or allow a public host "
                 f"in {ALLOW} with a reason"
             )
+        for c in contexts(line):
+            problems.append(f"context: {path}:{n}: {c} names a cluster context; use my-cluster")
     if path != BOOTSTRAP:
         define = NATS_DEFINE_PY if path.endswith(".py") else NATS_DEFINE
         for n, line in command_lines(path, lines):
-            if define.search(line):
+            if define.search(line) or JS_API_DEFINE.search(line):
                 problems.append(
                     f"bootstrap: {path}:{n}: streams and buckets are added or changed only by {BOOTSTRAP}"
                 )
@@ -254,29 +287,40 @@ def files(root: Path) -> list[str]:
         check=True,
         capture_output=True,
     ).stdout.decode()
-    return sorted({p for p in out.split("\0") if p and (root / p).is_file()})
+    return sorted({p for p in out.split("\0") if p and ((root / p).is_symlink() or (root / p).is_file())})
 
 
-def read_text(path: Path) -> str | None:
-    """A file's text, or None for a binary file."""
-    data = path.read_bytes()
-    if b"\0" in data:
-        return None
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
+def skipped(path: str, paths: set[str]) -> str | None:
+    """Why a file is not read, or None when it is."""
+    name = PurePosixPath(path)
+    if name.suffix.lower() in BINARY_EXTENSIONS:
+        return "binary"
+    if name.name in GO_MODULE_FILES:
+        beside = GO_MODULE_FILES[name.name]
+        if beside is None or str(name.with_name(beside)) in paths:
+            return "Go module"
+    return None
+
+
+def read_text(path: Path) -> str:
+    """A file's text, whatever its bytes; for a symlink, the path it points to, as
+    git stores it."""
+    if path.is_symlink():
+        return os.readlink(path)
+    return path.read_bytes().decode("utf-8", errors="replace")
 
 
 def main(root: Path = ROOT) -> int:
     allow, problems = read_allowlist((root / ALLOW).read_text(encoding="utf-8"))
     scanned = 0
-    for p in files(root):
-        if Path(p).name in SKIPPED_NAMES:
+    paths = files(root)
+    known = set(paths)
+    skips: list[str] = []
+    for p in paths:
+        if why := skipped(p, known):
+            skips.append(f"{p} ({why})")
             continue
         text = read_text(root / p)
-        if text is None:
-            continue
         scanned += 1
         # The allowlist names every entry, so it is read against a copy: its own
         # lines would otherwise count each entry as used. Its addresses and its
@@ -284,6 +328,8 @@ def main(root: Path = ROOT) -> int:
         problems += scan(p, text, Allowlist(dict(allow.entries)) if p == str(ALLOW) else allow)
     for host in sorted(set(allow.entries) - allow.used):
         problems.append(f"allowlist: {ALLOW}:{allow.entries[host]}: {host} is used by no file; remove it")
+    if skips:
+        print(f"private-scan: not read: {', '.join(skips)}")
     for p in problems:
         print(p, file=sys.stderr)
     if problems:

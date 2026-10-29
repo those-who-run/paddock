@@ -29,16 +29,18 @@ In what the base and each component render to
 A Namespace object, `hostPath` volumes, node affinity and Secret objects are
 rules for the base as well, but nothing checks them yet.
 
-In every text file git knows, Markdown, docs and ADRs included
+In every file git knows, Markdown, docs and ADRs included
 ([`scripts/private_scan.py`](../scripts/private_scan.py)):
 
 | Rule | Why |
 |---|---|
 | `address`: no IPv4 address outside `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` and loopback (`0.0.0.0` too, which is every interface) | The repository is public, and an address names someone's machine. The three documentation ranges never route anywhere, so examples use `192.0.2.x`. |
 | `host`: no host name except placeholders (`example.com`, `*.example`, `cluster.local` for in-cluster names, and the other names RFC 2606 and 6761 reserve; not `.local`, which is mDNS, a home network's real names), names with no dot (an in-cluster Service, `localhost`), and the public hosts in [`scripts/private_scan.allow`](../scripts/private_scan.allow) | A host name points at someone's setup just as an address does. A public host the docs need (a registry, a specification) goes in the allowlist with the reason it is there. |
-| `bootstrap`: no command that adds or edits a JetStream stream, KV bucket or object store with the `nats` CLI anywhere but [`nats/bootstrap.sh`](nats/bootstrap.sh) | The streams and buckets are declared once, in [`nats/`](nats/README.md), and created only by the bootstrap. A second place that creates them drifts from the files and from what compose and the cluster run. |
+| `context`: no cluster context after `--context`, `use-context` or `current-context:` but a placeholder (`my-cluster`, `<context>`, a template) | A context names one cluster and the machine that reaches it. |
+| `bootstrap`: no command that adds, edits, copies or restores a JetStream stream, KV bucket or object store with the `nats` CLI, and no request to `$JS.API.STREAM.CREATE` or `UPDATE`, anywhere but [`nats/bootstrap.sh`](nats/bootstrap.sh) | The streams and buckets are declared once, in [`nats/`](nats/README.md), and created only by the bootstrap. A second place that creates them drifts from the files and from what compose and the cluster run. |
 
-The `host` rule reads the host of every URL, and every other dotted name that
+The `host` rule reads the host of every URL and after every `user@`, whatever
+its top-level domain, and every other dotted name that
 ends in a common top-level domain or a home network's suffix (`.com`, `.io`,
 `.dev`, `.lan`, `.local`, `.lab`, `.arpa` and the others in the script),
 wildcards (`*.`) and a leading dot (a `NO_PROXY` entry) included. File names
@@ -48,8 +50,20 @@ not comments or prose, so a page can still say what the bootstrap runs. A
 command continued with a backslash, or written as a YAML list (a Job's
 `args:`), counts as one.
 
-Go's `go.mod`, `go.sum`, `go.work` and `go.work.sum` are not scanned: they
-list module paths, not hosts a deployment reaches, and `go mod` writes them.
+Every file is read whatever its encoding: a NUL byte or bytes that are not UTF-8
+don't hide the rest. A symlink is read as git stores it, as the path it points
+to. Two kinds of file are not read, and the scan's output lists each one it
+leaves out:
+
+- images, fonts, PDFs and archives, by extension: they hold no text to read;
+- a Go module's own files: `go.mod`, a `go.sum` beside a `go.mod`, `go.work`,
+  and a `go.work.sum` beside a `go.work`. They list module paths, not hosts a
+  deployment reaches, and `go` writes them. A `go.sum` anywhere else is read.
+
+Known false positives: a four-part version written without its `v` is read as
+an address, and so is a private range in a generic NetworkPolicy's `except:`
+list. Write the version with its `v`; a base has no reason to list private
+ranges, so a NetworkPolicy that needs one belongs in the overlay.
 
 When the scan fails:
 
@@ -59,5 +73,7 @@ When the scan fails:
   maintainer rather than editing or allowlisting it;
 - on a public host that a doc or a manifest needs, add it to
   `scripts/private_scan.allow` with its reason. An entry allows the host and
-  the names under it, so add the narrowest one. An entry no file uses fails
+  the names under it, so add the narrowest one. The allowlist refuses a name
+  under a home network's suffix (`.lan`, `.local`, `.internal` and the others
+  in the script). An entry no file uses fails
   the scan, so remove it with the last use.
