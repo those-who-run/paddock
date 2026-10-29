@@ -1,0 +1,42 @@
+# The v1 recordings in this directory, which the compose stack's replay (paddock#39)
+# and the parity harness (paddock#40, parity/) share. Each is copied unchanged from
+# v1, those-who-run/those-who-run at tag v1.0.0 (README.md).
+# tests/test_recordings.py fails when a file here has no entry, an entry has no file,
+# or a file and its entry disagree; the harness refuses a listed recording whose
+# sha256 is not the one here.
+#
+#   file    the file in this directory
+#   v1      where it is in v1 at v1.0.0; the same name
+#   sha256  its sha256, which is the v1 file's
+#   frames  its frames, one per line
+#   entry   its entry in v1's tests/fixtures/FIXTURES.yaml at v1.0.0, which says
+#           what was driven and what it pins
+#
+# The format is this subset of YAML, which the test and the harness both read: a
+# list under `fixtures:`, one `key: value` per line. It is salsa's testdata/v1
+# index, so an entry can be copied between the two.
+
+fixtures:
+  - file: real-race-2laps-2026-10-14.jsonl.gz
+    v1: tests/fixtures/real-race-2laps-2026-10-14.jsonl.gz
+    sha256: 151f7585db71d6239ef47ce845b45b935e632cbcc5a268169e820e439f33d8af
+    frames: 333
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L27-L43
+
+  - file: real-nuc-suzuka-no-stop-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-suzuka-no-stop-2026-10-15.jsonl.gz
+    sha256: 0477116644a19ab97aac4c19dbecaa4129ee691c57378562cf36c7a094c4aeaa
+    frames: 884
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L100-L115
+
+  - file: real-nuc-suzuka-pit-stop-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-suzuka-pit-stop-2026-10-15.jsonl.gz
+    sha256: 9684c2ee9e1da825b0870b22bfec81ecff833a3ae20e523c0efc61e8863e5bdb
+    frames: 874
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L117-L131
+
+  - file: real-nuc-sugo-restarts-2026-10-18.jsonl.gz
+    v1: tests/fixtures/real-nuc-sugo-restarts-2026-10-18.jsonl.gz
+    sha256: 0904894844e98a089ba1d85eb7047a067f9ef8a14b50d83fab85b347b0070b0d
+    frames: 1221
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L334-L350
