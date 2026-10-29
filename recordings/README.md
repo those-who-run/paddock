@@ -4,7 +4,7 @@ v1 recordings copied unchanged from
 [those-who-run/those-who-run](https://github.com/those-who-run/those-who-run) at
 tag `v1.0.0`, `tests/fixtures/`. They are the one copy in `paddock`: the compose
 stack's replay (#39) and the parity harness ([`parity/`](../parity/README.md),
-#40) both read them from here, so CI fetches nothing from other repositories at
+#40, #104) both read them from here, so CI fetches nothing from other repositories at
 run time. They are GPL-3.0, like `paddock` and v1. Each is a real drive cut down
 with v1's `those-who-run thin`; its entry in v1's
 [`FIXTURES.yaml`](https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml)
@@ -23,6 +23,10 @@ listed or when an entry has no file.
   with a stop. The harness's pit stop (#40 R4).
 - `real-nuc-sugo-restarts-2026-10-18.jsonl.gz`: three two-lap races at SUGO,
   restarted on lap 2 and then on lap 1. The harness's restarts (#40 R4).
+
+The other 21 are the rest of v1's recordings at `v1.0.0`, for
+`parity events` (#104): each of v1's fixtures through both sides. What each
+holds is in its v1 entry.
 
 To add one, copy it unchanged from v1's `tests/fixtures/` at `v1.0.0` (in a
 v1 checkout, `git show v1.0.0:tests/fixtures/<file> > <paddock>/recordings/<file>`)

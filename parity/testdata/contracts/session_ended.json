@@ -1,0 +1,14 @@
+{
+  "sessionId": "01JB8Z3K5Q9T2M7XW4R6N1PDHE",
+  "reason": "END_REASON_FINISHED",
+  "summary": {
+    "lapsCompleted": 10,
+    "bestLap": 4,
+    "bestLapTimeMs": 97412,
+    "finishingPosition": 1,
+    "fuelUsed": 37.625,
+    "finalPosition": 1,
+    "sessionType": "SESSION_TYPE_LAP_RACE"
+  },
+  "lastSeq": 61840
+}

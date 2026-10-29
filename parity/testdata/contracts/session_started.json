@@ -1,0 +1,15 @@
+{
+  "sessionId": "01JB8Z3K5Q9T2M7XW4R6N1PDHE",
+  "source": "live",
+  "game": "GAME_GT7",
+  "sessionType": "SESSION_TYPE_LAP_RACE",
+  "carCode": 3431,
+  "totalLaps": 10,
+  "joinedPartWay": false,
+  "firstSeq": 1200,
+  "startedAt": "2026-10-26T19:30:05.250Z",
+  "fuelAtStart": 100,
+  "carName": "Honda Civic Si Group A version '87",
+  "frameTrackId": 442,
+  "fuelCapacity": 100
+}

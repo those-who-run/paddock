@@ -1,0 +1,19 @@
+{
+  "sessionId": "01JB9QZ4V3X8M2K7T5R1N6PDWA",
+  "track": {
+    "trackId": 442,
+    "name": "Suzuka Circuit East Course",
+    "confidence": "TRACK_CONFIDENCE_CONFIRMED",
+    "evidence": "finish line crossed, a full lap fits the layout (1.00)",
+    "candidates": [
+      {
+        "trackId": 442,
+        "name": "Suzuka Circuit East Course",
+        "fit": 0.995,
+        "lineCrossed": true
+      }
+    ]
+  },
+  "at": 4790,
+  "runId": "01JB9QYR2T6W8Y1A3C5E7G9HKM"
+}

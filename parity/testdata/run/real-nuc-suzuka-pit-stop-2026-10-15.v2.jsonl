@@ -1,0 +1,15 @@
+{"type":"session.started","part":1,"session":1,"at":42,"fields":{"car_code":683,"joined_on_lap":null,"total_laps":6}}
+{"type":"session.track","part":1,"session":1,"at":42,"fields":{"confidence":"ambiguous","family":"","name":"","track_id":null}}
+{"type":"session.kind","part":1,"session":1,"at":42,"fields":{"cars_on_track":true,"evidence":"6 laps, 2 cars; fuel use not known yet","field":true,"fuel_use":"unknown","kind":"lap_race","start":"unknown","total_laps":6}}
+{"type":"session.kind","part":1,"session":1,"at":44,"fields":{"cars_on_track":true,"evidence":"6 laps, 2 cars; fuel use on; rolling start at 128 km/h","field":true,"fuel_use":"on","kind":"lap_race","start":"rolling","total_laps":6}}
+{"type":"session.track","part":1,"session":1,"at":160,"fields":{"confidence":"confirmed","family":"","name":"Suzuka Circuit East Course","track_id":442}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":1,"lap_time_ms":57109,"pit_role":null}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":2,"lap_time_ms":60538,"pit_role":null}}
+{"type":"pit.entered","part":1,"session":1,"at":455,"fields":{"fuel_before":22.899,"in_lap":3,"position_before":1,"stop":1}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":3,"lap_time_ms":82544,"pit_role":null}}
+{"type":"pit.exited","part":1,"session":1,"at":486,"fields":{"fuel_added":77.1,"fuel_after":99.999,"fuel_before":22.899,"in_lap":3,"out_lap":4,"pit_lane_ms":12160,"position_after":1,"position_before":1,"stationary_ms":8390,"stint":2,"stop":1,"tyres_changed":false}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":4,"lap_time_ms":69892,"pit_role":null}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":5,"lap_time_ms":59541,"pit_role":null}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":6,"lap_time_ms":60310,"pit_role":null}}
+{"type":"race.finished","part":1,"session":1,"at":843,"fields":{"kind":"flag","lap":6,"position":1}}
+{"type":"session.ended","part":1,"session":1,"at":843,"fields":{"finished":true,"reason":"finished"}}

@@ -40,6 +40,7 @@ help:
 	@echo "nats-it - deploy/nats/bootstrap.sh twice against a real nats-server -js, and what the streams capture"
 	@echo "compose-it - the walking skeleton from nothing: up, NATS, the bootstrap, logbook's health, export, reset"
 	@echo "parity - the parity harness on its three default recordings, v1's laps against v2's (CI's parity-laps job)"
+	@echo "parity-events - every recording's events and callouts, v1's against v2's off the bus (CI's parity-events job)"
 	@echo
 	@echo "The walking skeleton on this machine (deploy/compose/README.md):"
 	@echo "up     - start nats, run the stream and KV bootstrap, start logbook and wait for its /healthz"
@@ -102,6 +103,14 @@ compose-it:
 .PHONY: parity
 parity:
 	$(MAKE) -C parity laps
+
+# The events and callouts each side decided, on every recording paddock keeps
+# (paddock#104), as CI's parity-events job runs it. The restart pair is left out
+# until ecu continues a session after a restart (#76): `make -C parity events
+# RUNS=--all` runs it too.
+.PHONY: parity-events
+parity-events:
+	$(MAKE) -C parity events RUNS="$$(cd recordings && ls *.jsonl.gz | tr '\n' ' ')"
 
 # The walking skeleton. Each target prints the commands it runs.
 

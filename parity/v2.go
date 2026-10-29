@@ -28,6 +28,9 @@ type v2Side struct {
 	// settle is how long its laps_written must stay still to count as done when
 	// the other side's lap count isn't reached, and quiet how long once it is.
 	wait, settle, quiet, poll time.Duration
+	// nats is NATS as compose publishes it, and listen how the checker listens.
+	nats   string
+	listen listenFunc
 }
 
 // logbookHealth is the part of logbook's /healthz the harness reads.
@@ -161,4 +164,85 @@ func (s *v2Side) health(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return h.Laps, nil
+}
+
+// eventSubjects are what the checker listens to (R1): every event and callout
+// under the harness's source.
+var eventSubjects = []string{"twr.v1.parity.evt.>", "twr.v1.parity.callout.>"}
+
+// Events replays the run's recordings, in order, through a fresh stack, with the
+// checker listening on the bus from before the first frame (R1, R6): ecu's
+// decisions as it publishes them, not as a store keeps them. Each recording is a
+// part: ecu's frame count starts again with each replay.
+func (s *v2Side) Events(ctx context.Context, run Run) (items []Item, err error) {
+	project := "parity-" + safeName(run.Stem())
+	if _, err := s.run(ctx, s.stack(project, "down", "--volumes", "--remove-orphans")...); err != nil {
+		return nil, err
+	}
+	defer func() {
+		args := []string{"down", "--volumes", "--remove-orphans"}
+		if s.keep {
+			args = []string{"stop"}
+			_, _ = fmt.Fprintf(s.log, "parity: kept v2's stack, compose project %s (stopped, volumes kept)\n", project)
+		}
+		if _, downErr := s.run(context.WithoutCancel(ctx), s.stack(project, args...)...); downErr != nil && err == nil {
+			err = downErr
+		}
+	}()
+	if _, err := s.run(ctx, s.stack(project, "up", "-d")...); err != nil {
+		return nil, fmt.Errorf("v2 up: %w", err)
+	}
+	// logbook answers once the bootstrap has made the streams: ecu's publishes
+	// need them.
+	if _, err := s.waitLaps(ctx, -1); err != nil {
+		return nil, fmt.Errorf("v2: logbook not healthy: %w", err)
+	}
+	l, err := s.listen(s.nats, eventSubjects...)
+	if err != nil {
+		return nil, fmt.Errorf("v2: listening on %s: %w", s.nats, err)
+	}
+	defer l.Close()
+	sessions, seen := map[string]int{}, map[string]bool{}
+	heard := 0
+	for i, rec := range run.Recordings {
+		inside := "/recording/" + rec.Name
+		if _, err := s.run(ctx, s.stack(project, "run", "--rm", "--no-deps", "-T",
+			"-v", rec.Path+":"+inside+":ro,z",
+			"replay", "replay", "--src", "parity", "--speed", "max", inside)...); err != nil {
+			return nil, fmt.Errorf("v2 replay: %w", err)
+		}
+		msgs, err := s.waitQuiet(ctx, l)
+		if err != nil {
+			return nil, fmt.Errorf("v2: listening: %w", err)
+		}
+		part, err := v2Items(msgs[heard:], i+1, sessions, seen)
+		if err != nil {
+			return nil, fmt.Errorf("v2: %w", err)
+		}
+		heard = len(msgs)
+		items = append(items, part...)
+	}
+	return items, nil
+}
+
+// waitQuiet returns what the checker has heard once nothing new has come for
+// quiet. ecu has published everything when its replay exits, so this is only the
+// last messages' way to the checker.
+func (s *v2Side) waitQuiet(ctx context.Context, l listener) ([]busMsg, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.wait)
+	defer cancel()
+	last, since := -1, time.Now()
+	for {
+		msgs := l.Taken()
+		if len(msgs) != last {
+			last, since = len(msgs), time.Now()
+		} else if time.Since(since) >= s.quiet {
+			return msgs, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(s.poll):
+		}
+	}
 }

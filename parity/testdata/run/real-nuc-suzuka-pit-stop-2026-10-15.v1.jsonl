@@ -1,0 +1,30 @@
+{"type": "session.started", "part": 1, "session": 1, "at": 42, "fields": {"car_code": 683, "total_laps": 6, "joined_on_lap": null}}
+{"type": "session.track", "part": 1, "session": 1, "at": 42, "fields": {"track_id": null, "confidence": "ambiguous", "family": ""}}
+{"type": "session.kind", "part": 1, "session": 1, "at": 42, "fields": {"kind": "lap_race", "total_laps": 6, "field": true, "fuel_use": "unknown", "cars_on_track": true, "start": "unknown"}}
+{"type": "session.kind", "part": 1, "session": 1, "at": 44, "fields": {"kind": "lap_race", "total_laps": 6, "field": true, "fuel_use": "on", "cars_on_track": true, "start": "rolling"}}
+{"type": "session.track", "part": 1, "session": 1, "at": 160, "fields": {"track_id": 442, "confidence": "confirmed", "family": ""}}
+{"type": "lap.completed", "part": 1, "session": 1, "at": null, "fields": {"lap": 1, "lap_time_ms": 57109, "complete": true, "pit_role": "none"}}
+{"type": "lap.completed", "part": 1, "session": 1, "at": null, "fields": {"lap": 2, "lap_time_ms": 60538, "complete": true, "pit_role": "none"}}
+{"type": "pit.entered", "part": 1, "session": 1, "at": 455, "fields": {"stop": 1, "in_lap": 3, "fuel_before": 22.899, "position_before": 1}}
+{"type": "lap.completed", "part": 1, "session": 1, "at": null, "fields": {"lap": 3, "lap_time_ms": 82544, "complete": true, "pit_role": "in_lap"}}
+{"type": "pit.exited", "part": 1, "session": 1, "at": 486, "fields": {"stop": 1, "stint": 2, "in_lap": 3, "out_lap": 4, "pit_lane_ms": 12160, "stationary_ms": 8390, "fuel_before": 22.899, "fuel_after": 99.999, "fuel_added": 77.1, "tyres_changed": false, "position_before": 1, "position_after": 1}}
+{"type": "lap.completed", "part": 1, "session": 1, "at": null, "fields": {"lap": 4, "lap_time_ms": 69892, "complete": true, "pit_role": "out_lap"}}
+{"type": "lap.completed", "part": 1, "session": 1, "at": null, "fields": {"lap": 5, "lap_time_ms": 59541, "complete": true, "pit_role": "none"}}
+{"type": "lap.completed", "part": 1, "session": 1, "at": null, "fields": {"lap": 6, "lap_time_ms": 60310, "complete": true, "pit_role": "none"}}
+{"type": "race.finished", "part": 1, "session": 1, "at": 843, "fields": {"kind": "flag", "lap": 6, "position": 1}}
+{"type": "session.ended", "part": 1, "session": 1, "at": 843, "fields": {"finished": true}}
+{"type": "callout", "part": 1, "session": 1, "at": 47, "fields": {"rule": "start_brief", "kind": "template", "priority": 8, "pit_lane": "hold", "slots": null, "text": "Six laps. P one of two.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 80, "fields": {"rule": "position", "kind": "template_lost_lead", "priority": 12, "pit_lane": "drop", "slots": null, "text": "Down to second.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 112, "fields": {"rule": "position", "kind": "template_gained_lead", "priority": 12, "pit_lane": "drop", "slots": null, "text": "Up to first.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 160, "fields": {"rule": "lap_time", "kind": "delta_first", "priority": 20, "pit_lane": "hold", "slots": null, "text": "Lap one. fifty-seven point one.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 160, "fields": {"rule": "fuel", "kind": "template_pit_next", "priority": 5, "pit_lane": "speak", "slots": null, "text": "Box next lap.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 160, "fields": {"rule": "fuel", "kind": "template", "priority": 15, "pit_lane": "speak", "slots": null, "text": "Fuel. two laps remaining.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 281, "fields": {"rule": "lap_time", "kind": "delta_first", "priority": 20, "pit_lane": "hold", "slots": null, "text": "Lap two. one oh zero point five.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 281, "fields": {"rule": "fuel", "kind": "template_pit", "priority": 5, "pit_lane": "speak", "slots": null, "text": "Pit this lap.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 281, "fields": {"rule": "fuel", "kind": "template", "priority": 15, "pit_lane": "speak", "slots": null, "text": "Fuel. one lap remaining.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 455, "fields": {"rule": "lap_time", "kind": "template_in_lap", "priority": 20, "pit_lane": "hold", "slots": null, "text": "In lap, one twenty-two point five.", "outcome": "held"}}
+{"type": "callout", "part": 1, "session": 1, "at": 603, "fields": {"rule": "lap_time", "kind": "template_out_lap", "priority": 20, "pit_lane": "hold", "slots": null, "text": "Out lap, one oh nine point nine.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 722, "fields": {"rule": "lap_time", "kind": "template_new_best", "priority": 11, "pit_lane": "hold", "slots": null, "text": "Lap five. fifty-nine point five. New best by one point zero.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 722, "fields": {"rule": "final_lap", "kind": "template", "priority": 10, "pit_lane": "hold", "slots": null, "text": "Final lap.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 843, "fields": {"rule": "lap_time", "kind": "delta_slower", "priority": 20, "pit_lane": "hold", "slots": null, "text": "Lap six. one oh zero point three. zero point eight over best.", "outcome": "spoken"}}
+{"type": "callout", "part": 1, "session": 1, "at": 843, "fields": {"rule": "race_summary", "kind": "template_position_win", "priority": 25, "pit_lane": "speak", "slots": null, "text": "Chequered flag. Finished first. Best lap fifty-nine point five.", "outcome": "spoken"}}
