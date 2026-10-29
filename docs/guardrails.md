@@ -118,6 +118,12 @@ Carried from v1, and still open unless a step from the menu closes them.
   runs in the maintainer's shell or another tool. It can't see into a script
   file, a program that runs `git` or `gh` itself, or a command decoded at run
   time. CI and the rulesets are the backstop.
+- **The guard and settings are those of the directory the session started
+  in.** Claude Code loads the project settings, and so the guard, from where
+  the session starts, not from the repository a command works on. A session
+  started elsewhere that changes another repository's clone runs under the
+  wrong guard, or none. The rule is to start the session in the clone or a
+  worktree of the repository it changes ([`CLAUDE.md`](../CLAUDE.md)).
 - **Commit author addresses and trailers aren't checked.** Commits should use
   a GitHub noreply address and carry the agent trailer
   (`Co-Authored-By: ...`); nothing fails when they don't.
