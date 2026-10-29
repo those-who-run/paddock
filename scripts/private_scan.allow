@@ -15,6 +15,7 @@ npmjs.com                 The npm registry, named in the contracts ADR.
 golang.org                Go's module paths (golang.org/x/..., google.golang.org/protobuf), named in the ADRs and Go tooling.
 buf.build                 Buf's registry and documentation, for the contracts tooling.
 anthropic.com             The noreply address in the Co-Authored-By trailer of agent commits.
+claude.com                Claude Code's site, linked in the line Claude Code adds to agents' PR bodies (CLAUDE.md).
 
 # Kubernetes and Argo CD API groups and label prefixes, which are names, not hosts.
 k8s.io                    Kubernetes API groups (networking.k8s.io, kustomize.config.k8s.io).
