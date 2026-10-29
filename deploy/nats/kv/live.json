@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "live: the current state (the open session, pit status, telemetry age, each service's health), so a client that joins late reads the current value at once and then watches it (ADR 0001, point 1). Every key carries its source (live, replay-<run>, parity). Created now so its shape is reviewed with the streams; nothing writes to it before Prost (paddock#36, R3).",
+    "live: the current state (the open session, pit status, telemetry age, each service's health), so a client that joins late reads the current value at once and then watches it (ADR 0001, point 1). Every key carries its source (live, replay-<run>, parity). The keys are contracts' (subjects.yaml, paddock#72): ecu.status, ecu.session, ecu.pit and ecu.fuel of each source, written only by ecu (paddock#36, R3; paddock#73).",
     "This file is not a stream config: bootstrap.sh turns each field into the flag of the same name for nats kv add and nats kv edit.",
     "history 1: only the current value matters; a client that wants changes watches the key.",
     "max_value_size 64 KiB (65536): a value is one status message as protobuf JSON, a few hundred bytes. 64 KiB is over 100 times that and still refuses a mistaken write of something frame-sized.",

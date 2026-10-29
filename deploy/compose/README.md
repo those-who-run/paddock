@@ -53,7 +53,7 @@ sessions again beside the first; pass another `RUN`, or `make reset` first.
 | Service | Image | What |
 |---|---|---|
 | `nats` | `nats:2.15.1-alpine` | `-js -sd /data -m 8222`, JetStream on the `nats-data` volume; healthy once `/healthz?js-enabled-only=true` answers |
-| `nats-bootstrap` | `natsio/nats-box:0.20.0` | [`bootstrap.sh`](../nats/bootstrap.sh) with `deploy/nats` mounted read-only, as user 1000 on a read-only root file system, as the cluster's Job runs it (#43). It runs on every `make up` and changes nothing when the streams and bucket are already right |
+| `nats-bootstrap` | `natsio/nats-box:0.20.0` | [`bootstrap.sh`](../nats/bootstrap.sh) with `deploy/nats` mounted read-only, as user 1000 on a read-only root file system, as the cluster's Job runs it (#43). It runs on every `make up` and changes nothing when the streams and buckets are already right |
 | `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.4` | `logbook run` as user 65532 on a read-only root file system, its store on the `logbook-data` volume at `/data`; `linux/amd64` |
 | `replay` | `ghcr.io/those-who-run/twr-ecu:0.1.4` | Profile `replay`: only `make replay` or `docker compose run replay replay …` starts it. `ecu`'s own entrypoint, so its command is `ecu`'s arguments; `TWR_NATS_URL` names the server. As user 65532 on a read-only root file system, the recordings (`TWR_RECORDINGS`, `recordings/` by default) read-only at `/recordings`; `linux/amd64`. The parity harness ([`parity/`](../../parity/README.md)) runs it with `--no-deps` and its own recording mounted at `/recording/` |
 | `nats-box` | `natsio/nats-box:0.20.0` | Profile `tools`: only `make sub` or `docker compose run` starts it |
@@ -115,7 +115,7 @@ environment variable names (`NATS_URL`, `TWR_NATS_URL`, `TWR_DATA_DIR`,
   in `make check` and CI's `test` job) starts from `make reset`, runs
   `make up`, checks that only `nats` and `logbook` run and the bootstrap exited
   0, checks NATS's `/healthz` with JetStream, that the bootstrap made
-  `TELEMETRY`, `EVENTS` and the `live` bucket, and that `logbook` reports
+  `CALLOUTS`, `TELEMETRY`, `EVENTS` and the `live` and `ecu` buckets, and that `logbook` reports
   connected, and runs `make export` against the running stack. Then it runs
   `make replay FILE=real-race-2laps-2026-10-14.jsonl.gz SPEED=max`, waits
   until `logbook`'s `/healthz` counts the 4 laps v1 stored for it written and

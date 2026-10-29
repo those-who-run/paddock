@@ -19,9 +19,9 @@ checks, before anything runs:
 - every stream subject is a valid NATS subject filter, and no two of them overlap
   (a subject both would capture), in one stream or across two;
 - every stream subject covers at least one subject in contracts' ``subjects.yaml``;
-- every subject in ``subjects.yaml`` is captured whole by the stream its entry
-  names, when that stream is defined here, and by no other; a subject whose stream
-  is not defined here yet, or that names none, is captured by no stream;
+- every stream ``subjects.yaml`` names has a file, every subject there is
+  captured whole by the stream its entry names and by no other, and a subject that
+  names none is captured by no stream;
 - every KV bucket ``subjects.yaml`` names has a file.
 
 ``subjects.yaml`` is a copy of contracts' at the tag below, kept in
@@ -46,8 +46,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NATS = Path("deploy/nats")
 
-CONTRACTS_TAG = "v0.1.5"
-SUBJECTS_SHA256 = "0c7df9cb29261c79589eb618e5fa651f209f84826268c65ba86c87c815ad6a92"
+CONTRACTS_TAG = "v0.2.3"
+SUBJECTS_SHA256 = "eb4aaed845c5e4c5d39087a783c4710de2b887610522dafee86ad7cc5344a798"
 
 # The bootstrap compares only the fields a file names, so a field deleted from a
 # file would keep its old value on the server, unnoticed. Every stream file names
@@ -173,7 +173,7 @@ def stream_problems(rel: Path, s: dict) -> list[str]:
     if not (is_int(window) and window > 0):
         problems.append(f"{rel}: duplicate_window is not a positive duration")
     elif is_int(max_age) and 0 < max_age < window:
-        problems.append(f"{rel}: duplicate_window is longer than max_age, and the server would cut it to max_age")
+        problems.append(f"{rel}: duplicate_window is longer than max_age, which the server refuses")
     if not ((is_int(max_age) and max_age > 0) or (is_int(s.get("max_bytes")) and s["max_bytes"] > 0)):
         problems.append(f"{rel}: neither max_age nor max_bytes is set: the stream could fill the disk")
     return problems
@@ -268,7 +268,9 @@ def check(root: Path = ROOT) -> tuple[list[str], str]:
                 problems.append(
                     f"{e['pattern']} goes to {home or 'no stream'} in subjects.yaml, but {stream} ({f}) captures it"
                 )
-        if home in streams and not any(s == home and covers(t, p) for s, _, t in filters):
+        if home and home not in streams:
+            problems.append(f"{e['pattern']} goes to {home} in subjects.yaml, which has no file in {NATS}/streams")
+        elif home and not any(s == home and covers(t, p) for s, _, t in filters):
             problems.append(f"{e['pattern']} goes to {home} in subjects.yaml, but no subject of {home} covers all of it")
 
     bucket_files = sorted((nats / "kv").glob("*.json"))
