@@ -36,6 +36,14 @@ reads the volume and starts it again. Every port is on 127.0.0.1 only: 4222
 pinned images and the checks. Replaying a recording (`make replay`) comes with
 `ecu`'s replay (#35).
 
+## Comparing v1 and v2
+
+[`parity/`](parity/README.md) is the parity harness (#40): `parity laps`
+replays a recording through v1's image and through the compose stack, and
+compares the laps each stored. The recordings it and the stack replay are
+copied from v1 into [`recordings/`](recordings/README.md), each with its
+provenance in `SOURCES.yaml`.
+
 The roadmap is [`ROADMAP.md`](ROADMAP.md), the issue format is
 [`docs/ISSUE_FORMAT.md`](docs/ISSUE_FORMAT.md), and the decisions are in
 [`docs/adr`](docs/adr/README.md).
