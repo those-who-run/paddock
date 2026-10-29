@@ -2,7 +2,7 @@
 // recording through v1 and through v2, normalises both sides' stored laps to the
 // same lines and compares them.
 //
-//	parity laps [--v1-image IMG] [--compose FILE] [--keep] [--frames] RECORDING…
+//	parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…
 //
 // The exit code is 0 when every recording matches, 1 when any differs, and 2 when
 // the run is refused or a side fails. README.md has the detail.
@@ -43,6 +43,7 @@ type Side interface {
 type options struct {
 	v1Image string
 	compose string
+	healthz string
 	keep    bool
 	frames  bool
 }
@@ -59,7 +60,7 @@ func main() {
 
 func cli(ctx context.Context, args []string, stdout, stderr io.Writer, mk sides) int {
 	if len(args) == 0 || args[0] != "laps" {
-		_, _ = fmt.Fprintln(stderr, "usage: parity laps [--v1-image IMG] [--compose FILE] [--keep] [--frames] RECORDING…")
+		_, _ = fmt.Fprintln(stderr, "usage: parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…")
 		return exitRefused
 	}
 	return laps(ctx, args[1:], stdout, stderr, mk)
@@ -81,10 +82,13 @@ func laps(ctx context.Context, args []string, stdout, stderr io.Writer, mk sides
 		defaultCompose = filepath.Join(root, "deploy", "compose", "compose.yaml")
 	}
 	fs.StringVar(&o.compose, "compose", defaultCompose, "the compose file whose images are v2 (deploy/compose/compose.yaml)")
+	// logbook's /healthz as the compose file publishes it; it follows that port when
+	// #39's replay stack changes it.
+	fs.StringVar(&o.healthz, "healthz", "http://127.0.0.1:8080/healthz", "logbook's /healthz, as the compose file publishes it")
 	fs.BoolVar(&o.keep, "keep", false, "keep both stores and the normalised laps, and say where")
 	fs.BoolVar(&o.frames, "frames", false, "also compare the frames per lap, as notes that don't fail the run")
 	fs.Usage = func() {
-		_, _ = fmt.Fprintln(stderr, "usage: parity laps [--v1-image IMG] [--compose FILE] [--keep] [--frames] RECORDING…")
+		_, _ = fmt.Fprintln(stderr, "usage: parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…")
 		_, _ = fmt.Fprintln(stderr, "RECORDING is a path, or a file name in recordings/; with none, R4's three defaults.")
 		fs.PrintDefaults()
 	}
@@ -164,6 +168,12 @@ func compareAll(ctx context.Context, recs []Recording, v1, v2 Side, o options, s
 			_, _ = fmt.Fprintf(stderr, "parity: %s: v1: %v\n", rec.Name, err)
 			return exitRefused
 		}
+		// Nothing to compare against: a wrong image, or a recording with no lap in
+		// it, would otherwise match a v2 that stored nothing either.
+		if len(a) == 0 {
+			_, _ = fmt.Fprintf(stderr, "parity: %s: refused: v1 stored no laps\n", rec.Name)
+			return exitRefused
+		}
 		b, err := v2.Laps(ctx, rec, len(a))
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "parity: %s: v2: %v\n", rec.Name, err)
@@ -227,7 +237,7 @@ func realSides(log io.Writer) sides {
 		v1 := &v1Side{run: execRunner, container: container, image: o.v1Image, keep: o.keep, log: log}
 		v2 := &v2Side{
 			run: execRunner, compose: compose, file: o.compose, keep: o.keep, log: log,
-			healthz: "http://127.0.0.1:8080/healthz",
+			healthz: o.healthz,
 			client:  &http.Client{Timeout: 5 * time.Second},
 			wait:    5 * time.Minute, settle: 15 * time.Second, quiet: 2 * time.Second, poll: time.Second,
 		}

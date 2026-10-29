@@ -16,13 +16,16 @@ make laps RECORDINGS=real-nuc-suzuka-pit-stop-2026-10-15
 ```
 
 ```
-parity laps [--v1-image IMG] [--compose FILE] [--keep] [--frames] RECORDING…
+parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…
 ```
 
 - `--v1-image`: v1's image. The default is `muldoon/those-who-run:1.0.0`, by tag
   and by the digest of its index.
 - `--compose`: the compose file whose images are v2. The default is
   `deploy/compose/compose.yaml` in the checkout around the working directory.
+- `--healthz`: `logbook`'s `/healthz` as the compose file publishes it. The
+  default is `http://127.0.0.1:8080/healthz`; it follows the port when #39's
+  replay stack publishes another.
 - `--keep`: keep v1's store (a volume, `parity-v1-<recording>`), v2's stack
   (compose project `parity-<recording>`, stopped with its volumes), and both
   sides' normalised laps in a temporary directory. The output says where.
@@ -30,8 +33,10 @@ parity laps [--v1-image IMG] [--compose FILE] [--keep] [--frames] RECORDING…
   as a note and doesn't fail the run.
 
 The exit code is 0 when every recording matches, 1 when any differs, and 2
-when the run is refused (a bad flag, a recording whose sha256 is wrong) or a
-side fails.
+when the run is refused (a bad flag, a recording whose sha256 is wrong, a
+recording v1 stored no laps of) or a side fails. A recording v1 stored nothing
+for has nothing to compare against: a wrong `--v1-image` would otherwise match
+a v2 that stored nothing either.
 
 ## The recordings
 
@@ -95,16 +100,23 @@ the run and its lap number:
 
 - `session` is the session's place in the run (1, 2, …), in start order. Each
   side mints its own session ids, so ids are not compared.
-- Fuel (`fuel_start`, `fuel_end`, `fuel_used`) is equal within 0.001 L.
+- Fuel (`fuel_start`, `fuel_end`, `fuel_used`) is equal within 0.001 L. A
+  difference prints to 4 decimals, so a failing one never looks as if it is
+  inside the tolerance.
 - `lap_time_ms`, `complete` and `position` are equal or both null.
 - `frames` is compared only under `--frames`, as a note.
 - **Position in a solo session.** Since contracts v0.1.4, `ecu` leaves position
   out in a session with no field, where GT7 reports 1 and v1 stored it
   (paddock#276). v1's 1 in a `solo_laps` or `solo_timed` session is read as
   null.
-- A lap on one side only is a difference (`lap`, `stored` or `missing`).
+- A lap on one side only, or stored more than once on either side, is a
+  difference (`lap`, with `stored`, `missing` or `stored 2 times`).
+- Every line a side's store gives must carry every one of these keys (and
+  `session_id`). A missing key is an error, not a null or a false that could
+  match the other side's.
 
-The output is a table per recording: the sessions and laps on each side, then
+The output is a table per recording: the sessions with laps and the laps on
+each side (sessions without laps aren't in either side's lap export), then
 each difference with its session, lap, field and both values. After the tables
 comes a line saying how many recordings matched.
 
@@ -117,11 +129,12 @@ compares laps. Comparing them needs a session export from `logbook` (or the
 
 `make check` runs the Go checks in the order of `those-who-run/.github`'s
 `go.yml`: gofmt, `go mod tidy`, vet, golangci-lint, the tests (race detector,
-no skips, coverage floor 90%), build and govulncheck. The tools are pinned in
+no skips, coverage floor 90%), build and govulncheck. CI runs the same through
+`go.yml` in its `parity / check` job. The tools are pinned in
 `tools/go.mod`. The tests need no containers: the comparison runs on canned
 laps (AC2, AC3, AC4), and the two sides run against a recorded command runner
 and a fake `/healthz`.
 
 Still to come (#40): the `lap.completed` events read from `EVENTS`, so a
 difference can be pinned on `ecu` or on `logbook` (R1), and the CI job that
-runs the harness on the default recordings (R6).
+runs the harness itself on the default recordings (R6).

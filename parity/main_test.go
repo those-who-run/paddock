@@ -79,7 +79,7 @@ func TestAChangedLapsFuelPrintsThatLapAndExitsOne(t *testing.T) {
 	if code != exitDiffer {
 		t.Fatalf("exit %d, want 1\n%s%s", code, out, errOut)
 	}
-	if !regexp.MustCompile(`(?m)^\s+1\s+3\s+fuel_used\s+15\.009\s+15\.109\s*$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^\s+1\s+3\s+fuel_used\s+15\.0090\s+15\.1090\s*$`).MatchString(out) {
 		t.Errorf("no line for session 1 lap 3's fuel_used:\n%s", out)
 	}
 	if strings.Count(out, "fuel_") != 1 {
@@ -142,8 +142,12 @@ func TestTheOutputNamesTheImages(t *testing.T) {
 }
 
 func TestTheDefaultsAreR4sThree(t *testing.T) {
-	v1 := &cannedSide{images: []string{"v1"}, laps: map[string][]Lap{}}
-	v2 := &cannedSide{images: []string{"v2"}, laps: map[string][]Lap{}}
+	byName := map[string][]Lap{}
+	for _, name := range defaultRecordings {
+		byName[name] = raceLaps
+	}
+	v1 := &cannedSide{images: []string{"v1"}, laps: byName}
+	v2 := &cannedSide{images: []string{"v2"}, laps: byName}
 	code, out, errOut := runCLI(t, v1, v2)
 	if code != exitMatch {
 		t.Fatalf("exit %d\n%s%s", code, out, errOut)
@@ -166,7 +170,7 @@ func TestAMissingLapAndAnExtraSession(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	for _, re := range []string{
-		`(?m)^\s+sessions\s+1\s+2\s*$`,
+		`(?m)^\s+sessions with laps\s+1\s+2\s*$`,
 		`(?m)^\s+laps\s+4\s+4\s*$`,
 		`(?m)^\s+1\s+4\s+lap\s+stored\s+missing\s*$`,
 		`(?m)^\s+2\s+1\s+lap\s+missing\s+stored\s*$`,
@@ -249,7 +253,7 @@ func (f *failingSide) Laps(ctx context.Context, rec Recording, want int) ([]Lap,
 // A side that fails is an error (exit 2), never a match or a difference.
 func TestASideThatFailsExitsTwo(t *testing.T) {
 	boom := errors.New("boom")
-	ok := cannedSide{images: []string{"img"}, laps: map[string][]Lap{}}
+	ok := cannedSide{images: []string{"img"}, laps: map[string][]Lap{pitStop(): raceLaps}}
 	for name, s := range map[string][2]Side{
 		"v1 images": {&failingSide{cannedSide: ok, imagesErr: boom}, &failingSide{cannedSide: ok}},
 		"v2 images": {&failingSide{cannedSide: ok}, &failingSide{cannedSide: ok, imagesErr: boom}},
@@ -268,7 +272,7 @@ func TestNulls(t *testing.T) {
 	a := []Lap{{Session: 1, Lap: 1, LapTimeMs: nil, FuelUsed: nil, Position: nil}}
 	b := []Lap{{Session: 1, Lap: 1, LapTimeMs: ip(1), FuelUsed: fp(0), Position: nil}}
 	diffs := compare(a, b, false)
-	if len(diffs) != 2 || diffs[0].Field != "lap_time_ms" || diffs[0].V1 != "null" || diffs[1].Field != "fuel_used" || diffs[1].V1 != "null" || diffs[1].V2 != "0.000" {
+	if len(diffs) != 2 || diffs[0].Field != "lap_time_ms" || diffs[0].V1 != "null" || diffs[1].Field != "fuel_used" || diffs[1].V1 != "null" || diffs[1].V2 != "0.0000" {
 		t.Errorf("%+v", diffs)
 	}
 	if d := compare(a, a, false); len(d) != 0 {
@@ -279,7 +283,7 @@ func TestNulls(t *testing.T) {
 func TestTheRealSides(t *testing.T) {
 	t.Setenv("CONTAINER", "podman")
 	t.Setenv("COMPOSE", "podman compose")
-	v1, v2 := realSides(&bytes.Buffer{})(options{v1Image: "v1:img", compose: "/c.yaml", keep: true})
+	v1, v2 := realSides(&bytes.Buffer{})(options{v1Image: "v1:img", compose: "/c.yaml", healthz: "http://127.0.0.1:8080/healthz", keep: true})
 	if s := v1.(*v1Side); s.container != "podman" || s.image != "v1:img" || !s.keep {
 		t.Errorf("%+v", s)
 	}
@@ -300,5 +304,62 @@ func TestTheRealSides(t *testing.T) {
 func TestTheDefaultV1ImageIsPinned(t *testing.T) {
 	if !regexp.MustCompile(`^docker\.io/muldoon/those-who-run:1\.0\.0@sha256:[0-9a-f]{64}$`).MatchString(defaultV1Image) {
 		t.Errorf("%s", defaultV1Image)
+	}
+}
+
+// A lap stored twice on one side is a difference, not a lap overwritten by its copy.
+func TestALapStoredTwiceIsADifference(t *testing.T) {
+	twice := append(clone(raceLaps), raceLaps[1])
+	for name, sides := range map[string][2][]Lap{"v2": {raceLaps, twice}, "v1": {twice, raceLaps}} {
+		v1, v2 := sidesWith(sides[0], sides[1])
+		code, out, _ := runCLI(t, v1, v2, pitStop())
+		if code != exitDiffer {
+			t.Errorf("twice on %s: exit %d\n%s", name, code, out)
+		}
+		want := `(?m)^\s+1\s+2\s+lap\s+stored\s+stored 2 times\s*$`
+		if name == "v1" {
+			want = `(?m)^\s+1\s+2\s+lap\s+stored 2 times\s+stored\s*$`
+		}
+		if !regexp.MustCompile(want).MatchString(out) || strings.Count(out, "\n  differ: 1 difference") != 1 {
+			t.Errorf("twice on %s:\n%s", name, out)
+		}
+	}
+}
+
+// A recording v1 stored no laps of is refused, not matched against an empty v2.
+func TestNoV1LapsIsRefused(t *testing.T) {
+	v1, v2 := sidesWith(nil, nil)
+	code, out, errOut := runCLI(t, v1, v2, pitStop())
+	if code != exitRefused || !strings.Contains(errOut, "refused: v1 stored no laps") {
+		t.Fatalf("exit %d\n%s%s", code, out, errOut)
+	}
+	if v2.calls != 1 { // its images, and no replay
+		t.Errorf("v2 called %d times", v2.calls)
+	}
+	if strings.Contains(out, "match") {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+// Every one of R2's keys must be on a stored lap's line.
+func TestAMissingKeyIsAnError(t *testing.T) {
+	line := `{"session_id":"s","lap":1,"lap_time_ms":null,"complete":false,"fuel_start":1,"fuel_end":1,"fuel_used":0,"position":null,"frames":3}`
+	if _, err := readStoredLaps([]byte(line + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range storedKeys {
+		re := regexp.MustCompile(`"` + k + `":[^,}]*,?`)
+		cut := re.ReplaceAllString(line, "")
+		cut = strings.Replace(cut, ",}", "}", 1)
+		if _, err := readStoredLaps([]byte(cut + "\n")); err == nil || !strings.Contains(err.Error(), "no "+k) {
+			t.Errorf("without %s (%s): %v", k, cut, err)
+		}
+	}
+}
+
+func TestFuelPrintsToFourDecimals(t *testing.T) {
+	d := compare([]Lap{{Session: 1, Lap: 1, FuelUsed: fp(95)}}, []Lap{{Session: 1, Lap: 1, FuelUsed: fp(95.0011)}}, false)
+	if len(d) != 1 || d[0].V1 != "95.0000" || d[0].V2 != "95.0011" {
+		t.Errorf("%+v", d)
 	}
 }

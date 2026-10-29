@@ -62,3 +62,17 @@ jobs:
     permissions:
       contents: read
     uses: those-who-run/.github/.github/workflows/checks.yml@efe1d025f15953f06415e0365aa2e5bc659af599 # v0.2.14
+
+  # The parity harness (parity/, paddock#40), a Go module of its own: gofmt, go mod
+  # tidy, go vet, golangci-lint, the tests with the race detector and the coverage
+  # floor, go build and govulncheck, as `make -C parity check` runs them, behind the
+  # Go test guard. It reports as `parity / check`. The harness's own run on the
+  # default recordings comes with ecu's replay in compose (paddock#39).
+  parity:
+    permissions:
+      contents: read
+      pull-requests: read # the weakened-tests check reads the PR's description
+    uses: those-who-run/.github/.github/workflows/go.yml@efe1d025f15953f06415e0365aa2e5bc659af599 # v0.2.14
+    with:
+      working-directory: parity
+      coverage-floor: 90

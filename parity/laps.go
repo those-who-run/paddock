@@ -45,6 +45,13 @@ type storedLap struct {
 // so v1's 1 in these sessions is compared as absent.
 var soloKinds = map[string]bool{"solo_laps": true, "solo_timed": true}
 
+// storedKeys are the keys every stored lap must carry: R2's and the frames. A key
+// missing (renamed in a later logbook, say) is an error, not a null or a false that
+// could match the other side's.
+var storedKeys = []string{
+	"session_id", "lap", "lap_time_ms", "complete", "fuel_start", "fuel_end", "fuel_used", "position", "frames",
+}
+
 // readStoredLaps reads JSON lines, one lap each, in the store's order: by session
 // start, then lap.
 func readStoredLaps(b []byte) ([]storedLap, error) {
@@ -55,6 +62,15 @@ func readStoredLaps(b []byte) ([]storedLap, error) {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
 			continue
+		}
+		var keys map[string]json.RawMessage
+		if err := json.Unmarshal(line, &keys); err != nil {
+			return nil, fmt.Errorf("line %d: %w", n, err)
+		}
+		for _, k := range storedKeys {
+			if _, ok := keys[k]; !ok {
+				return nil, fmt.Errorf("line %d: no %s", n, k)
+			}
 		}
 		var l storedLap
 		if err := json.Unmarshal(line, &l); err != nil {
