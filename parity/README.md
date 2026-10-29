@@ -188,27 +188,44 @@ names and values (snake case, enum names without their prefix in lower case,
   whether it is complete and its pit role), `race.finished`, `session.ended`
   (finished) and `callout` (rule, kind, priority, pit lane and slots). Text and
   v1's pit-lane outcome (spoken, held or dropped) are shown, not compared.
-- A callout's kind on v1's side is the first phrase key its rule picked for it,
-  and its pit lane the rule's `pit_lane`. v1 phrases words, not numbers, so its
-  slots are `null` and not compared; a rule's port (#91 to #98) adds its slots
-  to `v1events.py`, and from then on they are.
+- A callout's kind on v1's side is the kind contracts v0.2.3 names for it
+  (`callout_kind` in `v1events.py`, from the phrase keys its rule picked, with
+  a situational pool counting as the rule chose it): `start_brief` is
+  `template`, `template_track` or `template_joined`; `race_summary` the key of
+  its `{position}`, else `template_quit`, else `template`; the others their
+  first key (`lap_time`'s `{delta}` key, a new best's own). Its pit lane is the
+  rule's `pit_lane` policy, not v1's held or dropped outcome, which waits for
+  radio's #59. A callout v1 raised in the pit lane and dropped is left out, as
+  ecu never publishes one (contracts' `PitLane`). v1 phrases words, not
+  numbers, so its slots are `null` and not compared; a rule's port (#91 to #98)
+  adds its slots to `v1events.py`, and from then on they are.
+- A start v1 held for GT7's cars-on-track flag and then ignored as a replay or
+  a demo gives a `start.ignored` item on v1's side, with the frame the start
+  was on. It is no event and is not compared: the start check's accepted entry
+  reads it.
 
 **Matching** (R2): items pair by part, type, a callout's rule or a lap's number,
 and frame, within the type's frame tolerance (`frameTolerance`, zero for every
 type until one has a written reason). Two callouts of one rule on one frame pair
-by kind. Numbers compare within a field's tolerance (fuel 0.001 L, pit times
+by kind. v1 may apply two tracks on one frame (the one carried from the last
+race, then the frame's own) where ecu publishes the frame's last, so only v1's
+last track of a frame is compared; two of ecu's on one frame are a difference.
+Numbers compare within a field's tolerance (fuel 0.001 L, pit times
 10 ms, v1's rounding), the rest exactly. An item on one side only is a
 difference. v2's items of a type v1's side doesn't give yet (`race.position`,
 say) are counted and named, not compared.
 
 **Accepted differences** (R4) are in [`accepted.go`](accepted.go), the one
 reviewed list, each with its reason and the issue that accepted it: a position
-of 1 outside a field (#276), a session cut after its timed finish (ecu#32), and
-what `ecu` does not do yet (pit roles #83, joined part way #75, the start check
-#74, callouts #89). An entry for something still to do is removed by the PR that
-does it. The fields left out on purpose (v1's session type, which `kind`
-replaces, the end reason v1 never stored, the callout's text) are listed there
-too. Any other difference fails the run.
+of 1 outside a field (#276), and what `ecu` does not do yet (pit roles #83,
+joined part way #75, the start check #74, only for a session that started where
+v1 ignored a start, and callouts #89, only while v2 publishes none). An entry
+for something still to do is removed by the PR that does it. The fields left out
+on purpose (v1's session type, which `kind` replaces, the end reason v1 never
+stored, the callout's text) are listed there too. Any other difference fails
+the run. After the table, each entry that allowed no difference is named; when
+the runs cover every recording in `recordings/` (CI's, and `--all`), such an
+entry is stale and fails the run until it is removed.
 
 **The output** lists each run's differences, a line each with the part, the
 frame (`843/844` where a tolerance let them differ), the session, the item, the

@@ -18,8 +18,11 @@ Each line is an item: its type, the recording's place in the run (part, from 1),
 the session's place in the run (from 1; 0 with none open), the frame it happened
 on (at, counted from 1 in its recording, as ecu's seq is in a replay) and its
 fields, in v2's names and values. lap.completed has no at: a lap is matched by its
-number.
+number. A start v1 ignored (a replay or a demo) is a start.ignored item, which is
+no event: the harness takes it out and its start check entry reads it.
 """
+
+from __future__ import annotations
 
 import copy
 import json
@@ -27,17 +30,35 @@ import sys
 import tempfile
 from pathlib import Path
 
-from those_who_run.callouts import CalloutQueue
-from those_who_run.config import DEFAULT_RULES, validate_templates
-from those_who_run.engine import Engine
-from those_who_run.replay import read_recording
-from those_who_run.rules import build_rules
-from those_who_run.store import SessionStore
-
 # v1's lap roles, as LapCompleted.pit_role names them.
 PIT_ROLES = {None: "none", "in": "in_lap", "out": "out_lap", "in_out": "in_and_out"}
 # v1's fuel use, as SessionKind.fuel_use names it.
 FUEL_USE = {None: "unknown", True: "on", False: "off"}
+
+
+def callout_kind(rule: str, keys: list[str], briefed: bool) -> str:
+    """The kind contracts v0.2.3 names for a callout (Callout's comment, "The kinds
+    ecu sends, by rule"), from the phrase keys its rule picked for it, in order. A
+    situational pool counts as the rule chose it, configured or not: ecu owns the
+    settings that choose it. briefed: start_brief had briefed before this frame.
+
+    - start_brief: template for the brief, template_joined for a joined brief,
+      template_track for the track named after the brief.
+    - race_summary: the key that fills {position}; else template_quit for leaving
+      a solo session; else template (no field, no position said).
+    - every other rule: the first key, which is the one its sentence turns on
+      (lap_time's {delta} before its template, a new best's own template).
+    """
+    if rule == "start_brief":
+        if "template_joined" in keys:
+            return "template_joined"
+        return "template_track" if briefed else "template"
+    if rule == "race_summary":
+        position = [k for k in keys if k.startswith("template_position")]
+        if position:
+            return position[0]
+        return "template_quit" if "template_quit" in keys else "template"
+    return keys[0] if keys else ""
 
 
 def secs_ms(secs):
@@ -60,8 +81,11 @@ class Run:
         self.seen: dict[int, int] = {}  # id(state) of a stepped frame: its frame
         self.entry_at: int | None = None  # the frame of the open pit entry
         self.teleports = 0
-        self.raised: list = []  # each callout: it, part, session, frame, keys, pit lane
+        self.raised: list = []  # each callout: it, part, session, frame, kind, pit lane
         self.outcome: dict[int, str] = {}  # id(callout): held or dropped in the pit lane
+        self.at_entry = False  # in _apply_pits: the queue sorted at a pit entry
+        self.line = 0  # the recording's line engine.process is on
+        self.held_at: int | None = None  # the line of the start v1 holds
 
     def session(self, store: SessionStore) -> int:
         s = store.session
@@ -71,6 +95,14 @@ class Run:
         return self.seen.get(id(state), self.frame)
 
     def replay(self, path: Path, last: bool) -> None:
+        # Here, not at the top: the module's pure parts are tested without v1.
+        from those_who_run.callouts import CalloutQueue
+        from those_who_run.config import DEFAULT_RULES, validate_templates
+        from those_who_run.engine import Engine
+        from those_who_run.replay import read_recording
+        from those_who_run.rules import build_rules
+        from those_who_run.store import SessionStore
+
         self.part += 1
         part = self.part
         states = list(read_recording(path, strict=True))
@@ -78,6 +110,7 @@ class Run:
         for n, s in enumerate(states, 1):
             self.frame_of.setdefault((s.packet_id, s.t), []).append(n)
         self.seen = {}
+        self.line, self.held_at = 0, None
         store = SessionStore(self.store_dir)
         cfg = copy.deepcopy(DEFAULT_RULES)
         validate_templates(cfg)
@@ -219,7 +252,11 @@ class Run:
                     position_after=stop["position_after"],
                 )
             self.teleports = len(status.teleports)
-            return apply_pits(status, state)
+            self.at_entry = True  # what _quiet sorts now was queued before the entry
+            try:
+                return apply_pits(status, state)
+            finally:
+                self.at_entry = False
 
         engine._apply_pits = _apply_pits
 
@@ -238,10 +275,33 @@ class Run:
             spoken = {id(c) for c in out}
             for c in callouts:
                 if id(c) not in spoken:
-                    self.outcome[id(c)] = {"hold": "held", "drop": "dropped"}[engine._policy(c)]
+                    outcome = {"hold": "held", "drop": "dropped"}[engine._policy(c)]
+                    # Raised in the lane and dropped: ecu applies the pit lane to
+                    # what it raises there and never publishes such a callout
+                    # (contracts' PitLane). One queued at the entry is radio's.
+                    if outcome == "dropped" and not self.at_entry:
+                        outcome = "unpublished"
+                    self.outcome[id(c)] = outcome
             return out
 
         engine._quiet = _quiet
+
+        process = engine.process
+
+        def _process(state):
+            """v1's start check: a start held for GT7's cars-on-track flag, then
+            ignored as a replay or a demo, is a start.ignored item, as of the frame
+            v1 decided, with the frame the start was on (#74; accepted.go)."""
+            self.line += 1
+            held, ignoring = bool(engine._held), engine.replay
+            out = process(state)
+            if not held and engine._held:
+                self.held_at = self.line
+            if not ignoring and engine.replay:
+                emit("start.ignored", part, 0, self.line, start_at=self.held_at, why=engine.ignoring)
+            return out
+
+        engine.process = _process
 
     def wrap_store(self, engine: Engine, store: SessionStore, part: int) -> None:
         start = store.start_session
@@ -301,49 +361,67 @@ class Run:
         store.end_session = end_session
 
     def wrap_rule(self, rule, store: SessionStore, part: int) -> None:
-        """Each callout with the phrase keys its rule picked for it: the first is its
-        kind, the script key v2 publishes (paddock#71)."""
+        """Each callout with the phrase keys its rule picked for it, in order, and
+        whether start_brief had briefed before the frame: callout_kind makes the
+        kind v2 publishes from them (paddock#71). Of a situational pool the rule's
+        own first choice counts, configured or not."""
         keys: list[str] = []
         pick, first = rule.phrases.pick, rule.phrases.first
+        inside = [False]
 
         def _pick(key, default):
-            keys.append(key)
+            if not inside[0]:
+                keys.append(key)
             return pick(key, default)
 
         def _first(options, default):
-            n = len(keys)
-            out = first(options, default)
-            if len(keys) == n and options:
-                keys.append(options[-1])  # none configured: the general key's default
-            return out
+            if options:
+                keys.append(options[0])
+            inside[0] = True
+            try:
+                return first(options, default)
+            finally:
+                inside[0] = False
 
         rule.phrases.pick, rule.phrases.first = _pick, _first
+        briefed = [False]
+        evaluate = rule.evaluate
+
+        def _evaluate(prev, state):
+            briefed[0] = bool(getattr(rule, "briefed", False))
+            return evaluate(prev, state)
+
+        rule.evaluate = _evaluate
         make = rule.callout
 
         def callout(text, state, priority=None):
             c = make(text, state, priority)
             picked = list(keys)
             keys.clear()
-            self.raised.append((c, part, self.session(store), self.frame, picked, rule.pit_lane))
+            kind = callout_kind(rule.name, picked, briefed[0])
+            self.raised.append((c, part, self.session(store), self.frame, kind, rule.pit_lane))
             return c
 
         rule.callout = callout
 
     def write_callouts(self) -> None:
         """Each callout raised, after the run, when v1's pit lane has had its say."""
-        for c, part, session, at, picked, pit_lane in self.raised:
+        for c, part, session, at, kind, pit_lane in self.raised:
+            outcome = self.outcome.get(id(c), "spoken")
+            if outcome == "unpublished":
+                continue
             emit(
                 "callout",
                 part,
                 session,
                 at,
                 rule=c.rule,
-                kind=picked[0] if picked else "",
+                kind=kind,
                 priority=c.priority,
                 pit_lane=pit_lane,
                 slots=None,
                 text=c.text,
-                outcome=self.outcome.get(id(c), "spoken"),
+                outcome=outcome,
             )
 
 

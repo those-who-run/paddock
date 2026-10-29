@@ -328,7 +328,6 @@ func TestAcceptedDifferences(t *testing.T) {
 		return item1("pit.entered", 1, 9, map[string]any{"stop": 1.0, "in_lap": 1.0, "fuel_before": 1.0, "position_before": pos})
 	}
 	ended := func(finished bool) Item { return item1("session.ended", 1, 99, map[string]any{"finished": finished}) }
-	timed := item1("race.finished", 1, 50, map[string]any{"kind": "timed", "lap": 5.0, "position": 1.0})
 	started := func(joined any) Item {
 		return item1("session.started", 1, 1, map[string]any{"car_code": 1.0, "total_laps": nil, "joined_on_lap": joined})
 	}
@@ -338,10 +337,11 @@ func TestAcceptedDifferences(t *testing.T) {
 	}{
 		"solo position":           {[]Item{soloKind, entry(1.0)}, []Item{soloKind, entry(nil)}, "solo-position"},
 		"position in a field":     {[]Item{raceKind, entry(1.0)}, []Item{raceKind, entry(nil)}, ""},
-		"timed finish cut":        {[]Item{timed, ended(false)}, []Item{timed, ended(true)}, "timed-finish-cut"},
 		"finished with no finish": {[]Item{ended(false)}, []Item{ended(true)}, ""},
 		"joined":                  {[]Item{started(7.0)}, []Item{started(nil)}, "pending-joined"},
-		"start check":             {nil, []Item{started(nil)}, "pending-start-check"},
+		"start check":             {[]Item{ignoredStart(1)}, []Item{started(nil)}, "pending-start-check"},
+		"another start ignored":   {[]Item{ignoredStart(2)}, []Item{started(nil)}, ""},
+		"no start ignored":        {nil, []Item{started(nil)}, ""},
 		"missing on v2":           {[]Item{started(nil)}, nil, ""},
 	} {
 		r := compareItems(pitRun, c.v1, c.v2)
@@ -363,6 +363,63 @@ func TestAcceptedDifferences(t *testing.T) {
 
 // v1 applies a carried track and the frame's own on one frame; ecu publishes the
 // frame's last. Only the last is compared.
+// ignoredStart is v1events.py's marker: v1 ignored the start on frame start.
+func ignoredStart(start float64) Item {
+	return item1(ignoredType, 0, 30, map[string]any{"start_at": start, "why": "demo"})
+}
+
+// The start check's entry allows only v2's items of a session that started where
+// v1 ignored a start: a v2-only finish in a session v1 opened too, or one in a
+// part where v1 continued its session (the restart pair), is a difference.
+func TestPendingStartCheckIsNarrow(t *testing.T) {
+	started := item1("session.started", 1, 1, map[string]any{"car_code": 1.0, "total_laps": 12.0, "joined_on_lap": nil})
+	finished := item1("race.finished", 1, 864, map[string]any{"kind": "flag", "lap": 12.0, "position": 9.0})
+	r := compareItems(pitRun, []Item{ignoredStart(1)}, []Item{started, finished})
+	if f := failing(r); len(f) != 0 {
+		t.Fatalf("an ignored start's session: %+v", f)
+	}
+	r = compareItems(pitRun, []Item{ignoredStart(500), started}, []Item{started, finished})
+	if f := failing(r); len(f) != 1 || f[0].Label != "race.finished" || f[0].V1 != "missing" {
+		t.Fatalf("a finish in a session v1 opened: %+v", f)
+	}
+	continued := Item{Type: "session.continued", Part: 2, Session: 1, At: at(1), Fields: map[string]any{}}
+	second := Item{Type: "session.started", Part: 2, Session: 2, At: at(1), Fields: started.Fields}
+	r = compareItems(pitRun, []Item{started, continued}, []Item{started, second})
+	if f := failing(r); len(f) != 2 {
+		t.Fatalf("the restart pair's part 2: %+v", f)
+	}
+}
+
+// Two of ecu's tracks on one frame are a difference: only v1's are taken as the
+// frame's last.
+func TestADuplicateV2TrackIsADifference(t *testing.T) {
+	b := item1("session.track", 1, 46, map[string]any{"track_id": 100001.0, "confidence": "probable", "family": ""})
+	if f := failing(compareItems(pitRun, []Item{b}, []Item{b, b})); len(f) != 1 || f[0].V1 != "missing" {
+		t.Fatalf("%+v", f)
+	}
+}
+
+// An accepted entry that allows nothing is noted; over every recording it fails
+// the run.
+func TestUnusedEntries(t *testing.T) {
+	v1, v2 := eventSides(runItems(t, "v1"), runItems(t, "v2"))
+	var out bytes.Buffer
+	code := compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{}, &out, &bytes.Buffer{})
+	if code != exitMatch || !strings.Contains(out.String(), "accepted.go: solo-position (those-who-run/paddock#276) allowed no difference in these runs") {
+		t.Fatalf("%d\n%s", code, out.String())
+	}
+	out.Reset()
+	code = compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{everyRecording: true}, &out, &bytes.Buffer{})
+	if code != exitDiffer || !strings.Contains(out.String(), "unused over every recording: remove them") {
+		t.Fatalf("%d\n%s", code, out.String())
+	}
+	sums := map[string]string{pitRec.Name: "x"}
+	if !everyRecording([]Run{pitRun}, sums) || everyRecording([]Run{pitRun}, map[string]string{"other": "x"}) ||
+		everyRecording(nil, nil) {
+		t.Error("everyRecording")
+	}
+}
+
 func TestLastTrackOfAFrame(t *testing.T) {
 	a := item1("session.track", 1, 46, map[string]any{"track_id": nil, "confidence": "ambiguous", "family": ""})
 	b := item1("session.track", 1, 46, map[string]any{"track_id": 100001.0, "confidence": "probable", "family": ""})
@@ -595,8 +652,10 @@ func TestEventsArguments(t *testing.T) {
 	if code != exitMatch || strings.Count(out, "\n  match\n") != 3 {
 		t.Errorf("%d\n%s", code, out)
 	}
+	// Every recording with no differences at all: every accepted entry is unused,
+	// which over every recording fails.
 	code, out, _ = runEvents(t, v1, v2, "--all")
-	if code != exitMatch || strings.Count(out, "\n  match\n") != 26 ||
+	if code != exitDiffer || strings.Count(out, "\n  match\n") != 26 || !strings.Contains(out, "unused over every recording") ||
 		!strings.Contains(out, "real-nuc-suzuka-before-restart-2026-10-18.jsonl.gz+real-nuc-suzuka-joined-mid-race-2026-10-18.jsonl.gz\n") {
 		t.Errorf("%d\n%s", code, out)
 	}

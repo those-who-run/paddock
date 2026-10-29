@@ -16,8 +16,19 @@ type acceptance struct {
 	Match  func(d EventDiff, run runView) bool
 }
 
-// runView is what an entry may look at besides the difference: both sides' items.
-type runView struct{ v1, v2 []Item }
+// runView is what an entry may look at besides the difference: both sides' items,
+// and the starts v1 ignored (v1events.py's start.ignored, never compared).
+type runView struct{ v1, v2, ignored []Item }
+
+// ignoredAt is whether v1 ignored a start on frame at of part.
+func (r runView) ignoredAt(part int, at uint32) bool {
+	for _, it := range r.ignored {
+		if f, ok := it.Fields["start_at"].(float64); ok && it.Part == part && uint32(f) == at {
+			return true
+		}
+	}
+	return false
+}
 
 // kindOf is the last kind a side gave a session.
 func kindOf(items []Item, part, session int) string {
@@ -52,19 +63,6 @@ var accepted = []acceptance{
 		},
 	},
 	{
-		ID:    "timed-finish-cut",
-		Issue: "those-who-run/ecu#32",
-		Reason: "A session cut after its timed finish (the recording ends during GT7's coast) is " +
-			"finished in v2: the finish was published. v1 marked it finished only at the end it saw.",
-		Match: func(d EventDiff, run runView) bool {
-			return d.Type == "session.ended" && d.Field == "finished" && d.V1 == "false" && d.V2 == "true" &&
-				has(run.v2, func(it Item) bool {
-					return it.Type == "race.finished" && it.Part == d.Part && it.Session == d.Session &&
-						it.Fields["kind"] == "timed"
-				})
-		},
-	},
-	{
 		ID:     "pending-pit-role",
 		Issue:  "those-who-run/paddock#83",
 		Reason: "ecu does not set lap.completed's pit role yet (the lap model). Remove with #83.",
@@ -84,12 +82,20 @@ var accepted = []acceptance{
 	{
 		ID:    "pending-start-check",
 		Issue: "those-who-run/paddock#74",
-		Reason: "v1 holds a start GT7's cars-on-track flag is off for and drops a replay, a demo or " +
-			"a race GT7 never flags; ecu has no start check yet and opens the session. In a part where " +
-			"v1 opened no session, v2's items are listed. Remove with #74.",
+		Reason: "v1 holds a start GT7's cars-on-track flag is off for and drops a replay or a demo " +
+			"(v1events.py's start.ignored); ecu has no start check yet and opens the session. A v2 item " +
+			"of a session that started on the frame of a start v1 ignored is listed. Remove with #74.",
 		Match: func(d EventDiff, run runView) bool {
-			return d.Field == "item" && d.V1 == "missing" &&
-				!has(run.v1, func(it Item) bool { return it.Part == d.Part && it.Type == "session.started" })
+			if d.Field != "item" || d.V1 != "missing" {
+				return false
+			}
+			for _, it := range run.v2 {
+				if it.Type == "session.started" && it.Part == d.Part && it.Session == d.Session && it.At != nil &&
+					run.ignoredAt(d.Part, *it.At) {
+					return true
+				}
+			}
+			return false
 		},
 	},
 	{
@@ -122,14 +128,18 @@ var notCompared = []struct{ What, Issue, Reason string }{
 		"`parity laps` compares the stored laps; lap.completed is here for the lap, its time and its pit role."},
 }
 
+// ignoredType is v1events.py's marker for a start v1 held and then ignored: not an
+// event of either side, so it is taken out before matching.
+const ignoredType = "start.ignored"
+
 // sameFrame are the types v1 may apply more than once on a frame where ecu
 // publishes the frame's last decision once: at a start v1 applies the verdict its
 // detector carried from the last race, then the frame's own (SUGO's restarts:
 // ambiguous, then probable, on frame 46). Only the frame's last is compared.
 var sameFrame = map[string]bool{"session.track": true}
 
-// lastPerFrame keeps, of the sameFrame types, a side's last item for each part,
-// session and frame.
+// lastPerFrame keeps, of the sameFrame types, v1's last item for each part,
+// session and frame. Only v1's: two of ecu's on one frame are a difference.
 func lastPerFrame(items []Item) []Item {
 	type key struct {
 		typ           string
@@ -162,4 +172,23 @@ func accept(diffs []EventDiff, run runView) {
 			}
 		}
 	}
+}
+
+// unused are the entries no difference in the results matched. Over every
+// recording paddock keeps, an unused entry is stale: what it allowed no longer
+// happens, so it goes, and the run fails until it does.
+func unused(results []EventResult) []acceptance {
+	hits := map[string]int{}
+	for _, r := range results {
+		for _, d := range r.Diffs {
+			hits[d.Accepted]++
+		}
+	}
+	var out []acceptance
+	for _, a := range accepted {
+		if hits[a.ID] == 0 {
+			out = append(out, a)
+		}
+	}
+	return out
 }

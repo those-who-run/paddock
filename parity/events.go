@@ -73,7 +73,15 @@ func (r EventResult) Failing() int {
 // compareItems pairs both sides' items, lists the differences and marks the
 // accepted ones (R2, R4).
 func compareItems(run Run, v1, v2 []Item) EventResult {
-	v1, v2 = lastPerFrame(v1), lastPerFrame(v2)
+	var ignored, events []Item
+	for _, it := range v1 {
+		if it.Type == ignoredType {
+			ignored = append(ignored, it)
+		} else {
+			events = append(events, it)
+		}
+	}
+	v1 = lastPerFrame(events)
 	r := EventResult{Run: run, V1: v1, V2: v2}
 	pairs, other := matchItems(v1, v2)
 	r.Other = other
@@ -94,7 +102,7 @@ func compareItems(run Run, v1, v2 []Item) EventResult {
 		}
 		r.Diffs = append(r.Diffs, diffs...)
 	}
-	accept(r.Diffs, runView{v1: v1, v2: v2})
+	accept(r.Diffs, runView{v1: v1, v2: v2, ignored: ignored})
 	return r
 }
 
@@ -137,6 +145,7 @@ func events(ctx context.Context, args []string, stdout, stderr io.Writer, mk sid
 		_, _ = fmt.Fprintln(stderr, "parity:", err)
 		return exitRefused
 	}
+	o.everyRecording = everyRecording(runs, sums)
 	v1, v2 := mk(o)
 	return compareEvents(ctx, runs, v1, v2, o, stdout, stderr)
 }
@@ -224,6 +233,14 @@ func compareEvents(ctx context.Context, runs []Run, v1, v2 Side, o options, stdo
 		_, _ = fmt.Fprintln(stderr, "parity:", err)
 		return exitRefused
 	}
+	stale := unused(results)
+	for _, a := range stale {
+		_, _ = fmt.Fprintf(stdout, "accepted.go: %s (%s) allowed no difference in these runs\n", a.ID, a.Issue)
+	}
+	if len(stale) > 0 && o.everyRecording {
+		_, _ = fmt.Fprintf(stdout, "parity events: %d accepted %s unused over every recording: remove %s\n",
+			len(stale), plural(len(stale), "entry", "entries"), plural(len(stale), "it", "them"))
+	}
 	if keepDir != "" {
 		_, _ = fmt.Fprintf(stdout, "normalised items kept in %s\n", keepDir)
 	}
@@ -232,7 +249,31 @@ func compareEvents(ctx context.Context, runs []Run, v1, v2 Side, o options, stdo
 			return exitDiffer
 		}
 	}
+	if len(stale) > 0 && o.everyRecording {
+		return exitDiffer
+	}
 	return exitMatch
+}
+
+// everyRecording is whether the runs replay every recording SOURCES.yaml lists:
+// CI's run set and --all's, over which an accepted entry that allows nothing is
+// stale. A run of a few recordings only notes such entries.
+func everyRecording(runs []Run, sums map[string]string) bool {
+	if len(sums) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, run := range runs {
+		for _, rec := range run.Recordings {
+			seen[rec.Name] = true
+		}
+	}
+	for name := range sums {
+		if !seen[name] {
+			return false
+		}
+	}
+	return true
 }
 
 // writeEventResult prints a run's differences, each as v1's value beside v2's

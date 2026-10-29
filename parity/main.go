@@ -52,6 +52,9 @@ type options struct {
 	nats    string
 	keep    bool
 	frames  bool
+	// everyRecording: the runs cover every recording, so an unused accepted
+	// entry fails the run (events.go).
+	everyRecording bool
 }
 
 // sides makes the two sides from the options; tests swap it for canned ones.
