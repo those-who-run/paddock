@@ -84,10 +84,9 @@ others, as for paddock's own targets
 (`CONTAINER=podman COMPOSE='podman compose'`). v2's stack publishes the
 compose file's ports on 127.0.0.1, so a `make up` stack must be down first.
 
-The v2 side needs two things that are not in `paddock` yet: an `ecu` release
-with `ecu replay` (paddock#35), and the compose file's `replay` service
-(paddock#39), whose command is `ecu`'s arguments. Until both land, the v1 side
-and the comparison run, and the v2 side fails at `replay`.
+The v2 side runs the compose file's `replay` service (paddock#39): `ecu`'s
+image (0.1.4, with `ecu replay`) and its own entrypoint, so the service's
+command is `ecu`'s arguments, with the server in `TWR_NATS_URL`.
 
 ## What is compared
 

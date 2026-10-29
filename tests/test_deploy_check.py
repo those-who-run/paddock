@@ -482,6 +482,12 @@ class Base(unittest.TestCase):
         # The exporter is the one image compose does not run.
         self.assertFails(BASE.replace("prometheus-nats-exporter", "other-exporter"), "R1")
 
+    def test_compose_replays_with_ecu(self) -> None:
+        # ecu's image is compose's alone (its replay service); any other is not.
+        replay = f"  replay:\n    image: ghcr.io/those-who-run/twr-ecu:0.1.4@sha256:{'c' * 64}\n"
+        self.assertEqual(self.check(BASE, COMPOSE + replay), [])
+        self.assertFails(BASE, "R1", COMPOSE + replay.replace("twr-ecu", "twr-radio"))
+
     def test_nats_one_replica(self) -> None:
         self.assertFails(BASE.replace("  replicas: 1\n", "  replicas: 2\n", 1), "replicas")
 

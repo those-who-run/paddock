@@ -11,11 +11,11 @@
 #      TELEMETRY, EVENTS and the live bucket, through nats-box (profile `tools`);
 #   4. runs `make export` against the running stack: logbook is stopped, the export
 #      reads its volume, logbook starts and is healthy again;
-#   5. tears it down (`make reset`) and checks no container or volume of the project
+#   5. replays real-race-2laps-2026-10-14 at full speed (`make replay`, AC2), waits
+#      for logbook's /healthz to count its laps written, and checks that
+#      `make export SRC=replay-compose` prints those laps;
+#   6. tears it down (`make reset`) and checks no container or volume of the project
 #      is left (AC4).
-#
-# The replay of real-race-2laps-2026-10-14 and the check that `make export` prints
-# its laps (AC2) are added with ecu's replay (paddock#35).
 #
 # Needs docker with compose v2 (COMPOSE names another, for example `podman compose`;
 # CONTAINER the runtime for the leftovers check), make and curl. It publishes
@@ -35,8 +35,16 @@ project=twr
 
 compose() {
 	# shellcheck disable=SC2086 # COMPOSE is a command and its arguments
-	$COMPOSE -p "$project" -f deploy/compose/compose.yaml --profile tools "$@"
+	$COMPOSE -p "$project" -f deploy/compose/compose.yaml --profile tools --profile replay "$@"
 }
+
+# The recording AC2 replays, and the laps v1 stored for it, which ecu's tests check
+# its own against (ecu's internal/race/testdata/golden/real-race-2laps-2026-10-14.jsonl):
+# laps 7 and 8 of the practice, the second incomplete, and the race's laps 1 and 2.
+recording=real-race-2laps-2026-10-14.jsonl.gz
+want_laps=4
+# How long logbook may take to store them once ecu has published them.
+laps_wait=${LAPS_WAIT_SECONDS:-60}
 
 ok=0
 
@@ -93,6 +101,28 @@ printf '%s' "$body" | grep -q '"connected": *true' || fail "logbook is not conne
 echo "== make export against the running stack"
 $MAKE --no-print-directory export || fail "make export failed"
 "$root/deploy/compose/wait-healthy.sh" || fail "logbook is not healthy after make export"
+
+echo "== make replay of $recording at full speed (AC2)"
+$MAKE --no-print-directory replay FILE="$recording" SPEED=max || fail "make replay failed"
+
+echo "== logbook stores its $want_laps laps"
+# laps_written counts since logbook started, and the export above restarted it.
+start=$(date +%s)
+while :; do
+	body=$(curl -fsS --max-time 2 http://127.0.0.1:8080/healthz 2>/dev/null) || body=
+	written=$(printf '%s' "$body" | sed -n 's/.*"laps_written": *\([0-9][0-9]*\).*/\1/p')
+	[ "${written:-0}" -lt "$want_laps" ] || break
+	[ $(($(date +%s) - start)) -lt "$laps_wait" ] || fail "logbook wrote ${written:-no} laps in $laps_wait s (want $want_laps): $body"
+	sleep 1
+done
+echo "$body"
+
+echo "== make export SRC=replay-compose prints them (AC2)"
+laps=$($MAKE --no-print-directory export SRC=replay-compose) || fail "make export failed"
+printf '%s\n' "$laps"
+"$root/deploy/compose/wait-healthy.sh" || fail "logbook is not healthy after make export"
+count=$(printf '%s\n' "$laps" | grep -c '"lap_time_ms"' || true)
+[ "$count" -eq "$want_laps" ] || fail "make export printed $count laps (want $want_laps)"
 
 echo "== make reset leaves nothing behind (AC4)"
 $MAKE --no-print-directory reset
