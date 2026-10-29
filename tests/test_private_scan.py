@@ -183,6 +183,7 @@ class Bootstrap(unittest.TestCase):
     def test_comments_and_data_pass(self) -> None:
         self.assertEqual(scan(f"# the fields of {N} kv add\n", "deploy/x.sh"), [])
         self.assertEqual(scan(f"# the fields of {N} kv add\n", "scripts/x.py"), [])
+        self.assertEqual(scan(f'"""Runs `{N} kv add live` once."""\nx = "{N} stream add"\n', "scripts/x.py"), [])
         self.assertEqual(scan(f'{{"why": "{N} kv add fixes it"}}\n', "deploy/nats/kv/x.json"), [])
 
     def test_bootstrap_sh_may(self) -> None:
@@ -231,6 +232,14 @@ class Main(unittest.TestCase):
         code, err = self.run_main(ALLOW, {"a.md": "https://github.com/x\n"})
         self.assertEqual(code, 1)
         self.assertIn("allowlist: scripts/private_scan.allow:2: k8s.io is used by no file", err)
+
+    def test_go_module_files_are_not_read(self) -> None:
+        mod = f"module x\nrequire {dot('honnef', 'co')}/go/tools v0.1.0\n"
+        files = {"go.mod": mod, "go.sum": mod, "go.work": mod, "go.work.sum": mod}
+        self.assertEqual(self.run_main(ALLOW, {"a.md": "github.com k8s.io\n", **files}), (0, ""))
+        code, err = self.run_main(ALLOW, {"a.md": "github.com k8s.io\n", "go.txt": mod})
+        self.assertEqual(code, 1)
+        self.assertIn("host: go.txt:2: " + dot("honnef", "co"), err)
 
     def test_a_private_value_fails(self) -> None:
         code, err = self.run_main(ALLOW, {"a.md": f"github.com k8s.io {PRIVATE_IP}\n"})

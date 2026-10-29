@@ -43,9 +43,13 @@ ends in a common top-level domain or a home network's suffix (`.com`, `.io`,
 `.dev`, `.lan`, `.local`, `.lab`, `.arpa` and the others in the script),
 wildcards (`*.`) and a leading dot (a `NO_PROXY` entry) included. File names
 such as `compose.yaml` are not hosts to it. The `bootstrap` rule reads commands
-only: shell, Makefiles, YAML, Python and Markdown code blocks, not comments or
-prose, so a page can still say what the bootstrap runs. A command continued
-with a backslash, or written as a YAML list (a Job's `args:`), counts as one.
+only: shell, Makefiles, YAML, Python argument lists and Markdown code blocks,
+not comments or prose, so a page can still say what the bootstrap runs. A
+command continued with a backslash, or written as a YAML list (a Job's
+`args:`), counts as one.
+
+Go's `go.mod`, `go.sum`, `go.work` and `go.work.sum` are not scanned: they
+list module paths, not hosts a deployment reaches, and `go mod` writes them.
 
 When the scan fails:
 

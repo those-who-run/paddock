@@ -16,7 +16,7 @@ does not ignore), Markdown, docs and ADRs included, line by line, for:
 - ``bootstrap``: a ``nats stream``, ``nats kv`` or ``nats object`` command that adds
   or edits a stream or bucket anywhere but deploy/nats/bootstrap.sh, which is the
   one place they are defined. Only commands are read: shell, Makefiles, YAML,
-  Python and Markdown's code blocks, not their comments or prose, so a page may say
+  Python's argument lists and Markdown's code blocks, not their comments or prose, so a page may say
   what bootstrap.sh runs. A command split over lines with a backslash, or written
   as a YAML block list (a Job's ``args:``), is read as one line.
 
@@ -26,6 +26,9 @@ wildcard's ``*.`` or a leading dot (a NO_PROXY entry) too. A dotted
 name ending in anything else (``compose.yaml``, ``sys.argv``, a NATS subject) is not
 a host to this scan; HOST_TLDS leaves out the top-level domains that are also file
 extensions or code here (``.sh``, ``.py``, ``.md``, ``.app``, ``.build``).
+
+Go's go.mod, go.sum, go.work and go.work.sum are not read: they list module paths,
+not hosts, and ``go mod`` writes them.
 
 Each failure names the rule, the file and the line. An allowlist entry no line uses
 fails too, so the list stays short. Standard library only, as paddock's other
@@ -43,6 +46,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Go's module files list module paths, not hosts a deployment reaches, and `go mod`
+# writes them, so they are not scanned.
+SKIPPED_NAMES = {"go.mod", "go.sum", "go.work", "go.work.sum"}
 ALLOW = Path("scripts/private_scan.allow")
 BOOTSTRAP = "deploy/nats/bootstrap.sh"
 
@@ -86,6 +92,12 @@ URL_HOST = re.compile(r"\b[a-z][a-z0-9+.-]*://(?:[^\s/@'\"`<>]*@)?([^\s:/?#'\"`<
 # any flags between.
 NATS_DEFINE = re.compile(
     r"\bnats\b.*?\b(?:stream|str|kv|object|obj)\b[\s\"',]+(?:add|create|new|edit|update)\b"
+)
+# In Python only an argument list is a command (`["nats", "kv", "add", ...]`), so a
+# docstring or comment that names one is not.
+NATS_DEFINE_PY = re.compile(
+    r"""["']nats["']\s*,\s*(?:["'][^"']*["']\s*,\s*)*?["'](?:stream|str|kv|object|obj)["']\s*,"""
+    r"""\s*["'](?:add|create|new|edit|update)["']"""
 )
 COMMAND_FILES = re.compile(r"(\.(sh|bash|ya?ml|mk|py)$)|(^|/)(Makefile|Dockerfile[^/]*|Containerfile[^/]*)$")
 # A YAML block list item that is a scalar (`- nats`, `- "stream"`, `- nats://x:4222`),
@@ -225,8 +237,9 @@ def scan(path: str, text: str, allow: Allowlist) -> list[str]:
                 f"in {ALLOW} with a reason"
             )
     if path != BOOTSTRAP:
+        define = NATS_DEFINE_PY if path.endswith(".py") else NATS_DEFINE
         for n, line in command_lines(path, lines):
-            if NATS_DEFINE.search(line):
+            if define.search(line):
                 problems.append(
                     f"bootstrap: {path}:{n}: streams and buckets are added or changed only by {BOOTSTRAP}"
                 )
@@ -259,6 +272,8 @@ def main(root: Path = ROOT) -> int:
     allow, problems = read_allowlist((root / ALLOW).read_text(encoding="utf-8"))
     scanned = 0
     for p in files(root):
+        if Path(p).name in SKIPPED_NAMES:
+            continue
         text = read_text(root / p)
         if text is None:
             continue

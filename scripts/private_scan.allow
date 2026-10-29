@@ -12,7 +12,7 @@ ghcr.io                   GitHub's container registry, where the org's images ar
 docker.io                 Docker Hub, where the pinned NATS, nats-box and exporter images come from.
 get.helm.sh               Helm's release downloads, which scripts/deploy_render.sh fetches pinned.
 npmjs.com                 The npm registry, named in the contracts ADR.
-google.golang.org         Go's protobuf module path, named in the contracts ADRs.
+golang.org                Go's module paths (golang.org/x/..., google.golang.org/protobuf), named in the ADRs and Go tooling.
 buf.build                 Buf's registry and documentation, for the contracts tooling.
 anthropic.com             The noreply address in the Co-Authored-By trailer of agent commits.
 
