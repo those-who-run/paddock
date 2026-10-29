@@ -31,6 +31,8 @@ _spec.loader.exec_module(deploy_check)
 NATS = "deploy/nats/chart"
 BOX = "docker.io/natsio/nats-box:0.20.0@sha256:" + "d" * 64
 
+REQUESTS = "        resources:\n          requests:\n            cpu: 10m\n"
+
 GOOD = f"""\
 apiVersion: v1
 data:
@@ -121,6 +123,9 @@ spec:
       containers:
       - image: {BOX}
         name: nats-box
+        resources:
+          requests:
+            cpu: 10m
       securityContext:
         seccompProfile:
           type: RuntimeDefault
@@ -140,8 +145,14 @@ spec:
           value: 5Gi
         image: docker.io/library/nats:2.15.1-alpine@sha256:{"a" * 64}
         name: nats
+        resources:
+          requests:
+            cpu: 10m
       - image: docker.io/natsio/prometheus-nats-exporter:0.20.2@sha256:{"b" * 64}
         name: prom-exporter
+        resources:
+          requests:
+            cpu: 10m
       securityContext:
         seccompProfile:
           type: RuntimeDefault
@@ -251,11 +262,16 @@ class Render(unittest.TestCase):
 class WebSocketComponent(unittest.TestCase):
     """deploy/components/nats-websocket, rendered over the base."""
 
+    def test_label(self) -> None:
+        found = self.check(labelled(GOOD) + INGRESS)
+        self.assertEqual([p for p in found if p.startswith("R1:")],
+                         ["R1: Ingress/nats-ws has no label app.kubernetes.io/part-of: twr"])
+
     def check(self, text: str) -> list[str]:
         return deploy_check.check(deploy_check.NATS_WEBSOCKET, text)
 
     def test_good(self) -> None:
-        self.assertEqual(self.check(GOOD + INGRESS), [])
+        self.assertEqual(self.check(labelled(GOOD + INGRESS)), [])
 
     def test_no_ingress(self) -> None:
         self.assertTrue(any(p.startswith("R3:") for p in self.check(GOOD)))
@@ -520,6 +536,22 @@ class Base(unittest.TestCase):
         self.assertFails(self.broken("          limits:\n            memory: 1Gi\n", ""), "R5")
         self.assertFails(self.broken("          requests:\n            cpu: 50m\n            memory: 128Mi\n", ""), "R5")
 
+    def test_every_container_has_requests(self) -> None:
+        # R5 holds for every container, not only logbook's.
+        for name in ("nats-box", "nats", "prom-exporter"):
+            with self.subTest(container=name):
+                old = f"        name: {name}\n{REQUESTS}"
+                self.assertEqual(BASE.count(old), 1, old)
+                found = self.check(BASE.replace(old, f"        name: {name}\n"))
+                self.assertTrue(any(p.startswith("R5:") and f"container {name} " in p for p in found), found)
+
+    def test_containers(self) -> None:
+        docs = deploy_check.documents(BASE)
+        sts = deploy_check.find(docs, "StatefulSet", "nats")
+        assert sts is not None
+        self.assertEqual([deploy_check.container_name(c) for c in deploy_check.containers(sts.lines)],
+                         ["nats", "prom-exporter"])
+
     def test_missing_logbook(self) -> None:
         self.assertFails(labelled(GOOD), "R2")
 
@@ -587,7 +619,7 @@ class NetworkPolicyComponent(unittest.TestCase):
         self.assertTrue(any(p.startswith("R7:") for p in found), found)
 
     def test_good(self) -> None:
-        self.assertEqual(self.check(BASE + POLICIES), [])
+        self.assertEqual(self.check(BASE + labelled(POLICIES)), [])
 
     def test_broken(self) -> None:
         for old, new in (("  name: logbook\nspec:\n  ingress", "  name: other\nspec:\n  ingress"),
@@ -635,6 +667,11 @@ class NetworkPolicyComponent(unittest.TestCase):
         self.assertEqual(deploy_check.block(lines, "policyTypes"), ["- Ingress"])
         self.assertEqual(deploy_check.block(lines, "namespaceSelector"),
                          ["matchLabels:", "kubernetes.io/metadata.name: my-ingress-namespace"])
+
+    def test_label(self) -> None:
+        # The base's labels do not reach a component's objects (paddock#295).
+        found = self.check(BASE + POLICIES)
+        self.assertEqual(len([p for p in found if p.startswith("R1:")]), 2, found)
 
     def test_no_policies(self) -> None:
         self.assertFails(BASE)

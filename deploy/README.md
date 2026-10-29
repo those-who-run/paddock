@@ -43,7 +43,24 @@ headless Service. Every object carries `app.kubernetes.io/part-of: twr`.
   replaces its placeholder `my-ingress-namespace` with the ingress
   controller's namespace (the component's
   [`kustomization.yaml`](components/network-policy/kustomization.yaml) has the
-  patch).
+  patch). With it on, nothing outside the namespace reaches NATS's Prometheus
+  exporter on 7777, so a Prometheus in its own namespace stops scraping. An
+  overlay that scrapes it adds a rule for that namespace:
+
+  ```yaml
+  patches:
+    - target: {kind: NetworkPolicy, name: nats}
+      patch: |
+        - op: add
+          path: /spec/ingress/-
+          value:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: <the monitoring namespace>
+            ports:
+              - {port: 7777, protocol: TCP}
+  ```
 
 Render and apply with kustomize 5.7.x, not 5.8
 ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)),
@@ -64,7 +81,11 @@ it with the kustomize, helm and kubeconform that
 output with kubeconform in strict mode, runs
 [`scripts/deploy_check.py`](../scripts/deploy_check.py) on it, and builds each
 again through an overlay with `namespace: probe` to check every object takes
-it. For the base, the check adds the label, the images against compose, NATS at
-one replica, and `logbook`'s StatefulSet: exactly one replica, the retention
-policy, no storage class, its volume, environment, probes, security settings
-and resources.
+it. For the base, the check adds the label, resource requests on every
+container, the images against compose, NATS at one replica, and `logbook`'s
+StatefulSet: exactly one replica, the retention policy, no storage class, its
+volume, environment, probes, security settings and resources. Each component's
+render carries the label too. For `network-policy`, both policies are Ingress
+only and select NATS's server and `logbook`, each lets in the namespace's own
+pods, and NATS's lets in the ingress controller's namespace, and no other, on
+8080 only.

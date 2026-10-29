@@ -25,3 +25,9 @@ kind: Component
 resources:
   - nats.yaml
   - logbook.yaml
+
+# The base's labels do not reach what a component adds, so it carries its own.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: twr
+    includeSelectors: false

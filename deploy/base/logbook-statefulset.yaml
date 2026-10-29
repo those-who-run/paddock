@@ -64,9 +64,13 @@ spec:
           # /healthz answers 200 once logbook is connected to NATS and both its
           # consumers are bound, and 503 before, so it is ready only once the
           # bootstrap Job has made the streams. The start-up probe gives that up to
-          # 10 min, the Job's own deadline, before liveness counts. Liveness then
-          # restarts logbook after 1 min without NATS; a restart resumes from what
-          # the store and the server hold, so it loses nothing.
+          # 10 min, the Job's own deadline, before liveness counts.
+          #
+          # /healthz also answers 503 while NATS is away, and logbook reconnects on
+          # its own, so a restart would not help it. Liveness waits 10 min, longer
+          # than a NATS restart or upgrade: restarts during a 5 min outage would put
+          # logbook into CrashLoopBackOff and hold it back after NATS returned. It
+          # is there for a logbook that is stuck, not for one waiting on NATS.
           startupProbe:
             httpGet:
               path: /healthz
@@ -83,8 +87,8 @@ spec:
             httpGet:
               path: /healthz
               port: http
-            periodSeconds: 10
-            failureThreshold: 6
+            periodSeconds: 20
+            failureThreshold: 30
           # A starting point until paddock#256 measures it. DuckDB, inside logbook,
           # takes up to 80% of the memory it finds for its buffers, and in a
           # container it reads the limit: without one that is 80% of the node. 1 GiB

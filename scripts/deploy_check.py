@@ -27,6 +27,7 @@ For ``deploy/nats/chart``, what paddock#42 asks of NATS:
 
 For ``deploy/base``, what paddock#44 asks of the base:
 
+- R5: every container has resource requests;
 - R1: every object carries ``app.kubernetes.io/part-of: twr``, and the images are
   compose's: every image in the render is in ``deploy/compose/compose.yaml`` (but
   NATS's Prometheus exporter, which compose does not run), and every image compose
@@ -39,7 +40,8 @@ For ``deploy/base``, what paddock#44 asks of the base:
   with no service account token and the RuntimeDefault seccomp profile, requests
   and a memory limit; and its headless Service.
 
-For ``deploy/components/network-policy``, rendered over the base: a NetworkPolicy
+Each component's render over the base carries the label on every object too, its
+own included. For ``deploy/components/network-policy``, rendered over the base: a NetworkPolicy
 for NATS's server and one for ``logbook``, each letting in the namespace's own
 pods, and NATS's letting the ingress controller's namespace, a placeholder the
 overlay replaces, reach the WebSocket's 8080 only.
@@ -276,11 +278,56 @@ def images(lines: list[str]) -> list[str]:
     return [m.group(1) for line in lines if (m := IMAGE.match(line))]
 
 
-def base(docs: list[Doc], compose: str) -> list[str]:
-    problems: list[str] = []
+def labelled(docs: list[Doc]) -> list[str]:
+    return [f"R1: {doc} has no label app.kubernetes.io/part-of: twr"
+            for doc in docs if "    app.kubernetes.io/part-of: twr" not in doc.lines]
+
+
+def containers(lines: list[str]) -> list[list[str]]:
+    """Each container's lines, of every `containers:` and `initContainers:` list:
+    kustomize writes a list's items at its key's indentation."""
+    found: list[list[str]] = []
+    indent: int | None = None
+    for line in lines:
+        depth = len(line) - len(line.lstrip())
+        if re.match(r"^\s*(containers|initContainers):$", line):
+            indent = depth
+            continue
+        if indent is None:
+            continue
+        if depth == indent and line.lstrip().startswith("- "):
+            found.append([line])
+        elif depth > indent and found:
+            found[-1].append(line)
+        else:
+            indent = None
+    return found
+
+
+def container_name(container: list[str]) -> str:
+    """The container's own name, not an env variable's or a port's."""
+    first = container[0]
+    own = " " * (len(first) - len(first.lstrip()) + 2)
+    for line in container:
+        m = re.match(rf"^(?:{re.escape(own)}|\s*- )name: (\S+)$", line)
+        if m and (line is first or line.startswith(own + "name:")):
+            return m.group(1)
+    return "?"
+
+
+def requests(docs: list[Doc]) -> list[str]:
+    problems = []
     for doc in docs:
-        if "    app.kubernetes.io/part-of: twr" not in doc.lines:
-            problems.append(f"R1: {doc} has no label app.kubernetes.io/part-of: twr")
+        for container in containers(doc.lines):
+            name = container_name(container)
+            if not any(line.strip() == "requests:" for line in container):
+                problems.append(f"R5: {doc}'s container {name} has no resource requests")
+    return problems
+
+
+def base(docs: list[Doc], compose: str) -> list[str]:
+    problems: list[str] = labelled(docs) + requests(docs)
+    for doc in docs:
         if doc.kind == "Ingress":
             problems.append(f"R3: {doc} is in the base, which exposes nothing until an overlay includes {NATS_WEBSOCKET}")
 
@@ -449,9 +496,9 @@ def check(kustomization: str, text: str, compose: str | None = None) -> list[str
             compose = COMPOSE.read_text(encoding="utf-8")
         problems += base(docs, compose)
     if k == NATS_WEBSOCKET:
-        problems += nats_websocket(docs)
+        problems += labelled(docs) + nats_websocket(docs)
     if k == NETWORK_POLICY:
-        problems += network_policy(docs)
+        problems += labelled(docs) + network_policy(docs)
     return problems
 
 
