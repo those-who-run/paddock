@@ -1,0 +1,23 @@
+# Merged into deploy/base/radio-deployment.yaml's container by its env names.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: radio
+spec:
+  template:
+    spec:
+      containers:
+        - name: radio
+          env:
+            - name: TWR_RADIO_SINK
+              value: discord
+            - name: TWR_DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: radio-discord
+                  key: TWR_DISCORD_BOT_TOKEN
+            - name: TWR_DISCORD_VOICE_CHANNEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: radio-discord
+                  key: TWR_DISCORD_VOICE_CHANNEL_ID

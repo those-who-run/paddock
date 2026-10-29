@@ -6,7 +6,7 @@
 # podman, and compose-it docker with compose v2 and curl.
 #
 # The walking skeleton (deploy/compose, paddock#39) has its own targets: up, replay,
-# sub, export, down and reset. `make parity` runs the parity harness (parity/,
+# radio, sub, export, down and reset. `make parity` runs the parity harness (parity/,
 # paddock#40) on its default recordings; it is not part of `check`, since CI runs it
 # in a workflow of its own (parity-laps.yml).
 
@@ -26,6 +26,10 @@ FILE ?=
 SPEED ?= 1
 RUN ?= compose
 SRC ?= live
+# `make radio`: where radio speaks, console or wav, and the directory the WAVs go to,
+# from paddock's root.
+SINK ?= console
+WAV ?= .cache/radio-wav
 
 .PHONY: help
 help:
@@ -45,6 +49,7 @@ help:
 	@echo "The walking skeleton on this machine (deploy/compose/README.md):"
 	@echo "up     - start nats, run the stream and KV bootstrap, start logbook and wait for its /healthz"
 	@echo "replay - FILE=<name in recordings/> [SPEED=1|N|max] [RUN=compose]: ecu replay onto the bus, as source replay-RUN"
+	@echo "radio  - [SINK=console|wav] [RUN=compose]: start radio on replay-RUN's callouts, before make replay; WAVs in WAV"
 	@echo "sub    - print everything on twr.> through nats-box (Ctrl-C to stop)"
 	@echo "export - [SRC=live]: stop logbook, print the source's stored laps (logbook export --laps), start it again"
 	@echo "down   - stop and remove the containers; the volumes and logbook's data stay"
@@ -127,6 +132,16 @@ up:
 replay:
 	@test -n "$(FILE)" || { echo "make replay FILE=<a file in recordings/> [SPEED=1|N|max] [RUN=compose]" >&2; exit 2; }
 	$(STACK) run --rm -T replay replay --speed $(SPEED) --run $(RUN) /recordings/$(FILE)
+
+# radio in the background (profile `replay`; naming it enables it), on the callouts
+# `make replay RUN=...` publishes, as your own user so the WAVs in WAV are yours.
+# Start it before the replay: CALLOUTS keeps a callout 30 s. Its lines are in
+# `$(STACK) logs -f radio`.
+.PHONY: radio
+radio:
+	mkdir -p $(WAV)
+	TWR_UID=$$(id -u) TWR_GID=$$(id -g) TWR_RADIO_SINK=$(SINK) TWR_RADIO_SRC=replay-$(RUN) \
+		TWR_RADIO_WAV=$(abspath $(WAV)) $(STACK) up -d radio
 
 .PHONY: sub
 sub:

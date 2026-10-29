@@ -8,18 +8,20 @@ repository sets those. The runbook, from nothing to running, comes with #51.
 
 | Directory | What |
 |---|---|
-| [`base/`](base/kustomization.yaml) | The base (#44): NATS, the stream and KV bootstrap Job, and `logbook` |
+| [`base/`](base/kustomization.yaml) | The base (#44): NATS, the stream and KV bootstrap Job, `logbook`, and `radio` on the console (#63) |
 | [`nats/`](nats/README.md) | NATS from its Helm chart (`nats/chart`, #42), the streams and buckets, and the bootstrap Job (#43) |
 | [`components/nats-websocket/`](components/nats-websocket/kustomization.yaml) | The Ingress to NATS's WebSocket, with the overlay's host, class and TLS secret |
 | [`components/network-policy/`](components/network-policy/kustomization.yaml) | NetworkPolicies: only the namespace's pods reach NATS and `logbook`, and the ingress controller's namespace reaches the WebSocket |
+| [`components/radio-discord/`](components/radio-discord/kustomization.yaml) | `radio` speaks in Discord, the bot's token and voice channel from the overlay's Secret ([below](#radio-in-discord)) |
 | [`compose/`](compose/README.md) | The same stack on a laptop, with no cluster |
 
 ## The base
 
 [`base/kustomization.yaml`](base/kustomization.yaml) includes `nats/chart` and
-`nats`, and `logbook`:
+`nats`, `logbook`:
 [`base/logbook-statefulset.yaml`](base/logbook-statefulset.yaml) and its
-headless Service. Every object carries `app.kubernetes.io/part-of: twr`.
+headless Service, and `radio`:
+[`base/radio-deployment.yaml`](base/radio-deployment.yaml) and its Service. Every object carries `app.kubernetes.io/part-of: twr`.
 
 - **`logbook`** is a StatefulSet of exactly one replica, `OrderedReady`: its
   store is one file that one process writes. Its volume, `data`, is mounted at
@@ -31,8 +33,22 @@ headless Service. Every object carries `app.kubernetes.io/part-of: twr`.
   `/healthz`, port 8080, which answers 200 once it is connected and its
   consumers are bound. It runs as user 65532 on a read-only root file system
   with no service account token. The image is amd64 only (ADR 0006).
+- **`radio`** is a Deployment of one replica, replaced by `Recreate`: two pods
+  would split a source's callouts between them, and two in Discord would fight
+  over the bot's voice connection. It speaks the callouts of source `live` to
+  the console, a line a callout in its log, so it needs no Discord and no
+  Secret; [`components/radio-discord`](#radio-in-discord) makes it speak in
+  Discord. Its speech cache is an `emptyDir` at `/tmp` (256 MiB, the cache
+  capped at 100 MiB), which refills in a lap. Piper's voice is in the image,
+  fetched at build time and checked against radio's `SHA256SUMS`, and checked
+  again when radio loads it, so the image's digest pins the voice too. It
+  reaches NATS at `nats://nats:4222`, its readiness and liveness are on
+  `/healthz`, port 8080, which answers 200 once it is connected, and it runs
+  as user 65532 on a read-only root file system with no service account
+  token. It has no CPU limit: Piper is CPU bound, and v1 found a 1-CPU limit
+  made its callouts go stale. The image is amd64 only (ADR 0006).
 - **Images** are pinned by tag and digest, the same strings as compose:
-  `logbook` in the base's `images:` block (0.1.4), NATS, `nats-box` and the
+  `logbook` (0.1.4) and `radio` in the base's `images:` block, NATS, `nats-box` and the
   exporter in `nats/chart/values.yaml` and `nats/bootstrap-job.yaml`. Each is
   pinned in one place. `make deploy-render` fails when an image in the base's
   render is not compose's, or compose runs one the base does not. `ecu`'s
@@ -64,6 +80,38 @@ headless Service. Every object carries `app.kubernetes.io/part-of: twr`.
               - {port: 7777, protocol: TCP}
   ```
 
+### radio in Discord
+
+[`components/radio-discord`](components/radio-discord/kustomization.yaml)
+sets `radio`'s sink to `discord` (radio's Discord sink comes with #58; until
+then radio refuses that sink at start) and reads two settings from a Secret
+by name and key only. Nothing in paddock holds their values: the overlay
+includes the component and the Secret is created in the stack's namespace,
+outside git.
+
+| Secret `radio-discord`, key | What |
+|---|---|
+| `TWR_DISCORD_BOT_TOKEN` | The bot's token |
+| `TWR_DISCORD_VOICE_CHANNEL_ID` | The voice channel it speaks in, by id |
+
+```sh
+read -rs TOKEN
+kubectl -n <namespace> create secret generic radio-discord \
+  --from-literal=TWR_DISCORD_BOT_TOKEN="$TOKEN" \
+  --from-literal=TWR_DISCORD_VOICE_CHANNEL_ID=<channel-id>
+unset TOKEN
+```
+
+A Secret of another name or keys is a patch on the Deployment's two
+`secretKeyRef`s in the overlay. The bot needs no privileged intents, and
+Connect and Speak on the voice channel. The other settings radio reads, with
+their defaults, are in radio's README; the base sets `TWR_RADIO_SRC=live`,
+`TWR_RADIO_SINK=console` and `TWR_RADIO_TIMING=live`.
+
+One token is one voice connection. A cluster where another engineer already
+speaks with the same bot sets `radio` to 0 replicas in its overlay and scales
+it up, with `ecu`, only once the other is down.
+
 Render and apply with kustomize 5.7.x, not 5.8
 ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)),
 and `helm` on the `PATH`. `kubectl apply -k` cannot inflate NATS's chart:
@@ -86,8 +134,13 @@ again through an overlay with `namespace: probe` to check every object takes
 it. For the base, the check adds the label, resource requests on every
 container, the images against compose, NATS at one replica, and `logbook`'s
 StatefulSet: exactly one replica, the retention policy, no storage class, its
-volume, environment, probes, security settings and resources. Each component's
-render carries the label too. For `network-policy`, both policies are Ingress
+volume, environment, probes, security settings and resources; and `radio`'s
+Deployment: exactly one replica, `Recreate`, source `live` on the console with
+no Secret or Discord setting, its `emptyDir` at `/tmp`, environment, probes,
+security settings, resources and Service. Each component's render carries the
+label too. For `radio-discord`, the sink is `discord`, both settings come
+from Secret `radio-discord` under their own key, and the render holds no
+Secret of that name. For `network-policy`, both policies are Ingress
 only and select NATS's server and `logbook`, each lets in the namespace's own
 pods, and NATS's lets in the ingress controller's namespace, and no other, on
 8080 only.
@@ -120,6 +173,8 @@ In what the base and each component render to
 | Every image pinned by tag and digest | A render gives the same images on every cluster and every day, and an upgrade is a reviewed change. |
 | NATS at exactly one replica | NATS runs as one server with no clustering, and the stream definitions ask for one replica. |
 | `logbook` at exactly one replica | Its store is one file that one process writes. |
+| `radio` at exactly one replica, replaced by `Recreate` | A source's callouts go to one speaker; an overlay may set 0. |
+| No Secret value, Discord setting or Secret reference in the base | The base runs on any cluster; the token and channel are the overlay's, through `radio-discord`. |
 | Every object labelled `app.kubernetes.io/part-of: twr`, and resource requests on every container | An overlay and a cluster's tools can find the stack's objects, and the scheduler can place its pods. |
 
 A Namespace object, `hostPath` volumes, node affinity and Secret objects are
