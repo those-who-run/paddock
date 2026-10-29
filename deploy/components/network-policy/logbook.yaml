@@ -1,0 +1,14 @@
+# logbook takes no requests but its /healthz, which the kubelet probes from the node;
+# the pods of this namespace may read it too.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: logbook
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: logbook
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}

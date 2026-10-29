@@ -8,8 +8,9 @@ v1, the current release, lives in
 [those-who-run/those-who-run](https://github.com/those-who-run/those-who-run)
 and is in maintenance from 1.0.0.
 
-The deployment lives under `deploy/`. The JetStream streams and KV buckets,
-and the script that creates them, are in
+The deployment lives under [`deploy/`](deploy/README.md): the kustomize base
+for a cluster, its components, and compose for a laptop. The JetStream streams
+and KV buckets, and the script that creates them, are in
 [`deploy/nats/`](deploy/nats/README.md).
 
 ## Running the walking skeleton on a laptop

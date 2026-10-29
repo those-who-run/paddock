@@ -1,0 +1,44 @@
+# The kustomize base for v2 (paddock#44): NATS from its chart, the stream and KV
+# bootstrap Job, and logbook. It names nothing that belongs to one cluster (ADR 0004,
+# point 8): no namespace, host, storage class, node or host port. An overlay sets
+# those, and switches on what it wants of deploy/components/:
+#
+# - nats-websocket: the Ingress to NATS's WebSocket, with the overlay's host, class
+#   and TLS secret (deploy/nats/README.md);
+# - network-policy: only the namespace's own pods reach NATS and logbook, and the
+#   ingress controller's namespace reaches the WebSocket; for a cluster that enforces
+#   NetworkPolicy.
+#
+# NATS's chart needs `kustomize build --enable-helm`, with kustomize 5.7.x, not 5.8
+# (kubernetes-sigs/kustomize#6058). `kubectl apply -k` cannot inflate it, so apply
+# `kustomize build --enable-helm <overlay> | kubectl apply -f -`. Argo CD needs
+# `kustomize.buildOptions: --enable-helm`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../nats/chart
+  - ../nats
+  - logbook-statefulset.yaml
+  - logbook-service.yaml
+
+# On every object and pod, so `kubectl get all -l app.kubernetes.io/part-of=twr`
+# lists the stack. Not on selectors: the chart's own selectors stay as it renders
+# them, and a selector cannot change once applied.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: twr
+    includeSelectors: false
+    includeTemplates: true
+
+# logbook's image, by tag and by the digest of its index, the same string as
+# deploy/compose/compose.yaml. NATS, nats-box and the exporter are pinned where they
+# are used, in deploy/nats/chart/values.yaml and deploy/nats/bootstrap-job.yaml, and
+# not again here, so there is one place to bump each. scripts/deploy_check.py fails
+# the base's render when any image in it is not compose's.
+#
+# Bump it with compose's, in one change, or make deploy-render fails.
+images:
+  - name: ghcr.io/those-who-run/twr-logbook
+    newTag: 0.1.4
+    digest: sha256:6784811e6371d22c4511537b7ba98ea0c576868bf9e30d88f8bd6492bd7a9c9e

@@ -1,0 +1,33 @@
+# NetworkPolicies for the base (paddock#44 R7): only pods in the stack's namespace
+# reach NATS and logbook, and the ingress controller's namespace reaches NATS's
+# WebSocket. A component, for a cluster that enforces NetworkPolicy (k3s does, with
+# kube-router; kind's default CNI does not). An overlay includes it:
+#
+#   components:
+#     - <path to paddock>/deploy/components/network-policy
+#
+# and names its ingress controller's namespace in place of the placeholder
+# `my-ingress-namespace`:
+#
+#   patches:
+#     - target: {kind: NetworkPolicy, name: nats}
+#       patch: |
+#         - op: replace
+#           path: /spec/ingress/1/from/0/namespaceSelector/matchLabels/kubernetes.io~1metadata.name
+#           value: <the ingress controller's namespace>
+#
+# Only NATS's and logbook's pods are selected, so nats-box, the bootstrap Job and
+# anything else keep their traffic as the cluster allows it; what they send to NATS
+# is let in by the first rule.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - nats.yaml
+  - logbook.yaml
+
+# The base's labels do not reach what a component adds, so it carries its own.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: twr
+    includeSelectors: false

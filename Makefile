@@ -25,6 +25,7 @@ help:
 	@echo "labels - docs/labels.md and .github/labels.yml list the same labels"
 	@echo "guard  - .claude/ holds those-who-run/.github's guard and settings at the pinned commit"
 	@echo "nats   - deploy/nats/: stream subjects match contracts' subjects.yaml, no overlaps, every limit set (offline)"
+	@echo "check-deploy - the portable-base rules (deploy/README.md): deploy-render, then the private-detail scan of every file"
 	@echo "deploy-render - kustomize build --enable-helm of deploy/'s kustomizations, kubeconform strict, and their checks"
 	@echo "nats-it - deploy/nats/bootstrap.sh twice against a real nats-server -js, and what the streams capture"
 	@echo "compose-it - the walking skeleton from nothing: up, NATS, the bootstrap, logbook's health, export, reset"
@@ -44,7 +45,7 @@ check:
 	$(MAKE) compose-it
 
 .PHONY: test
-test: links labels guard nats deploy-render
+test: links labels guard nats check-deploy
 	$(PY) -m unittest discover -s tests
 
 .PHONY: links
@@ -62,6 +63,13 @@ guard:
 .PHONY: nats
 nats:
 	$(PY) scripts/nats_check.py
+
+# The portable-base rules (deploy/README.md, paddock#50): the rendered manifests'
+# checks, then a scan of every file for private addresses, host names and stream
+# definitions outside the bootstrap.
+.PHONY: check-deploy
+check-deploy: deploy-render
+	$(PY) scripts/private_scan.py
 
 .PHONY: deploy-render
 deploy-render:
