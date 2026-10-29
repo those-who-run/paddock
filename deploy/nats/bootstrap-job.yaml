@@ -2,24 +2,32 @@
 # 5 min for JetStream, then creates or updates the streams and buckets from the files
 # compose mounts, and exits. A rerun with nothing changed prints only `unchanged`.
 #
-# A Job's template cannot be changed in place, so this one is made to run again:
-# - Argo CD runs it as a Sync hook and deletes the last one before each sync
-#   (BeforeHookCreation), so it runs on every sync. Where Argo CD is not used the
-#   annotations do nothing.
-# - It deletes itself 10 min after it finishes, so the next apply (`kustomize build
-#   --enable-helm <dir> | kubectl apply -f -`; `kubectl apply -k` cannot inflate the
-#   NATS chart the base includes) creates it again. Within those 10 min an unchanged
-#   apply leaves it be, and one with a changed definition fails with `field is
-#   immutable` until the Job is deleted (deploy/nats/README.md).
+# A Job runs once, and its template cannot be changed in place, so this one runs
+# again by being a new Job. Its name carries the hash of a ConfigMap of every file
+# it runs (kustomization.yaml): the definitions, bootstrap.sh and this file. A changed
+# file renders a Job of a new name, which the next apply creates and runs:
+# - Argo CD creates it in any sync, a selective one included. It is not a Sync hook:
+#   Argo CD runs no hooks in a selective sync, which is all self-heal does when only
+#   the remote base has moved: after #306, CALLOUTS and KV_ecu were not created
+#   until a full sync. Prune deletes the Job and ConfigMap of the hash before.
+# - Without Argo CD, `kustomize build --enable-helm <dir> | kubectl apply -f -`
+#   (`kubectl apply -k` cannot inflate the NATS chart the base includes) creates it.
+#   The Job before stays until it is deleted, or applied with --prune.
+# An apply with nothing changed finds the Job there and leaves it be. To run it again
+# by hand, delete it: Argo CD's self-heal, or the next apply, creates it again.
+# Argo CD does not wait on it, so a failed run fails no sync and no retry reruns it:
+# the app is Degraded until the Job is deleted. A change to the template from outside
+# these files (an overlay's patch, images: or template labels) keeps the name, and
+# fails with `field is immutable` until the Job is deleted (README.md).
+#
+# It has no ttlSecondsAfterFinished: a Job Argo CD manages that deletes itself is
+# Missing, and self-heal would create it again, so it would run every 10 min for good.
 apiVersion: batch/v1
 kind: Job
 metadata:
+  # Rendered as twr-nats-bootstrap-<hash> (kustomizeconfig.yaml).
   name: twr-nats-bootstrap
-  annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
-  ttlSecondsAfterFinished: 600
   # A refused definition fails the same way every time, so one retry is for a pod
   # lost to its node, not for the server's answer.
   backoffLimit: 1
