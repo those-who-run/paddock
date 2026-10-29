@@ -1,0 +1,10 @@
+# The Job twr-nats-bootstrap names the ConfigMap twr-nats-bootstrap in its own
+# metadata.name, so kustomize gives the Job the ConfigMap's hash suffix, as it does
+# any reference to a generated ConfigMap (kustomization.yaml).
+nameReference:
+  - kind: ConfigMap
+    version: v1
+    fieldSpecs:
+      - kind: Job
+        group: batch
+        path: metadata/name

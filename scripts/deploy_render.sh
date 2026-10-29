@@ -8,6 +8,8 @@
 # throwaway overlay that sets `namespace: probe`, and fails if any namespaced object
 # comes out without it: an overlay's namespace has to reach every object, the
 # chart's included, and a kustomize bump has broken that before (#6058, below).
+# Last, it renders a copy of deploy/nats with each kind of file changed in turn, and
+# fails if the stream bootstrap Job keeps its name, since a new name is what runs it.
 #
 # kustomize, helm and kubeconform are fetched at the versions pinned here, checked
 # against the sha256 written here, and kept in .cache/tools/ (git ignores it), so a
@@ -160,3 +162,43 @@ for k in $KUSTOMIZATIONS $COMPONENTS; do
 	python3 scripts/deploy_check.py --namespace probe "$k" "$out/$name.probe.yaml"
 done
 rm -rf "$probe"
+
+# The bootstrap Job runs again only by being a new Job (deploy/nats/bootstrap-job.yaml),
+# so its name must carry the hash of every file it runs: rendered from a copy of
+# deploy/nats, the Job is named as the ConfigMap twr-nats-bootstrap, and a change to
+# a stream, a bucket, the script or the Job renders a Job of another name.
+bootstrap=.cache/bootstrap-probe
+rm -rf "$bootstrap"
+job_name() {
+	"$kustomize" build "$bootstrap" >"$out/bootstrap.yaml"
+	python3 - "$out/bootstrap.yaml" <<'PY'
+import re, sys
+docs = open(sys.argv[1]).read().split("\n---\n")
+def names(kind):
+    return [m.group(1) for d in docs if re.search(rf"^kind: {kind}$", d, re.M)
+            for m in [re.search(r"^  name: (\S+)$", d, re.M)]]
+jobs = names("Job")
+ids = [n for n in names("ConfigMap") if re.fullmatch(r"twr-nats-bootstrap-[a-z0-9]{10}", n)]
+if len(jobs) != 1 or len(ids) != 1 or jobs != ids:
+    sys.exit(f"deploy-render: the Job {jobs} is not named as the ConfigMap {ids}")
+print(jobs[0])
+PY
+}
+mkdir -p "$bootstrap"
+cp -R deploy/nats/kustomization.yaml deploy/nats/kustomizeconfig.yaml \
+	deploy/nats/bootstrap-job.yaml deploy/nats/bootstrap.sh \
+	deploy/nats/streams deploy/nats/kv "$bootstrap/"
+before=$(job_name)
+echo "deploy-render: the bootstrap Job is $before"
+for f in streams/telemetry.json kv/live.json bootstrap.sh bootstrap-job.yaml; do
+	cp "deploy/nats/$f" "$bootstrap/$f.orig"
+	printf '\n' >>"$bootstrap/$f"
+	after=$(job_name)
+	if [ "$after" = "$before" ]; then
+		echo "deploy-render: a change to deploy/nats/$f leaves the bootstrap Job $before" >&2
+		exit 1
+	fi
+	mv "$bootstrap/$f.orig" "$bootstrap/$f"
+done
+[ "$(job_name)" = "$before" ]
+rm -rf "$bootstrap"

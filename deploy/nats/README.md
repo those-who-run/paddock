@@ -84,21 +84,46 @@ this directory; it also renders on its own with `kustomize build deploy/nats`.
   refused definition fails with the server's message, as above.
 - It runs as user 1000 on a read-only root file system, with every capability
   dropped and no service account token: it needs no Kubernetes API.
-- **It runs again** on every Argo CD sync: it is a `Sync` hook with
-  `hook-delete-policy: BeforeHookCreation`. Without Argo CD, apply with
-  `kustomize build --enable-helm <dir> | kubectl apply -f -`, since `kubectl
-  apply -k` cannot inflate NATS's chart, which the base includes. The Job
-  deletes itself 10 min after it finishes (`ttlSecondsAfterFinished: 600`), so
-  the next apply creates it again. Within those 10 min, an apply with nothing
-  changed leaves the finished Job as it is and does not run it again, which is
-  harmless. An apply with a changed definition changes the Job's template (below),
-  which cannot be changed in place, and fails with `field is immutable`: run
-  `kubectl delete job twr-nats-bootstrap` first. Without Argo CD, a failed Job's
-  log also goes with it after 10 min, so read it (`kubectl logs
-  job/twr-nats-bootstrap`) before then. A rerun with nothing changed prints only
-  `unchanged`.
-- The generated ConfigMaps' names carry a hash of their contents, so a changed
-  definition changes the Job's spec.
+- **It runs again when a file it runs changes.** Its rendered name is
+  `twr-nats-bootstrap-<hash>`, the hash of the ConfigMap `twr-nats-bootstrap`,
+  which holds every stream and bucket file, `bootstrap.sh` and
+  `bootstrap-job.yaml` and is mounted nowhere
+  ([`kustomizeconfig.yaml`](kustomizeconfig.yaml) makes the Job's name a
+  reference to it). A changed file renders a Job of a new name, and the next
+  apply creates it and so runs it; with nothing changed, the Job is there and is
+  left be. Find it with `kubectl get jobs`, and read its log with `kubectl logs
+  job/twr-nats-bootstrap-<hash>`.
+  - Argo CD creates it in any sync, a selective one included, and prunes the
+    Job and ConfigMap of the hash before. It is not a Sync hook: Argo CD runs no
+    hooks in a selective sync, and self-heal syncs only what is out of sync, so
+    when only the remote base moved (#306's `CALLOUTS` and `ecu`) a hook never
+    ran.
+  - **A failed bootstrap does not fail the sync.** As an ordinary resource in a
+    sync of one wave, the Job is created and not waited on, so the sync
+    succeeds and the Application's `retry` never reruns it. The app shows
+    **Degraded** instead, and stays so until the Job is deleted, which reruns it
+    (below), or a fix renders a new one. When the app is Degraded, read the
+    Job's log first.
+  - Without Argo CD, apply with `kustomize build --enable-helm <dir> | kubectl
+    apply -f -`, since `kubectl apply -k` cannot inflate NATS's chart, which the
+    base includes. The Job of the hash before stays, finished, until it is
+    deleted (`kubectl delete job <name>`) or the apply has `--prune`.
+  - To run it again with nothing changed, after a failure that was not the
+    files' (NATS down past the 5 min wait), delete the Job: self-heal, or the
+    next apply, creates it again. A rerun with nothing changed prints only
+    `unchanged`.
+  - It never deletes itself (no `ttlSecondsAfterFinished`): Argo CD would see a
+    Job it manages go missing and self-heal would create it again, so it would
+    run every 10 min for good.
+  - Only the files above are in the hash. What else changes the Job's template
+    keeps its name, so a Job that exists fails with `field is immutable` (Argo
+    CD's sync fails, as does `kubectl apply`) until it is deleted. Delete the
+    Job first when changing any of these:
+    - an overlay's patch to the Job;
+    - an overlay's `images:` entry for `nats-box`;
+    - `labels` on templates, the overlay's or the base's
+      ([`deploy/base/kustomization.yaml`](../base/kustomization.yaml)'s
+      `labels`, with `includeTemplates: true`).
 - An Argo CD Application sets `spec.destination.namespace` explicitly. kustomize
   5.8 leaves the chart's objects out of an overlay's `namespace:`
   ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)),
@@ -107,8 +132,10 @@ this directory; it also renders on its own with `kustomize build deploy/nats`.
 A new definition file has to be added to its directory's `configMapGenerator`
 in [`kustomization.yaml`](kustomization.yaml), since kustomize takes no globs.
 `tests/test_bootstrap_job.py` (in `make test`) fails when a file in `streams/` or
-`kv/` is not there, and checks the Job's image is compose's, its user, file
-system and token, its URL and wait, and the rerun annotations.
+`kv/` is not there, or not in `twr-nats-bootstrap`, and checks the Job's image is
+compose's, its user, file system and token, its URL and wait, that it is no hook
+and has no TTL, and that a changed stream, bucket, script or Job renders a Job of
+another name.
 
 For the cluster's Job (#43): a ConfigMap has no directories, so the files go in
 two ConfigMaps, one for `streams/` and one for `kv/`, mounted at `streams/` and
@@ -260,7 +287,8 @@ All three run in CI's `test` job. The images are pinned by digest in
 - A new stream or bucket is a new file named after it (`streams/callouts.json`
   is `CALLOUTS`), with every limit set and a `$comment` with the working, and a
   line in its directory's `configMapGenerator` in
-  [`kustomization.yaml`](kustomization.yaml), so the cluster's Job mounts it.
+  [`kustomization.yaml`](kustomization.yaml), so the cluster's Job mounts it,
+  and one in `twr-nats-bootstrap`'s, so a change to it runs the Job again.
 - When `contracts` adds subjects, copy its `subjects.yaml` from the new tag over
   [`subjects.yaml`](subjects.yaml), and change `CONTRACTS_TAG` and
   `SUBJECTS_SHA256` in [`scripts/nats_check.py`](../../scripts/nats_check.py).
