@@ -133,15 +133,23 @@ replay:
 	@test -n "$(FILE)" || { echo "make replay FILE=<a file in recordings/> [SPEED=1|N|max] [RUN=compose]" >&2; exit 2; }
 	$(STACK) run --rm -T replay replay --speed $(SPEED) --run $(RUN) /recordings/$(FILE)
 
-# radio in the background (profile `replay`; naming it enables it), on the callouts
-# `make replay RUN=...` publishes, as your own user so the WAVs in WAV are yours.
-# Start it before the replay: CALLOUTS keeps a callout 30 s. Its lines are in
-# `$(STACK) logs -f radio`.
+# radio in the background, on the callouts
+# `make replay RUN=...` publishes, as a user that owns the WAVs it writes to WAV.
+# Under Docker that is your own uid. Under rootless podman your uid in the container
+# maps to a subordinate uid that cannot write to WAV, and the container's root is
+# you, so it runs as 0:0: still you on the host, with every capability dropped.
+# podman is COMPOSE naming it, or `docker` being podman's shim. Start it before the
+# replay: CALLOUTS keeps a callout 30 s. Its lines are in `$(STACK) logs -f radio`.
+# `--profile replay` by name, since podman-compose does not enable a profile for a
+# service named on the command line as Docker's compose does.
 .PHONY: radio
 radio:
 	mkdir -p $(WAV)
-	TWR_UID=$$(id -u) TWR_GID=$$(id -g) TWR_RADIO_SINK=$(SINK) TWR_RADIO_SRC=replay-$(RUN) \
-		TWR_RADIO_WAV=$(abspath $(WAV)) $(STACK) up -d radio
+	if printf '%s' '$(COMPOSE)' | grep -q podman || \
+		$(firstword $(COMPOSE)) --version 2>/dev/null | grep -qi podman; then \
+		uid=0 gid=0; else uid=$$(id -u) gid=$$(id -g); fi; \
+	TWR_UID=$$uid TWR_GID=$$gid TWR_RADIO_SINK=$(SINK) TWR_RADIO_SRC=replay-$(RUN) \
+		TWR_RADIO_WAV=$(abspath $(WAV)) $(STACK) --profile replay up -d radio
 
 .PHONY: sub
 sub:

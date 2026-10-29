@@ -129,7 +129,8 @@ services:
   # with paddock#58, and the cluster's component deploy/components/radio-discord.
   #
   # It runs as TWR_UID:TWR_GID, 65532 by default as in the image; `make radio`
-  # passes your own, so the WAVs land in a directory you own.
+  # passes your own under Docker, and 0:0 under rootless podman, where the
+  # container's root is you, so the WAVs land in a directory you own either way.
   radio:
     image: ghcr.io/those-who-run/twr-radio:0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
     platform: linux/amd64
