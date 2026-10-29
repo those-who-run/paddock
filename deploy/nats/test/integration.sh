@@ -1,6 +1,6 @@
 #!/bin/sh
 # The bootstrap against a real, empty nats-server -js (paddock#36, AC1, AC2, AC4 and
-# R4's refusal). scripts/nats_it.sh starts the server and runs this in the same
+# R4's refusal; paddock#73, AC1 and AC2). scripts/nats_it.sh starts the server and runs this in the same
 # pinned nats-box the bootstrap uses, with deploy/nats mounted read-only at the
 # directory given (default: this script's parent), NATS_URL set, and WORK a
 # writable directory (a tmpfs) for the changed copies of the definitions.
@@ -60,10 +60,11 @@ expect_count() {
 	[ "$got" -eq "$2" ] || fail "$1 holds $got messages, want $2"
 }
 
-echo "== AC1: the first run creates both streams and the bucket"
+echo "== AC1: the first run creates the streams and the buckets"
 out=$("$dir/bootstrap.sh" "$dir")
 echo "$out"
-for want in "stream TELEMETRY created" "stream EVENTS created" "bucket live created"; do
+for want in "stream CALLOUTS created" "stream TELEMETRY created" "stream EVENTS created" \
+	"bucket ecu created" "bucket live created"; do
 	printf '%s\n' "$out" | grep -qxF "bootstrap: $want" || fail "first run did not say: $want"
 done
 
@@ -94,9 +95,29 @@ expect KV_live num_replicas 1
 expect KV_live max_msg_size 65536
 expect KV_live max_bytes 67108864
 
+# paddock#73 R1, with max_age 30 s from its triage, and the duplicate window cut to
+# max_age, as the server would.
+n stream info CALLOUTS
+expect CALLOUTS subjects '["twr.v1.*.callout.>"]'
+expect CALLOUTS retention '"workqueue"'
+expect CALLOUTS storage '"file"'
+expect CALLOUTS max_age 30000000000
+expect CALLOUTS duplicate_window 30000000000
+expect CALLOUTS discard '"old"'
+expect CALLOUTS num_replicas 1
+expect CALLOUTS max_bytes 67108864
+
+# paddock#73 R2.
+n kv info ecu
+expect KV_ecu max_msgs_per_subject 1
+expect KV_ecu storage '"file"'
+expect KV_ecu num_replicas 1
+expect KV_ecu max_msg_size 1048576
+expect KV_ecu max_bytes 67108864
+
 echo "== AC2: a second run changes nothing and exits 0"
 snapshot() {
-	for s in TELEMETRY EVENTS KV_live; do
+	for s in CALLOUTS TELEMETRY EVENTS KV_ecu KV_live; do
 		n stream info "$s" --json | jq -c '{name: .config.name, config: .config, created: .created}'
 	done
 }
@@ -104,7 +125,7 @@ before=$(snapshot)
 out=$("$dir/bootstrap.sh" "$dir")
 echo "$out"
 printf '%s\n' "$out" | grep -v ' unchanged$' && fail "second run changed something"
-[ "$(printf '%s\n' "$out" | wc -l)" -eq 3 ] || fail "second run did not report three definitions"
+[ "$(printf '%s\n' "$out" | wc -l)" -eq 5 ] || fail "second run did not report five definitions"
 [ "$(snapshot)" = "$before" ] || fail "the configs differ after the second run"
 
 echo "== AC4: core publishes are captured by the right stream"
@@ -117,7 +138,7 @@ n stream get TELEMETRY --last-for twr.v1.parity.frame.gt7 >/dev/null ||
 	fail "TELEMETRY does not hold twr.v1.parity.frame.gt7"
 n stream get EVENTS --last-for twr.v1.parity.evt.x.lap.completed >/dev/null ||
 	fail "EVENTS does not hold twr.v1.parity.evt.x.lap.completed"
-for s in TELEMETRY EVENTS KV_live; do
+for s in CALLOUTS TELEMETRY EVENTS KV_ecu KV_live; do
 	n stream get "$s" --last-for twr.v1.parity.frame.gt7.lo >/dev/null 2>&1 &&
 		fail "$s holds twr.v1.parity.frame.gt7.lo"
 done
@@ -126,6 +147,15 @@ echo "== The duplicate window: one event published twice with one Nats-Msg-Id is
 n pub -H 'Nats-Msg-Id:parity:x:lap.completed:2' twr.v1.parity.evt.x.lap.completed '{"lap":2}'
 n pub -H 'Nats-Msg-Id:parity:x:lap.completed:2' twr.v1.parity.evt.x.lap.completed '{"lap":2}'
 expect_count EVENTS 2
+
+echo "== paddock#73 AC2: a callout lands in CALLOUTS, once for one Nats-Msg-Id"
+n pub -H 'Nats-Msg-Id:01JCALLOUT0000000000000001' twr.v1.replay-test.callout.p0 '{"text":"box"}'
+n pub -H 'Nats-Msg-Id:01JCALLOUT0000000000000001' twr.v1.replay-test.callout.p0 '{"text":"box"}'
+# Its age is checked at the end, so the 30 s pass while the stages below run.
+callout_at=$(date +%s)
+expect_count CALLOUTS 1
+n stream get CALLOUTS --last-for twr.v1.replay-test.callout.p0 >/dev/null ||
+	fail "CALLOUTS does not hold twr.v1.replay-test.callout.p0"
 
 echo "== R4: a definition the server refuses exits non-zero with the server's message"
 if err=$("$dir/bootstrap.sh" "$dir/test/refused" 2>&1); then
@@ -142,14 +172,18 @@ echo "== R4: a changed limit in each definition is updated in place, then unchan
 # would change them; the stage after it puts the real ones back.
 changed=$WORK/changed
 mkdir -p "$changed/streams" "$changed/kv"
+jq '.max_bytes = 33554432' "$dir/streams/callouts.json" >"$changed/streams/callouts.json"
 jq '.max_bytes = 1073741824' "$dir/streams/telemetry.json" >"$changed/streams/telemetry.json"
 jq '.duplicate_window = 60000000000' "$dir/streams/events.json" >"$changed/streams/events.json"
 jq '.max_bucket_size = 33554432 | .max_value_size = 32768' "$dir/kv/live.json" >"$changed/kv/live.json"
+jq '.max_value_size = 524288' "$dir/kv/ecu.json" >"$changed/kv/ecu.json"
 if out=$("$dir/bootstrap.sh" "$changed"); then
 	echo "$out"
 	for want in "stream TELEMETRY differs in: max_bytes" "stream TELEMETRY updated" \
 		"stream EVENTS differs in: duplicate_window" "stream EVENTS updated" \
-		"bucket live differs in: max_msg_size max_bytes" "bucket live updated"; do
+		"bucket live differs in: max_msg_size max_bytes" "bucket live updated" \
+		"stream CALLOUTS differs in: max_bytes" "stream CALLOUTS updated" \
+		"bucket ecu differs in: max_msg_size" "bucket ecu updated"; do
 		printf '%s\n' "$out" | grep -qxF "bootstrap: $want" || fail "the changed run did not say: $want"
 	done
 else
@@ -159,6 +193,8 @@ expect TELEMETRY max_bytes 1073741824
 expect EVENTS duplicate_window 60000000000
 expect KV_live max_bytes 33554432
 expect KV_live max_msg_size 32768
+expect CALLOUTS max_bytes 33554432
+expect KV_ecu max_msg_size 524288
 expect_count TELEMETRY 1
 expect_count EVENTS 2
 out=$("$dir/bootstrap.sh" "$changed")
@@ -168,11 +204,13 @@ printf '%s\n' "$out" | grep -v ' unchanged$' && fail "the run after the change c
 echo "== R4: the real definitions put the old limits back"
 out=$("$dir/bootstrap.sh" "$dir")
 echo "$out"
-[ "$(printf '%s\n' "$out" | grep -c ' updated$')" -eq 3 ] || fail "the real definitions were not applied again"
+[ "$(printf '%s\n' "$out" | grep -c ' updated$')" -eq 5 ] || fail "the real definitions were not applied again"
 expect TELEMETRY max_bytes 2147483648
 expect EVENTS duplicate_window 120000000000
 expect KV_live max_bytes 67108864
 expect KV_live max_msg_size 65536
+expect CALLOUTS max_bytes 67108864
+expect KV_ecu max_msg_size 1048576
 
 echo "== R4: a bucket's storage cannot change in place, and the bucket stays as it was"
 memory=$WORK/memory
@@ -215,6 +253,18 @@ for url in "nats://$user:$password@127.0.0.1:1" "$user:$password@127.0.0.1:1" \
 		fail "the unreachable server is not named"
 	no_secret "$out"
 done
+
+echo "== paddock#73 AC2: the callout is gone once it is older than 30 s"
+# The server expires messages on a timer, so allow it a few seconds past max_age.
+while [ $(($(date +%s) - callout_at)) -lt 31 ]; do
+	sleep 1
+done
+i=0
+while [ "$(count CALLOUTS)" -ne 0 ] && [ "$i" -lt 10 ]; do
+	i=$((i + 1))
+	sleep 1
+done
+[ "$(count CALLOUTS)" -eq 0 ] || fail "CALLOUTS still holds the callout $(($(date +%s) - callout_at)) s after it was published"
 
 if [ "$failed" -ne 0 ]; then
 	echo "nats integration: FAILED" >&2

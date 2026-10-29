@@ -8,8 +8,8 @@
 # message may travel on several subjects; a pattern follows ADR 0001's subject
 # scheme and goes to that scheme's stream; every placeholder is a known one and
 # allowed where it is; and every message in an events package (twr.events.*, any
-# version) has an entry or is listed under helpers. docs/subjects.md is
-# rendered from this file by `make generate`.
+# version) or a state package (twr.state.*) has an entry or is listed under
+# helpers. docs/subjects.md is rendered from this file by `make generate`.
 #
 # An entry is a subject or a KV key. A subject's keys:
 #   pattern       the subject, with <placeholders> for its variable tokens
@@ -18,33 +18,63 @@
 #                 Callouts are one entry per level, callout.p0, .p1 and .p2,
 #                 each a subject a consumer subscribes to, sharing one message
 #                 and ce-type.
+#                 A token of <area> or <what> is lower-case letters and
+#                 digits, with single underscores between words, such as
+#                 final_lap; so is each token of a ce_type.
 #   ce_type       the CloudEvents type in the ce-type header, one to one with
 #                 a message: run.thosewho.<area>.<what>.v<N>
 #   message       the protobuf message, fully qualified
 #   content_type  the ce-datacontenttype header: application/json, protobuf's
 #                 JSON form (ADR 0002, point 2)
 #   stream        the JetStream stream that captures the subject (ADR 0001,
-#                 point 1)
+#                 point 1). The 20 Hz frame (frame.<game>.lo) has none: it is
+#                 a core-only copy of the frames, never kept (paddock#271).
 #   producers     the components that publish it
 #   consumers     the components that read it
 #   msg_id        the ce-id and Nats-Msg-Id scheme. An event's is
 #                 <src>:<sid>:<area>.<what>:<part>, with its ce-type's
 #                 <area>.<what> and at least one part, such as
 #                 <src>:<sid>:lap.completed:<n>; one that happens once per
-#                 session ends in :1. On an evt._ subject, with no session
-#                 open, <run> takes <sid>'s place. The source comes first
-#                 because EVENTS deduplicates by Nats-Msg-Id across the whole
-#                 stream, and two sources can carry the same session id
+#                 session ends in :1, and one the session counts ends in its
+#                 number, such as a pause's <pause>, which ecu carries across
+#                 a restart: a pause open across one keeps its number, so a
+#                 pause sent again after the restart dedupes. One that
+#                 can happen at any frame, more than once a session, with no
+#                 count of its own (kind, track, position, car.alarm after
+#                 its <check>), ends in <run>:<seq>, the ecu run and the
+#                 event's `at`: seq starts
+#                 again with each run, and a session continued after an ecu
+#                 restart (paddock#76) spans two runs. A pit stop's are its
+#                 <entry> (pit.entered, pit.teleport) or <stop> (pit.exited),
+#                 counted like <pause>; an entry has its own count because a
+#                 teleport gives its stop number back to the next entry. On an
+#                 evt._ subject, with no session open, <run> takes <sid>'s
+#                 place: telemetry.lost is <src>:<run>:telemetry.lost:<seq>
+#                 there, and <src>:<sid>:telemetry.lost:<run>:<seq> in a
+#                 session. An event whose id has <run> carries it in its
+#                 message as run_id, so every id is built from its message
+#                 (internal/catalogue checks it; paddock#70). The
+#                 source comes first because EVENTS deduplicates by
+#                 Nats-Msg-Id across the whole stream, and two sources can carry the same session id
 #                 (paddock#279). A frame's is <run>:frame:<seq>, without it.
+#                 A callout's is <id>, the Callout's own id, unique per
+#                 callout across runs and sources within CALLOUTS' duplicate
+#                 window; a publish sent again keeps it, so it dedupes. A
+#                 publisher may mint it (a ULID) or derive it from run_id, at,
+#                 rule and an index within the frame, so a replay can be
+#                 reproducible (paddock#71).
 #   description   what it is, for the rendered table
 #
 # A KV key's: kv (the bucket), key (with placeholders), message, content_type,
 # producers (its writers), consumers (its readers) and description. It has no
 # pattern, stream, ce_type or msg_id: a value written with Put carries no
-# headers.
+# headers. Every key in the live and ecu buckets carries its <src>, so a replay
+# writes its own keys and never the live source's (paddock#72); a bucket that
+# is not per source, such as the planned config, need not. Every message in a
+# state package (twr.state.*, any version) is a KV entry's value or a helper.
 #
-# helpers lists the messages in an events package that are parts of an event,
-# not events, so they need no entry.
+# helpers lists the messages in an events or state package that are parts of
+# an event or a value, not one of their own, so they need no entry.
 
 subjects:
   - pattern: twr.v1.<src>.frame.gt7
@@ -87,5 +117,277 @@ subjects:
     msg_id: <src>:<sid>:session.ended:1
     description: A session ended, why, and its summary.
 
+  - pattern: twr.v1.<src>.evt.<sid>.session.continued
+    ce_type: run.thosewho.session.continued.v1
+    message: twr.events.v1.SessionContinued
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:session.continued:<run>
+    description: A new ecu run continued the session the run before it left open, after a gap.
+
+  - pattern: twr.v1.<src>.evt.<sid>.session.discarded
+    ce_type: run.thosewho.session.discarded.v1
+    message: twr.events.v1.SessionDiscarded
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:session.discarded:1
+    description: A held start was a GT7 replay or demo, not a drive; its held frames are dropped.
+
+  - pattern: twr.v1.<src>.evt.<sid>.session.kind
+    ce_type: run.thosewho.session.kind.v1
+    message: twr.events.v1.SessionKindChanged
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:session.kind:<run>:<seq>
+    description: ecu's verdict on the session's kind changed.
+
+  - pattern: twr.v1.<src>.evt.<sid>.session.track
+    ce_type: run.thosewho.session.track.v1
+    message: twr.events.v1.SessionTrackChanged
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:session.track:<run>:<seq>
+    description: ecu's verdict on the session's track changed.
+
+  - pattern: twr.v1.<src>.evt.<sid>.session.paused
+    ce_type: run.thosewho.session.paused.v1
+    message: twr.events.v1.SessionPaused
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:session.paused:<pause>
+    description: The session paused, flagged by GT7 or read from a frozen stream.
+
+  - pattern: twr.v1.<src>.evt.<sid>.session.resumed
+    ce_type: run.thosewho.session.resumed.v1
+    message: twr.events.v1.SessionResumed
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:session.resumed:<pause>
+    description: The session's pause ended.
+
+  - pattern: twr.v1.<src>.evt.<sid>.lap.best
+    ce_type: run.thosewho.lap.best.v1
+    message: twr.events.v1.LapBestChanged
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:lap.best:<n>
+    description: The session's best lap changed.
+
+  - pattern: twr.v1.<src>.evt.<sid>.race.final_lap
+    ce_type: run.thosewho.race.final_lap.v1
+    message: twr.events.v1.RaceFinalLapStarted
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:race.final_lap:1
+    description: The final lap of a lap race began.
+
+  - pattern: twr.v1.<src>.evt.<sid>.race.position
+    ce_type: run.thosewho.race.position.v1
+    message: twr.events.v1.RacePositionChanged
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:race.position:<run>:<seq>
+    description: The car's position changed and settled for 3 s.
+
+  - pattern: twr.v1.<src>.evt.<sid>.race.finished
+    ce_type: run.thosewho.race.finished.v1
+    message: twr.events.v1.RaceFinished
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook, radio]
+    msg_id: <src>:<sid>:race.finished:1
+    description: The race finished, at the chequered flag or a timed race's finish.
+
+  - pattern: twr.v1.<src>.evt.<sid>.pit.entered
+    ce_type: run.thosewho.pit.entered.v1
+    message: twr.events.v1.PitEntered
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook, radio]
+    msg_id: <src>:<sid>:pit.entered:<entry>
+    description: The car came into the pit lane; a pit.teleport may withdraw it.
+
+  - pattern: twr.v1.<src>.evt.<sid>.pit.exited
+    ce_type: run.thosewho.pit.exited.v1
+    message: twr.events.v1.PitExited
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook, radio]
+    msg_id: <src>:<sid>:pit.exited:<stop>
+    description: The car left the pit lane, with the stop it made; a stint starts.
+
+  - pattern: twr.v1.<src>.evt.<sid>.pit.teleport
+    ce_type: run.thosewho.pit.teleport.v1
+    message: twr.events.v1.PitTeleport
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook, radio]
+    msg_id: <src>:<sid>:pit.teleport:<entry>
+    description: A pit entry was not a stop (never at rest, no fuel, no tyres), so it is withdrawn.
+
+  - pattern: twr.v1.<src>.evt.<sid>.car.alarm
+    ce_type: run.thosewho.car.alarm.v1
+    message: twr.events.v1.CarAlarmRaised
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:car.alarm:<check>:<run>:<seq>
+    description: A tyre, water or oil temperature check raised its alarm.
+
+  - pattern: twr.v1.<src>.evt.<sid>.telemetry.lost
+    ce_type: run.thosewho.telemetry.lost.v1
+    message: twr.events.v1.TelemetryLost
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:telemetry.lost:<run>:<seq>
+    description: The frames stopped arriving while a session was open.
+
+  - pattern: twr.v1.<src>.evt._.telemetry.lost
+    ce_type: run.thosewho.telemetry.lost.v1
+    message: twr.events.v1.TelemetryLost
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<run>:telemetry.lost:<seq>
+    description: The frames stopped arriving while no session was open.
+
+  - pattern: twr.v1.<src>.evt.<sid>.telemetry.restored
+    ce_type: run.thosewho.telemetry.restored.v1
+    message: twr.events.v1.TelemetryRestored
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<sid>:telemetry.restored:<run>:<seq>
+    description: The frames came back after a loss, with a session open.
+
+  - pattern: twr.v1.<src>.evt._.telemetry.restored
+    ce_type: run.thosewho.telemetry.restored.v1
+    message: twr.events.v1.TelemetryRestored
+    content_type: application/json
+    stream: EVENTS
+    producers: [ecu]
+    consumers: [logbook]
+    msg_id: <src>:<run>:telemetry.restored:<seq>
+    description: The frames came back after a loss, with no session open.
+
+  - pattern: twr.v1.<src>.callout.p0
+    ce_type: run.thosewho.callout.raised.v1
+    message: twr.events.v1.Callout
+    content_type: application/json
+    stream: CALLOUTS
+    producers: [ecu]
+    consumers: [radio]
+    msg_id: <id>
+    description: A callout with priority under 10, spoken first, such as lost telemetry, critical fuel, the pit call or the start brief.
+
+  - pattern: twr.v1.<src>.callout.p1
+    ce_type: run.thosewho.callout.raised.v1
+    message: twr.events.v1.Callout
+    content_type: application/json
+    stream: CALLOUTS
+    producers: [ecu]
+    consumers: [radio]
+    msg_id: <id>
+    description: A callout with priority 10 to 19, such as the final lap, a new best, position, temperatures or fuel.
+
+  - pattern: twr.v1.<src>.callout.p2
+    ce_type: run.thosewho.callout.raised.v1
+    message: twr.events.v1.Callout
+    content_type: application/json
+    stream: CALLOUTS
+    producers: [ecu]
+    consumers: [radio]
+    msg_id: <id>
+    description: A callout with priority 20 or over, such as a lap time or the race summary.
+
+  # 20 Hz: at most one frame per 50 ms of frame time, for the dash (paddock#137).
+  # The producer keeps the rate, not this catalogue: ecu's internal/bus (loGap).
+  - pattern: twr.v1.<src>.frame.gt7.lo
+    ce_type: run.thosewho.frame.gt7.v1
+    message: twr.telemetry.v1.Frame
+    content_type: application/json
+    producers: [ecu]
+    consumers: [dash]
+    msg_id: <run>:frame:<seq>
+    description: The same frames at 20 Hz, at most one per 50 ms of frame time (ecu's internal/bus enforces it), with the same headers; core NATS only, for the dash.
+
+  # paddock#72: the values ecu keeps in KV. Every key carries its source, so a
+  # replay writes its own keys and the deployed ecu only the live source's.
+  - kv: live
+    key: ecu.status.<src>
+    message: twr.state.v1.EcuStatus
+    content_type: application/json
+    producers: [ecu]
+    consumers: [pitwall, radio]
+    description: What ecu is doing (activity, idle, the telemetry link), written on change, every second while idle and at least every 5 s while busy.
+
+  - kv: live
+    key: ecu.session.<src>
+    message: twr.state.v1.LiveSession
+    content_type: application/json
+    producers: [ecu]
+    consumers: [pitwall]
+    description: The open session as of its last frame (kind, track, car, lap, position); no key while none is open.
+
+  - kv: live
+    key: ecu.pit.<src>
+    message: twr.state.v1.PitState
+    content_type: application/json
+    producers: [ecu]
+    consumers: [pitwall]
+    description: Whether the car is in the pit lane, its stint and its stops; no key while no session is open.
+
+  - kv: live
+    key: ecu.fuel.<src>
+    message: twr.state.v1.FuelState
+    content_type: application/json
+    producers: [ecu]
+    consumers: [pitwall]
+    description: The fuel level, the tank and the laps it lasts; no key while no session is open.
+
+  - kv: ecu
+    key: sessions.open.<src>
+    message: twr.state.v1.OpenSession
+    content_type: application/json
+    producers: [ecu]
+    consumers: [ecu]
+    description: The open session and its running summary, which a restarted ecu continues or ends from (paddock#76); ecu's own bucket, which no reader of live sees.
+
 helpers:
+  - twr.events.v1.CalloutSlots
+  - twr.events.v1.PitStop
+  - twr.events.v1.SessionGap
+  - twr.events.v1.SessionKind
   - twr.events.v1.SessionSummary
+  - twr.events.v1.TrackCandidate
+  - twr.events.v1.TrackVerdict
+  - twr.events.v1.TyreTemp
+  - twr.state.v1.LiveTrack
+  - twr.state.v1.OpenLap

@@ -87,7 +87,7 @@ class Definitions(unittest.TestCase):
     def test_the_repository_passes(self) -> None:
         problems, summary = nats_check.check(ROOT)
         self.assertEqual(problems, [])
-        self.assertIn("2 streams, 1 buckets", summary)
+        self.assertIn("3 streams, 2 buckets", summary)
 
     def test_a_third_stream_on_the_events_subject_fails(self) -> None:
         # AC3: caught here, before the bootstrap reaches a server.
@@ -102,11 +102,15 @@ class Definitions(unittest.TestCase):
         self.assertTrue(any("overlap" in p for p in self.problems()))
 
     def test_capturing_the_low_rate_copy_fails(self) -> None:
-        # A stream on the 20 Hz copy alone captures nothing contracts lists, and
-        # leaves frame.gt7 with no stream. AC4 checks the same against a server.
+        # contracts lists the 20 Hz copy with no stream (paddock#137), so a stream
+        # on it captures what nothing should keep, and leaves frame.gt7 with no
+        # stream. AC4 checks the same against a server.
         self.edit("streams/telemetry.json", subjects=["twr.v1.*.frame.gt7.lo"])
         problems = self.problems()
-        self.assertTrue(any("covers no subject" in p for p in problems), problems)
+        self.assertIn(
+            "twr.v1.<src>.frame.gt7.lo goes to no stream in subjects.yaml, but TELEMETRY (twr.v1.*.frame.gt7.lo) captures it",
+            problems,
+        )
         self.assertTrue(any("no subject of TELEMETRY covers all of it" in p for p in problems), problems)
 
     def test_a_subject_in_the_wrong_stream_fails(self) -> None:
@@ -144,7 +148,7 @@ class Definitions(unittest.TestCase):
     def test_a_changed_copy_of_subjects_yaml_fails(self) -> None:
         path = self.nats / "subjects.yaml"
         path.write_text(path.read_text() + "\n")
-        self.assertTrue(any("is not contracts' subjects.yaml at v0.1.5" in p for p in self.problems()))
+        self.assertTrue(any("is not contracts' subjects.yaml at v0.2.3" in p for p in self.problems()))
 
     def test_a_zero_the_server_stores_as_minus_one_fails(self) -> None:
         # The server would return -1, so every run would edit the stream.

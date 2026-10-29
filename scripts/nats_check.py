@@ -46,8 +46,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NATS = Path("deploy/nats")
 
-CONTRACTS_TAG = "v0.1.5"
-SUBJECTS_SHA256 = "0c7df9cb29261c79589eb618e5fa651f209f84826268c65ba86c87c815ad6a92"
+CONTRACTS_TAG = "v0.2.3"
+SUBJECTS_SHA256 = "eb4aaed845c5e4c5d39087a783c4710de2b887610522dafee86ad7cc5344a798"
 
 # The bootstrap compares only the fields a file names, so a field deleted from a
 # file would keep its old value on the server, unnoticed. Every stream file names

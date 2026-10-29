@@ -19,10 +19,12 @@ resources:
 configMapGenerator:
   - name: twr-nats-streams
     files:
+      - streams/callouts.json
       - streams/events.json
       - streams/telemetry.json
   - name: twr-nats-kv
     files:
+      - kv/ecu.json
       - kv/live.json
   - name: twr-nats-bootstrap-script
     files:
