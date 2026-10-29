@@ -39,7 +39,14 @@ For ``deploy/base``, what paddock#44 asks of the base:
   storage class, ``TWR_NATS_URL=nats://nats:4222`` and ``TWR_HEALTH_ADDR=:8080``,
   readiness and liveness on ``/healthz``, non-root on a read-only root file system
   with no service account token and the RuntimeDefault seccomp profile, requests
-  and a memory limit; and its headless Service.
+  and a memory limit; and its headless Service;
+- paddock#63 R2: ``radio`` a Deployment of exactly one replica, replaced by
+  ``Recreate``, ``TWR_NATS_URL=nats://nats:4222``, ``TWR_HEALTH_ADDR=:8080``,
+  source ``live`` and the ``console`` sink, no Secret and no Discord setting,
+  an ``emptyDir`` at ``/tmp`` for the speech cache, readiness and liveness on
+  ``/healthz``, non-root on a read-only root file system with no service account
+  token and the RuntimeDefault seccomp profile, requests and a memory limit; and
+  its Service on 8080.
 
 Each component's render over the base carries the label on every object too, its
 own included. For ``deploy/components/network-policy``, rendered over the base: a NetworkPolicy
@@ -50,6 +57,12 @@ overlay replaces, reach the WebSocket's 8080 only.
 For ``deploy/components/nats-websocket``, rendered over the base: the Ingress
 ``nats-ws`` goes to the ``nats`` Service's websocket port, with no host, class or
 TLS of its own, which the overlay that includes it sets.
+
+For ``deploy/components/radio-discord``, rendered over the base (paddock#63 R3):
+``radio``'s sink is ``discord``, and ``TWR_DISCORD_BOT_TOKEN`` and
+``TWR_DISCORD_VOICE_CHANNEL_ID`` come from a ``secretKeyRef`` each, of the Secret
+``radio-discord`` under their own names, and from no value; the render holds no
+Secret of that name.
 
 With ``--namespace NS``, the render is of a throwaway overlay that sets
 ``namespace: NS`` over the kustomization, and the only check is that every namespaced
@@ -73,6 +86,11 @@ NATS_CHART = "deploy/nats/chart"
 NATS_WEBSOCKET = "deploy/components/nats-websocket"
 BASE = "deploy/base"
 NETWORK_POLICY = "deploy/components/network-policy"
+RADIO_DISCORD = "deploy/components/radio-discord"
+# The Secret deploy/components/radio-discord reads, and its keys, which the overlay
+# provides.
+RADIO_SECRET = "radio-discord"
+RADIO_SECRET_KEYS = ("TWR_DISCORD_BOT_TOKEN", "TWR_DISCORD_VOICE_CHANNEL_ID")
 COMPOSE = Path(__file__).resolve().parent.parent / "deploy" / "compose" / "compose.yaml"
 # In the cluster beside NATS (deploy/nats/chart, promExporter), with nothing to
 # scrape it on a laptop, so compose does not run it.
@@ -351,7 +369,7 @@ def base(docs: list[Doc], compose: str) -> list[str]:
         problems.append("base: no StatefulSet/nats in the render")
     elif values(nats.lines, "replicas") != ["1"]:
         problems.append(f"replicas: {nats} has replicas {values(nats.lines, 'replicas')}, not 1")
-    return problems + logbook(docs)
+    return problems + logbook(docs) + radio(docs)
 
 
 def logbook(docs: list[Doc]) -> list[str]:
@@ -386,24 +404,89 @@ def logbook(docs: list[Doc]) -> list[str]:
         problems.append(f"R2: {sts}'s probes are on {paths}, not /healthz")
     if not has("containerPort", "8080"):
         problems.append(f"R2: {sts} does not name port 8080 for /healthz")
+    problems += pod_hardened(sts)
+
+    svc = find(docs, "Service", "logbook")
+    if svc is None or values(svc.lines, "clusterIP") != ["None"] or values(lines, "serviceName") != ["logbook"]:
+        problems.append(f"R2: {sts} has no headless Service/logbook as its serviceName")
+    return problems
+
+
+def pod_hardened(doc: Doc) -> list[str]:
+    """What logbook's and radio's pods share: no token, the default seccomp profile,
+    non-root on a read-only root file system, requests and a memory limit."""
+    problems = []
+    lines = doc.lines
     for key, value, what in (
         ("automountServiceAccountToken", "false", "mounts a service account token"),
         ("type", "RuntimeDefault", "does not run with the RuntimeDefault seccomp profile"),
         ("runAsNonRoot", "true", "may run as root"),
         ("readOnlyRootFilesystem", "true", "has a writable root file system"),
     ):
-        if not has(key, value):
-            problems.append(f"pod: {sts} {what}")
+        if value not in values(lines, key):
+            problems.append(f"pod: {doc} {what}")
     resources = next((i for i, line in enumerate(lines) if line.strip() == "resources:"), None)
     block = lines[resources:resources + 6] if resources is not None else []
     if not any(line.strip() == "requests:" for line in block):
-        problems.append(f"R5: {sts} has no resource requests")
+        problems.append(f"R5: {doc} has no resource requests")
     if not any(line.strip() == "limits:" for line in block) or not values(block, "memory"):
-        problems.append(f"R5: {sts} has no memory limit")
+        problems.append(f"R5: {doc} has no memory limit")
+    return problems
 
-    svc = find(docs, "Service", "logbook")
-    if svc is None or values(svc.lines, "clusterIP") != ["None"] or values(lines, "serviceName") != ["logbook"]:
-        problems.append(f"R2: {sts} has no headless Service/logbook as its serviceName")
+
+def radio(docs: list[Doc]) -> list[str]:
+    dep = find(docs, "Deployment", "radio")
+    if dep is None:
+        return ["R2: no Deployment/radio in the render"]
+    problems = []
+    lines = dep.lines
+    if values(lines, "replicas") != ["1"]:
+        problems.append(f"replicas: {dep} has replicas {values(lines, 'replicas')}, not exactly 1: one speaker")
+    if block(lines, "strategy") != ["type: Recreate"]:
+        problems.append(f"R2: {dep} is not replaced by Recreate, so two pods would speak at once")
+    for name, want in (("TWR_NATS_URL", "nats://nats:4222"), ("TWR_HEALTH_ADDR", ":8080"),
+                       ("TWR_RADIO_SRC", "live"), ("TWR_RADIO_SINK", "console")):
+        if env_value(lines, name) != want:
+            problems.append(f"R2: {dep}'s {name} is {env_value(lines, name)}, not {want}")
+    if any("secretKeyRef:" in line or "secretRef:" in line or "TWR_DISCORD_" in line for line in lines):
+        problems.append(f"R3: {dep} reads a Secret or a Discord setting, which {RADIO_DISCORD} adds")
+    stripped = {line.strip().removeprefix("- ") for line in lines}
+    if "mountPath: /tmp" not in stripped or "emptyDir:" not in stripped:
+        problems.append(f"R2: {dep} has no emptyDir at /tmp for its speech cache")
+    for probe in ("readinessProbe", "livenessProbe"):
+        if not any(line.strip() == f"{probe}:" for line in lines):
+            problems.append(f"R2: {dep} has no {probe}")
+    paths = values(lines, "path")
+    if not paths or any(p != "/healthz" for p in paths):
+        problems.append(f"R2: {dep}'s probes are on {paths}, not /healthz")
+    if "8080" not in values(lines, "containerPort"):
+        problems.append(f"R2: {dep} does not name port 8080 for /healthz")
+    problems += pod_hardened(dep)
+
+    svc = find(docs, "Service", "radio")
+    if svc is None or values(svc.lines, "port") != ["8080"]:
+        problems.append("R2: no Service/radio on 8080")
+    return problems
+
+
+def radio_discord(docs: list[Doc]) -> list[str]:
+    dep = find(docs, "Deployment", "radio")
+    if dep is None:
+        return [f"R3: no Deployment/radio through {RADIO_DISCORD}"]
+    problems = []
+    lines = dep.lines
+    if env_value(lines, "TWR_RADIO_SINK") != "discord":
+        problems.append(f"R3: {dep}'s TWR_RADIO_SINK is {env_value(lines, 'TWR_RADIO_SINK')}, not discord")
+    for key in RADIO_SECRET_KEYS:
+        i = next((i for i, line in enumerate(lines) if line.strip() == f"- name: {key}"), None)
+        ref = [line.strip() for line in lines[i + 1:i + 5]] if i is not None else []
+        if ref[:2] != ["valueFrom:", "secretKeyRef:"] or sorted(ref[2:4]) != sorted(
+            [f"key: {key}", f"name: {RADIO_SECRET}"]
+        ):
+            problems.append(f"R3: {dep}'s {key} is not read from Secret {RADIO_SECRET}, key {key}: {ref}")
+    secret = find(docs, "Secret", RADIO_SECRET)
+    if secret is not None:
+        problems.append(f"R3: {secret} is in the render; the overlay provides it")
     return problems
 
 
@@ -506,6 +589,8 @@ def check(kustomization: str, text: str, compose: str | None = None) -> list[str
         problems += labelled(docs) + nats_websocket(docs)
     if k == NETWORK_POLICY:
         problems += labelled(docs) + network_policy(docs)
+    if k == RADIO_DISCORD:
+        problems += labelled(docs) + radio_discord(docs)
     return problems
 
 

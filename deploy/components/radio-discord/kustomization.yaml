@@ -1,0 +1,21 @@
+# radio speaks in Discord (paddock#63 R3): the sink `discord` (paddock#58), with the
+# bot's token and its voice channel read from a Secret by name and key only. Nothing
+# here holds a value: the overlay provides the Secret, created outside git, in the
+# stack's namespace. A component, so the base starts on any cluster without one. An
+# overlay includes it:
+#
+#   components:
+#     - <path to paddock>/deploy/components/radio-discord
+#
+# and creates the Secret `radio-discord` with the keys TWR_DISCORD_BOT_TOKEN and
+# TWR_DISCORD_VOICE_CHANNEL_ID (deploy/README.md says how). A Secret of another name
+# or keys, such as one shared with another deployment, is a patch on the Deployment's
+# two secretKeyRefs.
+#
+# One bot token is one voice connection: a cluster where another engineer uses the
+# same bot runs radio at 0 replicas and scales it up only once that one is down.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: discord.yaml

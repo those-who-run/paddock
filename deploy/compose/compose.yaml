@@ -1,5 +1,6 @@
 # The walking skeleton on a laptop (paddock#39): NATS with JetStream, the stream and
-# KV bootstrap, logbook, and nats-box for looking at the bus. No PS5, no cluster.
+# KV bootstrap, logbook, radio for hearing a replay, and nats-box for looking at the
+# bus. No PS5, no cluster.
 # The make targets in paddock's Makefile run it (`make up`, `make replay`, `make sub`,
 # `make export`, `make down`, `make reset`); deploy/compose/README.md says how.
 #
@@ -10,7 +11,7 @@
 #
 # What the cluster also needs is kept the same here, so the kustomize base copies it
 # rather than reinventing it: the definitions in deploy/nats, the bootstrap run as
-# user 1000 and logbook and ecu as 65532, each on a read-only root file system, every
+# user 1000 and logbook, radio and ecu as 65532, each on a read-only root file system, every
 # capability dropped and no new privileges, the environment variable names, and
 # logbook's data at /data. tests/test_compose.py fails a service without cap_drop ALL
 # and no-new-privileges, and one with network_mode, privileged, cap_add, or build
@@ -117,6 +118,48 @@ services:
       nats-bootstrap:
         condition: service_completed_successfully
     restart: "no"
+
+  # radio (paddock#63): speaks the callouts of a source, `replay-compose` by default
+  # (what `make replay` publishes), to the console, a line a callout in its log, or
+  # with TWR_RADIO_SINK=wav also as a numbered WAV file a callout in
+  # TWR_RADIO_WAV (.cache/radio-wav in paddock by default). `make radio` starts it;
+  # start it before the replay, since CALLOUTS keeps a callout 30 s only. Profile
+  # `replay`: `make up` does not start it. `simulated` timing, on the replay's own
+  # clock, says what a driver would have heard at any SPEED. No Discord: that comes
+  # with paddock#58, and the cluster's component deploy/components/radio-discord.
+  #
+  # It runs as TWR_UID:TWR_GID, 65532 by default as in the image; `make radio`
+  # passes your own under Docker, and 0:0 under rootless podman, where the
+  # container's root is you, so the WAVs land in a directory you own either way.
+  radio:
+    image: ghcr.io/those-who-run/twr-radio:0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    platform: linux/amd64
+    profiles: [replay]
+    user: "${TWR_UID:-65532}:${TWR_GID:-65532}"
+    # The speech cache is under /tmp (the image's XDG_CACHE_HOME).
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TWR_NATS_URL: nats://nats:4222
+      TWR_HEALTH_ADDR: ":8080"
+      TWR_LOG_LEVEL: info
+      TWR_LOG_FORMAT: text
+      TWR_RADIO_SRC: ${TWR_RADIO_SRC:-replay-compose}
+      TWR_RADIO_SINK: ${TWR_RADIO_SINK:-console}
+      TWR_RADIO_TIMING: ${TWR_RADIO_TIMING:-simulated}
+      TWR_RADIO_WAV_DIR: /wav
+    volumes:
+      - type: bind
+        source: ${TWR_RADIO_WAV:-../../.cache/radio-wav}
+        target: /wav
+        bind:
+          selinux: z
+          create_host_path: true
+    depends_on:
+      nats-bootstrap:
+        condition: service_completed_successfully
 
   # For looking at the bus: `make sub`, or
   # `docker compose -p twr -f deploy/compose/compose.yaml run --rm nats-box`

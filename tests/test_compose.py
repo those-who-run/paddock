@@ -94,7 +94,7 @@ class Images(unittest.TestCase):
 
     def test_every_image_pinned_by_tag_and_digest(self) -> None:
         found = images(self.text)
-        self.assertGreaterEqual(len(found), 5, "nats, nats-bootstrap, logbook, replay, nats-box")
+        self.assertGreaterEqual(len(found), 5, "nats, nats-bootstrap, logbook, replay, radio, nats-box")
         for image in found:
             with self.subTest(image=image):
                 m = PINNED.match(image)
@@ -110,7 +110,7 @@ class Images(unittest.TestCase):
 
     def test_v2_images_from_ghcr(self) -> None:
         # ADR 0006: v2 images are ghcr.io/those-who-run/twr-<repo>.
-        for repo in ("logbook", "ecu"):
+        for repo in ("logbook", "ecu", "radio"):
             with self.subTest(repo=repo):
                 self.assertTrue(
                     any(i.startswith(f"ghcr.io/those-who-run/twr-{repo}:") for i in images(self.text))
@@ -131,10 +131,11 @@ class Services(unittest.TestCase):
     def test_the_services(self) -> None:
         # R1.
         self.assertEqual(
-            sorted(self.services), ["logbook", "nats", "nats-bootstrap", "nats-box", "replay"]
+            sorted(self.services), ["logbook", "nats", "nats-bootstrap", "nats-box", "radio", "replay"]
         )
         self.assertEqual(keys(self.services["nats-box"]).get("profiles"), "[tools]")
         self.assertEqual(keys(self.services["replay"]).get("profiles"), "[replay]")
+        self.assertEqual(keys(self.services["radio"]).get("profiles"), "[replay]")
 
     def test_no_host_network_or_privilege(self) -> None:
         # network_mode: host publishes every port with no ports: entry, past R3's check.
@@ -157,13 +158,13 @@ class Services(unittest.TestCase):
                 own = keys(lines)
                 self.assertEqual(own.get("cap_drop"), "[ALL]")
                 self.assertEqual(own.get("security_opt"), '["no-new-privileges:true"]')
-        for name in ("nats-bootstrap", "logbook", "replay"):
+        for name in ("nats-bootstrap", "logbook", "replay", "radio"):
             with self.subTest(service=name):
                 self.assertEqual(keys(self.services[name]).get("read_only"), "true")
 
     def test_v2_images_amd64(self) -> None:
         # ADR 0006: amd64 only, so an arm64 laptop runs them under emulation.
-        for name in ("logbook", "replay"):
+        for name in ("logbook", "replay", "radio"):
             with self.subTest(service=name):
                 self.assertEqual(keys(self.services[name]).get("platform"), "linux/amd64")
 
@@ -181,6 +182,23 @@ class Services(unittest.TestCase):
             text,
             r"source: \$\{TWR_RECORDINGS:-\.\./\.\./recordings\}\n\s+target: /recordings\n\s+read_only: true",
         )
+
+    def test_radio(self) -> None:
+        # paddock#63 R1: the console by default, so it needs no Discord, on what
+        # `make replay` publishes, with the WAV directory mounted for the wav sink;
+        # no Discord setting and no env file.
+        lines = self.services["radio"]
+        own = keys(lines)
+        self.assertNotIn("entrypoint", own)
+        self.assertNotIn("env_file", own)
+        self.assertNotIn("ports", own)
+        self.assertEqual(own.get("tmpfs"), "[/tmp]")
+        self.assertIn("      TWR_NATS_URL: nats://nats:4222", lines)
+        self.assertIn("      TWR_RADIO_SINK: ${TWR_RADIO_SINK:-console}", lines)
+        self.assertIn("      TWR_RADIO_SRC: ${TWR_RADIO_SRC:-replay-compose}", lines)
+        self.assertIn("      TWR_RADIO_WAV_DIR: /wav", lines)
+        self.assertFalse(any("DISCORD" in line for line in lines))
+        self.assertRegex("\n".join(lines), r"source: \$\{TWR_RADIO_WAV:-[^}]+\}\n\s+target: /wav\n")
 
     def test_parser(self) -> None:
         text = (
@@ -213,7 +231,7 @@ class Targets(unittest.TestCase):
     def test_make_targets(self) -> None:
         # R4.
         text = MAKEFILE.read_text(encoding="utf-8")
-        for target in ("up", "replay", "sub", "export", "down", "reset", "compose-it"):
+        for target in ("up", "replay", "radio", "sub", "export", "down", "reset", "compose-it"):
             with self.subTest(target=target):
                 self.assertRegex(text, rf"(?m)^{re.escape(target)}:")
 

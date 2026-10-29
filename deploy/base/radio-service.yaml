@@ -1,0 +1,13 @@
+# radio's /healthz, for the namespace's pods and a scrape (paddock#63 R2); the
+# kubelet probes the pod itself. radio takes no other requests.
+apiVersion: v1
+kind: Service
+metadata:
+  name: radio
+spec:
+  selector:
+    app.kubernetes.io/name: radio
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

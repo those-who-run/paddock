@@ -1,0 +1,121 @@
+# radio (paddock#63 R2): speaks the callouts ecu decides, from the CALLOUTS stream.
+# It runs as compose runs it (deploy/compose/compose.yaml): the same image and
+# environment, user 65532 on a read-only root file system.
+#
+# The base speaks to the console: a line a callout in the pod's log, with no Discord
+# and no Secret, so it starts on any cluster. An overlay that speaks in Discord
+# includes deploy/components/radio-discord, which reads the bot's token and channel
+# from a Secret the overlay provides.
+#
+# One replica, replaced by Recreate: two pods on one source would split the source's
+# callouts between them (CALLOUTS is a work queue), and two in Discord would fight
+# over the bot's voice connection. A cluster where another engineer holds the bot
+# (v1, until the switch) sets 0 replicas in its overlay and scales radio up by hand
+# with ecu.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: radio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: radio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: radio
+    spec:
+      # It needs no Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # On SIGTERM radio drains its NATS connection and stops; a callout it has taken
+      # and not said is redelivered to the next pod, or ages out of the stream.
+      terminationGracePeriodSeconds: 30
+      # The image's user, by number.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # The image is amd64 only (ADR 0006). The base pins no node, so a cluster with
+      # other architectures selects amd64 nodes in its overlay.
+      containers:
+        - name: radio
+          image: ghcr.io/those-who-run/twr-radio
+          env:
+            # The chart's `nats` Service (deploy/nats/chart) in the same namespace.
+            - name: TWR_NATS_URL
+              value: nats://nats:4222
+            - name: TWR_HEALTH_ADDR
+              value: ":8080"
+            - name: TWR_LOG_LEVEL
+              value: info
+            # The source whose callouts radio speaks. `live` on a cluster: replays
+            # run on a laptop only (paddock#63, decided 2026-10-25).
+            - name: TWR_RADIO_SRC
+              value: live
+            # deploy/components/radio-discord sets discord.
+            - name: TWR_RADIO_SINK
+              value: console
+            - name: TWR_RADIO_TIMING
+              value: live
+            # The sentence cache, in the image's XDG_CACHE_HOME under /tmp, on the
+            # emptyDir below: it refills in a lap, so nothing keeps it (paddock#63).
+            # Its cap stays under the volume's sizeLimit, or the kubelet evicts the
+            # pod.
+            - name: TWR_RADIO_CACHE_MAX_MB
+              value: "100"
+          ports:
+            - name: http
+              containerPort: 8080
+          # /healthz answers 200 once radio is connected to NATS, and 503 before and
+          # while NATS is away; it reconnects on its own, so liveness waits 10 min,
+          # longer than a NATS restart, as logbook's does. The voice is loaded before
+          # the server starts; the start-up probe gives that 5 min.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 30
+          # A starting point until paddock#256 measures it. Piper's synthesis is CPU
+          # bound and onnxruntime spreads it over threads: v1 found a 1-CPU limit made
+          # a phrase take 1-5 s and callouts go stale, so there is no CPU limit. The
+          # voice and onnxruntime take about 200 MiB.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            # The image sets XDG_CACHE_HOME=/tmp/.cache, so the speech cache is here.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

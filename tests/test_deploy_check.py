@@ -3,8 +3,10 @@ namespace, storage class, node or host port and pins every image, NATS's chart
 renders one server with JetStream on file storage, 4222 and the WebSocket in the
 cluster only, and a WebSocket client that may only subscribe (R6), and the base
 (#44) runs compose's images and logbook as one StatefulSet replica whose volume is
-kept. BASE is GOOD with logbook and the base's label, and POLICIES what
-deploy/components/network-policy adds to it.
+kept, and radio (#63) as one Deployment replica on the console, with Discord and its
+Secret only through deploy/components/radio-discord. BASE is GOOD with logbook,
+radio and the base's label, POLICIES what deploy/components/network-policy adds to
+it, and DISCORD radio as deploy/components/radio-discord changes it.
 
 GOOD is a cut-down `kustomize build --enable-helm deploy/nats/chart`, in the style
 kustomize writes, and INGRESS what deploy/components/nats-websocket adds to it; each
@@ -433,13 +435,91 @@ spec:
 """
 
 
+# radio, as deploy/base/radio-deployment.yaml and radio-service.yaml render.
+RADIO_IMAGE = "ghcr.io/those-who-run/twr-radio:0.1.0@sha256:" + "b" * 64
+
+RADIO = f"""\
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: radio
+spec:
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: radio
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: radio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: radio
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: TWR_NATS_URL
+          value: nats://nats:4222
+        - name: TWR_HEALTH_ADDR
+          value: :8080
+        - name: TWR_RADIO_SRC
+          value: live
+        - name: TWR_RADIO_SINK
+          value: console
+        image: {RADIO_IMAGE}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        name: radio
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: tmp
+"""
+
+
 def labelled(text: str) -> str:
     """Each object with the base's common label, as kustomize writes it."""
     text = text.replace("metadata:\n  labels:\n", "metadata:\n  labels:\n    app.kubernetes.io/part-of: twr\n")
     return text.replace("metadata:\n  name:", "metadata:\n  labels:\n    app.kubernetes.io/part-of: twr\n  name:")
 
 
-BASE = labelled(GOOD + LOGBOOK)
+LOGBOOK_PART = labelled(LOGBOOK)
+RADIO_PART = labelled(RADIO)
+BASE = labelled(GOOD) + LOGBOOK_PART + RADIO_PART
 COMPOSE = f"""\
 services:
   nats:
@@ -448,12 +528,14 @@ services:
     image: {BOX}
   logbook:
     image: {LOGBOOK_IMAGE}
+  radio:
+    image: {RADIO_IMAGE}
 """
 
 
 class Base(unittest.TestCase):
     """deploy/base (paddock#44): the common label, compose's images, NATS at one
-    replica and logbook's StatefulSet."""
+    replica and logbook's StatefulSet; and radio's Deployment (paddock#63)."""
 
     def check(self, text: str, compose: str = COMPOSE) -> list[str]:
         return deploy_check.check(deploy_check.BASE, text, compose)
@@ -462,13 +544,15 @@ class Base(unittest.TestCase):
         found = self.check(text, compose)
         self.assertTrue(any(p.startswith(rule + ":") for p in found), found)
 
-    def broken(self, old: str, new: str) -> str:
-        self.assertEqual(BASE.count(old), 1, old)
-        return BASE.replace(old, new)
+    def broken(self, old: str, new: str, part: str = LOGBOOK_PART) -> str:
+        """BASE with old changed to new in one object's part (logbook's by default),
+        where it is once."""
+        self.assertEqual(part.count(old), 1, old)
+        return BASE.replace(part, part.replace(old, new))
 
     def test_good(self) -> None:
         self.assertEqual(self.check(BASE), [])
-        self.assertEqual(BASE.count("app.kubernetes.io/part-of: twr"), 7)
+        self.assertEqual(BASE.count("app.kubernetes.io/part-of: twr"), 9)
 
     def test_label(self) -> None:
         text = BASE.replace("  labels:\n    app.kubernetes.io/part-of: twr\n  name: logbook\n", "  name: logbook\n", 1)
@@ -559,18 +643,70 @@ class Base(unittest.TestCase):
                          ["nats", "prom-exporter"])
 
     def test_missing_logbook(self) -> None:
-        self.assertFails(labelled(GOOD), "R2")
+        self.assertFails(labelled(GOOD) + RADIO_PART, "R2")
 
-    def test_the_base_pins_composes_logbook(self) -> None:
-        """deploy/base/kustomization.yaml's images: block is compose's logbook, by tag
-        and digest, offline (make deploy-render checks the render)."""
+    def test_missing_radio(self) -> None:
+        self.assertFails(labelled(GOOD) + LOGBOOK_PART, "R2")
+        self.assertFails(labelled(GOOD) + LOGBOOK_PART, "R1")  # compose runs radio
+
+    def test_radio_replicas_exactly_one(self) -> None:
+        for count in ("0", "2"):
+            with self.subTest(count=count):
+                self.assertFails(self.broken("  replicas: 1\n", f"  replicas: {count}\n", RADIO_PART), "replicas")
+
+    def test_radio_r2(self) -> None:
+        for old, new in (("    type: Recreate\n", "    type: RollingUpdate\n"),
+                         ("  strategy:\n    type: Recreate\n", ""),
+                         ("value: nats://nats:4222", "value: nats://localhost:4222"),
+                         ("value: :8080", "value: :9090"),
+                         ("value: live", "value: replay-x"),
+                         ("value: console", "value: wav"),
+                         ("- mountPath: /tmp", "- mountPath: /cache"),
+                         ("      - emptyDir:\n          sizeLimit: 256Mi\n", "      - hostPath:\n          path: /x\n"),
+                         ("        readinessProbe:\n", "        otherProbe:\n"),
+                         ("        livenessProbe:\n", "        otherProbe:\n"),
+                         ("- containerPort: 8080", "- containerPort: 9090"),
+                         ("    port: 8080\n", "    port: 9090\n")):
+            with self.subTest(old=old):
+                self.assertFails(self.broken(old, new, RADIO_PART), "R2")
+        self.assertFails(self.broken("            path: /healthz\n            port: http\n        name:",
+                                     "            path: /\n            port: http\n        name:", RADIO_PART), "R2")
+
+    def test_radio_no_discord_in_the_base(self) -> None:
+        # R3: the base speaks to the console and reads no Secret; Discord is the
+        # component's.
+        for env in ("        - name: TWR_DISCORD_VOICE_CHANNEL_ID\n          value: x\n",
+                    "        - name: X\n          valueFrom:\n            secretKeyRef:\n              key: k\n              name: s\n"):
+            with self.subTest(env=env):
+                self.assertFails(self.broken("      - env:\n", "      - env:\n" + env, RADIO_PART), "R3")
+        self.assertFails(self.broken("      - env:\n", "      - envFrom:\n        - secretRef:\n            name: s\n        env:\n",
+                                     RADIO_PART), "R3")
+
+    def test_radio_pod(self) -> None:
+        for old, new in (("automountServiceAccountToken: false", "automountServiceAccountToken: true"),
+                         ("runAsNonRoot: true", "runAsNonRoot: false"),
+                         ("readOnlyRootFilesystem: true", "readOnlyRootFilesystem: false"),
+                         ("type: RuntimeDefault", "type: Unconfined")):
+            with self.subTest(old=old):
+                self.assertFails(self.broken(old, new, RADIO_PART), "pod")
+        self.assertFails(self.broken("          limits:\n            memory: 2Gi\n", "", RADIO_PART), "R5")
+        self.assertFails(self.broken("          requests:\n            cpu: 250m\n            memory: 256Mi\n", "",
+                                     RADIO_PART), "R5")
+
+    def test_radio_image_is_composes(self) -> None:
+        self.assertFails(BASE, "R1", COMPOSE.replace(RADIO_IMAGE, RADIO_IMAGE.replace("0.1.0", "0.1.1")))
+
+    def test_the_base_pins_composes_images(self) -> None:
+        """deploy/base/kustomization.yaml's images: block is compose's logbook and
+        radio, by tag and digest, offline (make deploy-render checks the render)."""
         text = (ROOT / "deploy" / "base" / "kustomization.yaml").read_text()
-        tag = re.search(r"^    newTag: (\S+)$", text, re.M)
-        digest = re.search(r"^    digest: (sha256:[a-f0-9]{64})$", text, re.M)
-        assert tag is not None and digest is not None
-        self.assertIn("  - name: ghcr.io/those-who-run/twr-logbook\n", text)
+        pinned = re.findall(r"^  - name: (\S+)\n    newTag: (\S+)\n    digest: (sha256:[a-f0-9]{64})$", text, re.M)
+        self.assertEqual([name for name, _, _ in pinned],
+                         ["ghcr.io/those-who-run/twr-logbook", "ghcr.io/those-who-run/twr-radio"])
         compose = (ROOT / "deploy" / "compose" / "compose.yaml").read_text()
-        self.assertIn(f"image: ghcr.io/those-who-run/twr-logbook:{tag.group(1)}@{digest.group(1)}\n", compose)
+        for name, tag, digest in pinned:
+            with self.subTest(image=name):
+                self.assertIn(f"image: {name}:{tag}@{digest}\n", compose)
 
 
 # What deploy/components/network-policy adds to the base.
@@ -687,6 +823,68 @@ class NetworkPolicyComponent(unittest.TestCase):
         self.assertIn("\nkind: Component\n", text)
         base = (ROOT / deploy_check.BASE / "kustomization.yaml").read_text()
         self.assertNotIn("network-policy", base.split("resources:", 1)[1].split("labels:", 1)[0])
+
+
+# radio as deploy/components/radio-discord changes it: the sink, and the two
+# settings from the Secret.
+DISCORD = RADIO_PART.replace("""        - name: TWR_RADIO_SINK
+          value: console
+""", """        - name: TWR_RADIO_SINK
+          value: discord
+        - name: TWR_DISCORD_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: TWR_DISCORD_BOT_TOKEN
+              name: radio-discord
+        - name: TWR_DISCORD_VOICE_CHANNEL_ID
+          valueFrom:
+            secretKeyRef:
+              key: TWR_DISCORD_VOICE_CHANNEL_ID
+              name: radio-discord
+""")
+DISCORD_BASE = labelled(GOOD) + LOGBOOK_PART + DISCORD
+
+
+class RadioDiscordComponent(unittest.TestCase):
+    """deploy/components/radio-discord, rendered over the base (paddock#63 R3)."""
+
+    def check(self, text: str) -> list[str]:
+        return deploy_check.check(deploy_check.RADIO_DISCORD, text)
+
+    def assertFails(self, text: str) -> None:
+        found = self.check(text)
+        self.assertTrue(any(p.startswith("R3:") for p in found), found)
+
+    def test_good(self) -> None:
+        self.assertNotEqual(DISCORD, RADIO_PART)
+        self.assertEqual(self.check(DISCORD_BASE), [])
+
+    def test_console(self) -> None:
+        self.assertFails(BASE)
+
+    def test_broken(self) -> None:
+        for old, new in (("          value: discord\n", "          value: console\n"),
+                         ("              name: radio-discord\n        - name: TWR_DISCORD_VOICE",
+                          "              name: other\n        - name: TWR_DISCORD_VOICE"),
+                         ("              key: TWR_DISCORD_VOICE_CHANNEL_ID\n", "              key: CHANNEL\n"),
+                         ("          valueFrom:\n            secretKeyRef:\n              key: TWR_DISCORD_BOT_TOKEN\n"
+                          "              name: radio-discord\n", "          value: x\n")):
+            with self.subTest(old=old):
+                self.assertEqual(DISCORD_BASE.count(old), 1, old)
+                self.assertFails(DISCORD_BASE.replace(old, new))
+
+    def test_no_secret_in_the_render(self) -> None:
+        secret = "---\napiVersion: v1\nkind: Secret\nmetadata:\n  labels:\n    app.kubernetes.io/part-of: twr\n  name: radio-discord\n"
+        self.assertFails(DISCORD_BASE + secret)
+
+    def test_missing_radio(self) -> None:
+        self.assertFails(labelled(GOOD) + LOGBOOK_PART)
+
+    def test_the_component_is_a_component(self) -> None:
+        text = (ROOT / deploy_check.RADIO_DISCORD / "kustomization.yaml").read_text()
+        self.assertIn("\nkind: Component\n", text)
+        base = (ROOT / deploy_check.BASE / "kustomization.yaml").read_text()
+        self.assertNotIn("radio-discord", base.split("resources:", 1)[1].split("labels:", 1)[0])
 
 
 if __name__ == "__main__":

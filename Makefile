@@ -6,7 +6,7 @@
 # podman, and compose-it docker with compose v2 and curl.
 #
 # The walking skeleton (deploy/compose, paddock#39) has its own targets: up, replay,
-# sub, export, down and reset. `make parity` runs the parity harness (parity/,
+# radio, sub, export, down and reset. `make parity` runs the parity harness (parity/,
 # paddock#40) on its default recordings; it is not part of `check`, since CI runs it
 # in a workflow of its own (parity-laps.yml).
 
@@ -26,6 +26,10 @@ FILE ?=
 SPEED ?= 1
 RUN ?= compose
 SRC ?= live
+# `make radio`: where radio speaks, console or wav, and the directory the WAVs go to,
+# from paddock's root.
+SINK ?= console
+WAV ?= .cache/radio-wav
 
 .PHONY: help
 help:
@@ -45,6 +49,7 @@ help:
 	@echo "The walking skeleton on this machine (deploy/compose/README.md):"
 	@echo "up     - start nats, run the stream and KV bootstrap, start logbook and wait for its /healthz"
 	@echo "replay - FILE=<name in recordings/> [SPEED=1|N|max] [RUN=compose]: ecu replay onto the bus, as source replay-RUN"
+	@echo "radio  - [SINK=console|wav] [RUN=compose]: start radio on replay-RUN's callouts, before make replay; WAVs in WAV"
 	@echo "sub    - print everything on twr.> through nats-box (Ctrl-C to stop)"
 	@echo "export - [SRC=live]: stop logbook, print the source's stored laps (logbook export --laps), start it again"
 	@echo "down   - stop and remove the containers; the volumes and logbook's data stay"
@@ -127,6 +132,24 @@ up:
 replay:
 	@test -n "$(FILE)" || { echo "make replay FILE=<a file in recordings/> [SPEED=1|N|max] [RUN=compose]" >&2; exit 2; }
 	$(STACK) run --rm -T replay replay --speed $(SPEED) --run $(RUN) /recordings/$(FILE)
+
+# radio in the background, on the callouts
+# `make replay RUN=...` publishes, as a user that owns the WAVs it writes to WAV.
+# Under Docker that is your own uid. Under rootless podman your uid in the container
+# maps to a subordinate uid that cannot write to WAV, and the container's root is
+# you, so it runs as 0:0: still you on the host, with every capability dropped.
+# podman is COMPOSE naming it, or `docker` being podman's shim. Start it before the
+# replay: CALLOUTS keeps a callout 30 s. Its lines are in `$(STACK) logs -f radio`.
+# `--profile replay` by name, since podman-compose does not enable a profile for a
+# service named on the command line as Docker's compose does.
+.PHONY: radio
+radio:
+	mkdir -p $(WAV)
+	if printf '%s' '$(COMPOSE)' | grep -q podman || \
+		$(firstword $(COMPOSE)) --version 2>/dev/null | grep -qi podman; then \
+		uid=0 gid=0; else uid=$$(id -u) gid=$$(id -g); fi; \
+	TWR_UID=$$uid TWR_GID=$$gid TWR_RADIO_SINK=$(SINK) TWR_RADIO_SRC=replay-$(RUN) \
+		TWR_RADIO_WAV=$(abspath $(WAV)) $(STACK) --profile replay up -d radio
 
 .PHONY: sub
 sub:
