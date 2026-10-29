@@ -95,8 +95,8 @@ expect KV_live num_replicas 1
 expect KV_live max_msg_size 65536
 expect KV_live max_bytes 67108864
 
-# paddock#73 R1, with max_age 30 s from its triage, and the duplicate window cut to
-# max_age, as the server would.
+# paddock#73 R1, with max_age 30 s from its triage, and a duplicate window of 30 s
+# too: the server refuses one longer than max_age.
 n stream info CALLOUTS
 expect CALLOUTS subjects '["twr.v1.*.callout.>"]'
 expect CALLOUTS retention '"workqueue"'
