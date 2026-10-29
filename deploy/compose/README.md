@@ -39,7 +39,7 @@ change it.
 |---|---|---|
 | `nats` | `nats:2.15.1-alpine` | `-js -sd /data -m 8222`, JetStream on the `nats-data` volume; healthy once `/healthz?js-enabled-only=true` answers |
 | `nats-bootstrap` | `natsio/nats-box:0.20.0` | [`bootstrap.sh`](../nats/bootstrap.sh) with `deploy/nats` mounted read-only, as user 1000 on a read-only root file system, as the cluster's Job runs it (#43). It runs on every `make up` and changes nothing when the streams and bucket are already right |
-| `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.3` | `logbook run` as user 65532 on a read-only root file system, its store on the `logbook-data` volume at `/data`; `linux/amd64` |
+| `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.4` | `logbook run` as user 65532 on a read-only root file system, its store on the `logbook-data` volume at `/data`; `linux/amd64` |
 | `nats-box` | `natsio/nats-box:0.20.0` | Profile `tools`: only `make sub` or `docker compose run` starts it |
 
 Every service drops all Linux capabilities and runs with `no-new-privileges`,

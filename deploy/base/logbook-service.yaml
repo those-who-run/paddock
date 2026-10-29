@@ -1,0 +1,15 @@
+# logbook's governing Service, which its StatefulSet (logbook-statefulset.yaml)
+# needs. Headless, and nothing else uses it: logbook takes no requests but its
+# health, which the kubelet probes on the pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: logbook
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: logbook
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
