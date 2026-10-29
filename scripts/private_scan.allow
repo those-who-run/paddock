@@ -1,0 +1,39 @@
+# The public hosts scripts/private_scan.py accepts (paddock#50). One per line: the
+# host, then why it is here. An entry allows the host and every name under it, so
+# list the narrowest one that is public and not ours; a host only one cluster knows
+# never goes here (deploy/README.md, "Portable-base rules"). An entry no file uses
+# fails the scan.
+
+# Code, images and packages.
+github.com                The organisation's code host: repositories, issues, releases, its API and docs, and noreply commit addresses.
+raw.githubusercontent.com GitHub's raw files: the guard copy check fetches .github's agent/ from it.
+nats-io.github.io         The NATS Helm chart's repository, which kustomize pulls the chart from.
+ghcr.io                   GitHub's container registry, where the org's images are published.
+docker.io                 Docker Hub, where the pinned NATS, nats-box and exporter images come from.
+get.helm.sh               Helm's release downloads, which scripts/deploy_render.sh fetches pinned.
+npmjs.com                 The npm registry, named in the contracts ADR.
+google.golang.org         Go's protobuf module path, named in the contracts ADRs.
+buf.build                 Buf's registry and documentation, for the contracts tooling.
+anthropic.com             The noreply address in the Co-Authored-By trailer of agent commits.
+
+# Kubernetes and Argo CD API groups and label prefixes, which are names, not hosts.
+k8s.io                    Kubernetes API groups (networking.k8s.io, kustomize.config.k8s.io).
+kubernetes.io             Kubernetes' well-known labels (app.kubernetes.io) and its documentation.
+argoproj.io               Argo CD's annotations (argocd.argoproj.io).
+
+# Documentation and specifications cited by the docs and ADRs.
+docs.nats.io              NATS's documentation.
+argo-cd.readthedocs.io    Argo CD's documentation.
+docs.renovatebot.com      Renovate's documentation, the schema renovate.json names.
+json.schemastore.org      The JSON schema .claude/settings.json names.
+duckdb.org                DuckDB's documentation, in the store ADRs.
+cloudevents.io            The CloudEvents specification, in the contracts ADR.
+connectrpc.com            Connect's documentation, in the contracts ADR.
+protobuf.dev              Protocol Buffers' documentation, in the contracts ADR.
+www.asyncapi.com          The AsyncAPI specification, in the contracts ADR.
+go.dev                    Go's documentation, in the contracts tooling ADR.
+slsa.dev                  The SLSA provenance specification, in the Fangio demo's record.
+spdx.dev                  The SPDX SBOM specification, in the Fangio demo's record.
+www.conventionalcommits.org The Conventional Commits specification AGENTS.md links.
+www.gnu.org               The GPL's own text in LICENSE.
+fsf.org                   The Free Software Foundation's address in LICENSE's text.

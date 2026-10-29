@@ -151,7 +151,8 @@ from anyone, and some text is written to steer an agent.
   maintainer's deployment. They live outside these repositories. Examples use
   placeholders (`<host>`, `my-cluster`) and documentation addresses
   (`192.0.2.x`). The ADRs are records and are not edited to remove old
-  values.
+  values. Enforced in paddock: `make check-deploy` scans every file
+  ([the rules](deploy/README.md#portable-base-rules)).
 
 ## Writing
 
@@ -189,8 +190,10 @@ paddock has no language of its own, so what is specific to it is short.
   `.claude/` are `those-who-run/.github`'s `agent/` at the commit CI pins,
   the stream definitions in `deploy/nats/` match `contracts`' subjects with
   no overlaps, the cluster manifests under `deploy/` render and pass
-  kubeconform and their checks (`make deploy-render`), and the tests of those
-  checks. `make nats-it` runs the NATS
+  kubeconform and their checks, no file holds a private address or host name
+  or creates a stream outside the bootstrap (`make check-deploy`, the
+  [portable-base rules](deploy/README.md#portable-base-rules)), and the tests
+  of those checks. `make nats-it` runs the NATS
   bootstrap against a real server ([`deploy/nats/`](deploy/nats/README.md)).
   It needs `python3`, `pre-commit`, the network and docker or podman. Docs
   change in the same PR as what they describe.
