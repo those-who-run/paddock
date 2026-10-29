@@ -15,6 +15,10 @@
 #   The Job before stays until it is deleted, or applied with --prune.
 # An apply with nothing changed finds the Job there and leaves it be. To run it again
 # by hand, delete it: Argo CD's self-heal, or the next apply, creates it again.
+# Argo CD does not wait on it, so a failed run fails no sync and no retry reruns it:
+# the app is Degraded until the Job is deleted. A change to the template from outside
+# these files (an overlay's patch, images: or template labels) keeps the name, and
+# fails with `field is immutable` until the Job is deleted (README.md).
 #
 # It has no ttlSecondsAfterFinished: a Job Argo CD manages that deletes itself is
 # Missing, and self-heal would create it again, so it would run every 10 min for good.

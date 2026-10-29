@@ -97,7 +97,13 @@ this directory; it also renders on its own with `kustomize build deploy/nats`.
     Job and ConfigMap of the hash before. It is not a Sync hook: Argo CD runs no
     hooks in a selective sync, and self-heal syncs only what is out of sync, so
     when only the remote base moved (#306's `CALLOUTS` and `ecu`) a hook never
-    ran. A failed Job leaves the app Degraded until a fix renders a new one.
+    ran.
+  - **A failed bootstrap does not fail the sync.** As an ordinary resource in a
+    sync of one wave, the Job is created and not waited on, so the sync
+    succeeds and the Application's `retry` never reruns it. The app shows
+    **Degraded** instead, and stays so until the Job is deleted, which reruns it
+    (below), or a fix renders a new one. When the app is Degraded, read the
+    Job's log first.
   - Without Argo CD, apply with `kustomize build --enable-helm <dir> | kubectl
     apply -f -`, since `kubectl apply -k` cannot inflate NATS's chart, which the
     base includes. The Job of the hash before stays, finished, until it is
@@ -109,9 +115,15 @@ this directory; it also renders on its own with `kustomize build deploy/nats`.
   - It never deletes itself (no `ttlSecondsAfterFinished`): Argo CD would see a
     Job it manages go missing and self-heal would create it again, so it would
     run every 10 min for good.
-  - An overlay's patch to the Job is not in the hash. Changing that patch later
-    changes the template of a Job that exists, which fails with `field is
-    immutable`: delete the Job first.
+  - Only the files above are in the hash. What else changes the Job's template
+    keeps its name, so a Job that exists fails with `field is immutable` (Argo
+    CD's sync fails, as does `kubectl apply`) until it is deleted. Delete the
+    Job first when changing any of these:
+    - an overlay's patch to the Job;
+    - an overlay's `images:` entry for `nats-box`;
+    - `labels` on templates, the overlay's or the base's
+      ([`deploy/base/kustomization.yaml`](../base/kustomization.yaml)'s
+      `labels`, with `includeTemplates: true`).
 - An Argo CD Application sets `spec.destination.namespace` explicitly. kustomize
   5.8 leaves the chart's objects out of an overlay's `namespace:`
   ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)),
