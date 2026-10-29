@@ -16,25 +16,28 @@ and KV buckets, and the script that creates them, are in
 ## Running the walking skeleton on a laptop
 
 [`deploy/compose/`](deploy/compose/README.md) runs NATS with JetStream, the
-stream and KV bootstrap and `logbook` on one machine, with no PS5 and no
-cluster. It needs Docker with compose v2, `make` and `curl`. From the root of
+stream and KV bootstrap and `logbook` on one machine, and replays v1
+recordings onto it through `ecu replay`, with no PS5 and no cluster. It needs Docker with compose v2, `make` and `curl`. From the root of
 this repository:
 
 ```sh
 make up       # nats, the bootstrap, logbook; waits for logbook's /healthz
 make sub      # every message on twr.>, through nats-box, until Ctrl-C
-make export   # logbook's stored laps as JSON lines (logbook export --laps)
+make replay FILE=real-race-2laps-2026-10-14.jsonl.gz SPEED=max
+              # ecu replay of a file in recordings/, as source replay-compose
+make export SRC=replay-compose
+              # its stored laps as JSON lines (logbook export --laps)
 make down     # stop; the streams and logbook's data stay
 make reset    # stop and remove the volumes
 ```
 
 `logbook`'s data is the `twr_logbook-data` volume, mounted at `/data`.
 `logbook export` refuses while `logbook` runs, so `make export` stops it,
-reads the volume and starts it again. Every port is on 127.0.0.1 only: 4222
+reads the volume and starts it again. With no `SRC` it prints source `live`'s
+laps. Every port is on 127.0.0.1 only: 4222
 (NATS), 8222 (NATS monitoring) and 8080 (`logbook`'s `/healthz`).
 [`deploy/compose/README.md`](deploy/compose/README.md) has the services, the
-pinned images and the checks. Replaying a recording (`make replay`) comes with
-`ecu`'s replay (#35).
+pinned images and the checks.
 
 ## Comparing v1 and v2
 

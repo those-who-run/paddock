@@ -35,7 +35,9 @@ headless Service. Every object carries `app.kubernetes.io/part-of: twr`.
   `logbook` in the base's `images:` block (0.1.4), NATS, `nats-box` and the
   exporter in `nats/chart/values.yaml` and `nats/bootstrap-job.yaml`. Each is
   pinned in one place. `make deploy-render` fails when an image in the base's
-  render is not compose's, or compose runs one the base does not.
+  render is not compose's, or compose runs one the base does not. `ecu`'s
+  image is compose's only: compose runs it to replay recordings, and replays
+  are local and CI only (#45).
 - **Components** are opt-in. An overlay that publishes the WebSocket includes
   `nats-websocket` and always gives it a host
   ([`nats/README.md`](nats/README.md#nats-on-a-cluster) has the patch). A

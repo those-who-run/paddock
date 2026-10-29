@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 COMPOSE = ROOT / "deploy" / "compose" / "compose.yaml"
 NATS_IT = ROOT / "scripts" / "nats_it.sh"
 MAKEFILE = ROOT / "Makefile"
+COMPOSE_IT = ROOT / "scripts" / "compose_it.sh"
+SOURCES = ROOT / "recordings" / "SOURCES.yaml"
 
 IMAGE = re.compile(r"^\s*image:\s*(\S+)\s*$")
 PINNED = re.compile(
@@ -92,7 +94,7 @@ class Images(unittest.TestCase):
 
     def test_every_image_pinned_by_tag_and_digest(self) -> None:
         found = images(self.text)
-        self.assertGreaterEqual(len(found), 4, "nats, nats-bootstrap, logbook, nats-box")
+        self.assertGreaterEqual(len(found), 5, "nats, nats-bootstrap, logbook, replay, nats-box")
         for image in found:
             with self.subTest(image=image):
                 m = PINNED.match(image)
@@ -106,11 +108,13 @@ class Images(unittest.TestCase):
         nats = {i for i in images(self.text) if i.startswith(("docker.io/library/nats:", "docker.io/natsio/"))}
         self.assertEqual(nats, tested)
 
-    def test_logbook_from_ghcr(self) -> None:
+    def test_v2_images_from_ghcr(self) -> None:
         # ADR 0006: v2 images are ghcr.io/those-who-run/twr-<repo>.
-        self.assertTrue(
-            any(i.startswith("ghcr.io/those-who-run/twr-logbook:") for i in images(self.text))
-        )
+        for repo in ("logbook", "ecu"):
+            with self.subTest(repo=repo):
+                self.assertTrue(
+                    any(i.startswith(f"ghcr.io/those-who-run/twr-{repo}:") for i in images(self.text))
+                )
 
     def test_pinned_rejects(self) -> None:
         digest = "@sha256:" + "a" * 64
@@ -125,9 +129,12 @@ class Services(unittest.TestCase):
         self.services = services(COMPOSE.read_text(encoding="utf-8"))
 
     def test_the_services(self) -> None:
-        # R1; replay comes with ecu's replay (paddock#35).
-        self.assertEqual(sorted(self.services), ["logbook", "nats", "nats-bootstrap", "nats-box"])
+        # R1.
+        self.assertEqual(
+            sorted(self.services), ["logbook", "nats", "nats-bootstrap", "nats-box", "replay"]
+        )
         self.assertEqual(keys(self.services["nats-box"]).get("profiles"), "[tools]")
+        self.assertEqual(keys(self.services["replay"]).get("profiles"), "[replay]")
 
     def test_no_host_network_or_privilege(self) -> None:
         # network_mode: host publishes every port with no ports: entry, past R3's check.
@@ -150,13 +157,30 @@ class Services(unittest.TestCase):
                 own = keys(lines)
                 self.assertEqual(own.get("cap_drop"), "[ALL]")
                 self.assertEqual(own.get("security_opt"), '["no-new-privileges:true"]')
-        for name in ("nats-bootstrap", "logbook"):
+        for name in ("nats-bootstrap", "logbook", "replay"):
             with self.subTest(service=name):
                 self.assertEqual(keys(self.services[name]).get("read_only"), "true")
 
-    def test_logbook_amd64(self) -> None:
-        # ADR 0006: amd64 only, so an arm64 laptop runs it under emulation.
-        self.assertEqual(keys(self.services["logbook"]).get("platform"), "linux/amd64")
+    def test_v2_images_amd64(self) -> None:
+        # ADR 0006: amd64 only, so an arm64 laptop runs them under emulation.
+        for name in ("logbook", "replay"):
+            with self.subTest(service=name):
+                self.assertEqual(keys(self.services[name]).get("platform"), "linux/amd64")
+
+    def test_replay(self) -> None:
+        # What the parity harness's v2 side (parity/v2.go) runs: ecu's own entrypoint,
+        # so the command is ecu's arguments, with the server in TWR_NATS_URL; and what
+        # `make replay` needs: the recordings read-only at /recordings.
+        lines = self.services["replay"]
+        own = keys(lines)
+        self.assertNotIn("entrypoint", own)
+        self.assertIn("ghcr.io/those-who-run/twr-ecu:", own["image"])
+        self.assertIn("      TWR_NATS_URL: nats://nats:4222", lines)
+        text = "\n".join(lines)
+        self.assertRegex(
+            text,
+            r"source: \$\{TWR_RECORDINGS:-\.\./\.\./recordings\}\n\s+target: /recordings\n\s+read_only: true",
+        )
 
     def test_parser(self) -> None:
         text = (
@@ -187,11 +211,19 @@ class Ports(unittest.TestCase):
 
 class Targets(unittest.TestCase):
     def test_make_targets(self) -> None:
-        # R4: replay comes with ecu's replay (paddock#35).
+        # R4.
         text = MAKEFILE.read_text(encoding="utf-8")
-        for target in ("up", "sub", "export", "down", "reset", "compose-it"):
+        for target in ("up", "replay", "sub", "export", "down", "reset", "compose-it"):
             with self.subTest(target=target):
                 self.assertRegex(text, rf"(?m)^{re.escape(target)}:")
+
+    def test_compose_it_replays_a_listed_recording(self) -> None:
+        # AC2 replays a recording that is in recordings/ with its provenance.
+        m = re.search(r"(?m)^recording=(\S+)$", COMPOSE_IT.read_text(encoding="utf-8"))
+        self.assertIsNotNone(m)
+        assert m is not None
+        self.assertIn(f"  - file: {m.group(1)}\n", SOURCES.read_text(encoding="utf-8"))
+        self.assertTrue((ROOT / "recordings" / m.group(1)).is_file())
 
 
 if __name__ == "__main__":

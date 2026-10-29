@@ -31,7 +31,8 @@ For ``deploy/base``, what paddock#44 asks of the base:
 - R1: every object carries ``app.kubernetes.io/part-of: twr``, and the images are
   compose's: every image in the render is in ``deploy/compose/compose.yaml`` (but
   NATS's Prometheus exporter, which compose does not run), and every image compose
-  runs is in the render, so a bump to one and not the other fails;
+  runs is in the render (but ecu's, which compose runs only to replay), so a bump
+  to one and not the other fails;
 - NATS at one replica, and no Ingress: the base exposes nothing;
 - R2: ``logbook`` a StatefulSet of exactly one replica, ``OrderedReady``, its claims
   kept when it is deleted or scaled (``Retain``), its volume at ``/data`` with no
@@ -76,6 +77,10 @@ COMPOSE = Path(__file__).resolve().parent.parent / "deploy" / "compose" / "compo
 # In the cluster beside NATS (deploy/nats/chart, promExporter), with nothing to
 # scrape it on a laptop, so compose does not run it.
 NOT_IN_COMPOSE = ("docker.io/natsio/prometheus-nats-exporter:",)
+# Compose runs ecu only for `ecu replay` (its `replay` service, profile `replay`), and
+# replays are local and CI only (paddock#45 is closed), so the base does not run it.
+# ecu listening to the PS5 in the cluster comes with its own issue.
+NOT_IN_BASE = ("ghcr.io/those-who-run/twr-ecu:",)
 # The ingress controller's namespace in deploy/components/network-policy, which the
 # overlay replaces.
 INGRESS_NAMESPACE = "my-ingress-namespace"
@@ -337,6 +342,8 @@ def base(docs: list[Doc], compose: str) -> list[str]:
         if not image.startswith(NOT_IN_COMPOSE):
             problems.append(f"R1: the base runs {image}, which deploy/compose/compose.yaml does not")
     for image in sorted(composed - rendered):
+        if image.startswith(NOT_IN_BASE):
+            continue
         problems.append(f"R1: deploy/compose/compose.yaml runs {image}, which the base does not")
 
     nats = find(docs, "StatefulSet", "nats")

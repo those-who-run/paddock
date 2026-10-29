@@ -1,7 +1,7 @@
 # The walking skeleton on a laptop (paddock#39): NATS with JetStream, the stream and
 # KV bootstrap, logbook, and nats-box for looking at the bus. No PS5, no cluster.
-# The make targets in paddock's Makefile run it (`make up`, `make sub`, `make export`,
-# `make down`, `make reset`); deploy/compose/README.md says how.
+# The make targets in paddock's Makefile run it (`make up`, `make replay`, `make sub`,
+# `make export`, `make down`, `make reset`); deploy/compose/README.md says how.
 #
 # Every image is pinned by version tag and by the digest of its index; Renovate's
 # docker-compose manager bumps both (renovate.json turns on pinDigests for it).
@@ -10,14 +10,11 @@
 #
 # What the cluster also needs is kept the same here, so the kustomize base copies it
 # rather than reinventing it: the definitions in deploy/nats, the bootstrap run as
-# user 1000 and logbook as 65532, each on a read-only root file system, every
+# user 1000 and logbook and ecu as 65532, each on a read-only root file system, every
 # capability dropped and no new privileges, the environment variable names, and
 # logbook's data at /data. tests/test_compose.py fails a service without cap_drop ALL
 # and no-new-privileges, and one with network_mode, privileged, cap_add, or build
 # without image.
-#
-# `replay` (ecu replay, profile `replay`) is added with ecu's replay (paddock#35),
-# once ecu has a released image.
 
 name: twr
 
@@ -89,6 +86,37 @@ services:
     depends_on:
       nats-bootstrap:
         condition: service_completed_successfully
+
+  # `ecu replay` of a v1 recording onto the bus, once, on demand: `make replay`, or the
+  # parity harness (parity/v2.go), which runs it as `run --rm --no-deps replay replay
+  # --src parity --speed max /recording/<file>` with the recording mounted itself. So
+  # the service is ecu's image with its own entrypoint, and its command is ecu's
+  # arguments. Profile `replay`: `make up` does not start it. The recordings directory
+  # (TWR_RECORDINGS, paddock's recordings/ by default) is mounted read-only at
+  # /recordings. A replay serves no /healthz and writes nothing, so it has no port and
+  # no volume of its own.
+  replay:
+    image: ghcr.io/those-who-run/twr-ecu:0.1.4@sha256:bcabfb174c8f76acbd73f3b419d2f056b41ab9fece71747147b03ffde7835a22
+    platform: linux/amd64
+    profiles: [replay]
+    command: ["replay", "--help"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TWR_NATS_URL: nats://nats:4222
+      LOG_LEVEL: info
+    volumes:
+      - type: bind
+        source: ${TWR_RECORDINGS:-../../recordings}
+        target: /recordings
+        read_only: true
+        bind:
+          selinux: z
+    depends_on:
+      nats-bootstrap:
+        condition: service_completed_successfully
+    restart: "no"
 
   # For looking at the bus: `make sub`, or
   # `docker compose -p twr -f deploy/compose/compose.yaml run --rm nats-box`
