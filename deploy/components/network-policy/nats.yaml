@@ -1,0 +1,27 @@
+# NATS's server pod (the chart's StatefulSet, deploy/nats/chart): every port to the
+# pods of this namespace (4222 for logbook, the bootstrap Job and nats-box, 8222 and
+# 7777 for a look from nats-box), and the WebSocket's 8080 to the ingress controller.
+# Nothing else reaches it, so no pod in another namespace can publish on twr.> or
+# delete a stream: there is no authentication on 4222, and the namespace is the
+# boundary (deploy/nats/chart/values.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/component: nats
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              # The ingress controller's namespace; the overlay replaces it.
+              kubernetes.io/metadata.name: my-ingress-namespace
+      ports:
+        - port: 8080
+          protocol: TCP

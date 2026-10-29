@@ -25,6 +25,27 @@ For ``deploy/nats/chart``, what paddock#42 asks of NATS:
 - the server's and nats-box's pods mount no service account token and run with the
   runtime's default seccomp profile.
 
+For ``deploy/base``, what paddock#44 asks of the base:
+
+- R5: every container has resource requests;
+- R1: every object carries ``app.kubernetes.io/part-of: twr``, and the images are
+  compose's: every image in the render is in ``deploy/compose/compose.yaml`` (but
+  NATS's Prometheus exporter, which compose does not run), and every image compose
+  runs is in the render, so a bump to one and not the other fails;
+- NATS at one replica, and no Ingress: the base exposes nothing;
+- R2: ``logbook`` a StatefulSet of exactly one replica, ``OrderedReady``, its claims
+  kept when it is deleted or scaled (``Retain``), its volume at ``/data`` with no
+  storage class, ``TWR_NATS_URL=nats://nats:4222`` and ``TWR_HEALTH_ADDR=:8080``,
+  readiness and liveness on ``/healthz``, non-root on a read-only root file system
+  with no service account token and the RuntimeDefault seccomp profile, requests
+  and a memory limit; and its headless Service.
+
+Each component's render over the base carries the label on every object too, its
+own included. For ``deploy/components/network-policy``, rendered over the base: a NetworkPolicy
+for NATS's server and one for ``logbook``, each letting in the namespace's own
+pods, and NATS's letting the ingress controller's namespace, a placeholder the
+overlay replaces, reach the WebSocket's 8080 only.
+
 For ``deploy/components/nats-websocket``, rendered over the base: the Ingress
 ``nats-ws`` goes to the ``nats`` Service's websocket port, with no host, class or
 TLS of its own, which the overlay that includes it sets.
@@ -45,9 +66,19 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 
 NATS_CHART = "deploy/nats/chart"
 NATS_WEBSOCKET = "deploy/components/nats-websocket"
+BASE = "deploy/base"
+NETWORK_POLICY = "deploy/components/network-policy"
+COMPOSE = Path(__file__).resolve().parent.parent / "deploy" / "compose" / "compose.yaml"
+# In the cluster beside NATS (deploy/nats/chart, promExporter), with nothing to
+# scrape it on a laptop, so compose does not run it.
+NOT_IN_COMPOSE = ("docker.io/natsio/prometheus-nats-exporter:",)
+# The ingress controller's namespace in deploy/components/network-policy, which the
+# overlay replaces.
+INGRESS_NAMESPACE = "my-ingress-namespace"
 
 PINNED = re.compile(r"^[a-z0-9.-]+(?::\d+)?/[a-z0-9._/-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$")
 IMAGE = re.compile(r"^\s*(?:- )?image: (\S+)$")
@@ -243,6 +274,183 @@ def nats_websocket(docs: list[Doc]) -> list[str]:
     return problems
 
 
+def images(lines: list[str]) -> list[str]:
+    return [m.group(1) for line in lines if (m := IMAGE.match(line))]
+
+
+def labelled(docs: list[Doc]) -> list[str]:
+    return [f"R1: {doc} has no label app.kubernetes.io/part-of: twr"
+            for doc in docs if "    app.kubernetes.io/part-of: twr" not in doc.lines]
+
+
+def containers(lines: list[str]) -> list[list[str]]:
+    """Each container's lines, of every `containers:` and `initContainers:` list:
+    kustomize writes a list's items at its key's indentation."""
+    found: list[list[str]] = []
+    indent: int | None = None
+    for line in lines:
+        depth = len(line) - len(line.lstrip())
+        if re.match(r"^\s*(containers|initContainers):$", line):
+            indent = depth
+            continue
+        if indent is None:
+            continue
+        if depth == indent and line.lstrip().startswith("- "):
+            found.append([line])
+        elif depth > indent and found:
+            found[-1].append(line)
+        else:
+            indent = None
+    return found
+
+
+def container_name(container: list[str]) -> str:
+    """The container's own name, not an env variable's or a port's."""
+    first = container[0]
+    own = " " * (len(first) - len(first.lstrip()) + 2)
+    for line in container:
+        m = re.match(rf"^(?:{re.escape(own)}|\s*- )name: (\S+)$", line)
+        if m and (line is first or line.startswith(own + "name:")):
+            return m.group(1)
+    return "?"
+
+
+def requests(docs: list[Doc]) -> list[str]:
+    problems = []
+    for doc in docs:
+        for container in containers(doc.lines):
+            name = container_name(container)
+            if not any(line.strip() == "requests:" for line in container):
+                problems.append(f"R5: {doc}'s container {name} has no resource requests")
+    return problems
+
+
+def base(docs: list[Doc], compose: str) -> list[str]:
+    problems: list[str] = labelled(docs) + requests(docs)
+    for doc in docs:
+        if doc.kind == "Ingress":
+            problems.append(f"R3: {doc} is in the base, which exposes nothing until an overlay includes {NATS_WEBSOCKET}")
+
+    rendered = {i for doc in docs for i in images(doc.lines)}
+    composed = set(images(compose.splitlines()))
+    for image in sorted(rendered - composed):
+        if not image.startswith(NOT_IN_COMPOSE):
+            problems.append(f"R1: the base runs {image}, which deploy/compose/compose.yaml does not")
+    for image in sorted(composed - rendered):
+        problems.append(f"R1: deploy/compose/compose.yaml runs {image}, which the base does not")
+
+    nats = find(docs, "StatefulSet", "nats")
+    if nats is None:
+        problems.append("base: no StatefulSet/nats in the render")
+    elif values(nats.lines, "replicas") != ["1"]:
+        problems.append(f"replicas: {nats} has replicas {values(nats.lines, 'replicas')}, not 1")
+    return problems + logbook(docs)
+
+
+def logbook(docs: list[Doc]) -> list[str]:
+    sts = find(docs, "StatefulSet", "logbook")
+    if sts is None:
+        return ["R2: no StatefulSet/logbook in the render"]
+    problems = []
+    lines = sts.lines
+
+    def has(key: str, value: str) -> bool:
+        return value in values(lines, key)
+
+    if values(lines, "replicas") != ["1"]:
+        problems.append(f"replicas: {sts} has replicas {values(lines, 'replicas')}, not exactly 1: one writer")
+    if values(lines, "podManagementPolicy") != ["OrderedReady"]:
+        problems.append(f"R2: {sts} is not OrderedReady")
+    if values(lines, "whenDeleted") != ["Retain"] or values(lines, "whenScaled") != ["Retain"]:
+        problems.append(f"retention: {sts} does not keep its claims when deleted and scaled (Retain)")
+    if values(lines, "storageClassName"):
+        problems.append(f"storage: {sts}'s volume names a storage class, which the overlay sets")
+    if not has("mountPath", "/data") or env_value(lines, "TWR_DATA_DIR") != "/data":
+        problems.append(f"R2: {sts} has no data volume at /data")
+    if env_value(lines, "TWR_NATS_URL") != "nats://nats:4222":
+        problems.append(f"R2: {sts}'s TWR_NATS_URL is {env_value(lines, 'TWR_NATS_URL')}, not nats://nats:4222")
+    if env_value(lines, "TWR_HEALTH_ADDR") != ":8080":
+        problems.append(f"R2: {sts}'s TWR_HEALTH_ADDR is {env_value(lines, 'TWR_HEALTH_ADDR')}, not :8080")
+    for probe in ("readinessProbe", "livenessProbe"):
+        if not any(line.strip() == f"{probe}:" for line in lines):
+            problems.append(f"R2: {sts} has no {probe}")
+    paths = values(lines, "path")
+    if not paths or any(p != "/healthz" for p in paths):
+        problems.append(f"R2: {sts}'s probes are on {paths}, not /healthz")
+    if not has("containerPort", "8080"):
+        problems.append(f"R2: {sts} does not name port 8080 for /healthz")
+    for key, value, what in (
+        ("automountServiceAccountToken", "false", "mounts a service account token"),
+        ("type", "RuntimeDefault", "does not run with the RuntimeDefault seccomp profile"),
+        ("runAsNonRoot", "true", "may run as root"),
+        ("readOnlyRootFilesystem", "true", "has a writable root file system"),
+    ):
+        if not has(key, value):
+            problems.append(f"pod: {sts} {what}")
+    resources = next((i for i, line in enumerate(lines) if line.strip() == "resources:"), None)
+    block = lines[resources:resources + 6] if resources is not None else []
+    if not any(line.strip() == "requests:" for line in block):
+        problems.append(f"R5: {sts} has no resource requests")
+    if not any(line.strip() == "limits:" for line in block) or not values(block, "memory"):
+        problems.append(f"R5: {sts} has no memory limit")
+
+    svc = find(docs, "Service", "logbook")
+    if svc is None or values(svc.lines, "clusterIP") != ["None"] or values(lines, "serviceName") != ["logbook"]:
+        problems.append(f"R2: {sts} has no headless Service/logbook as its serviceName")
+    return problems
+
+
+def network_policy(docs: list[Doc]) -> list[str]:
+    problems = []
+    nats = find(docs, "NetworkPolicy", "nats")
+    book = find(docs, "NetworkPolicy", "logbook")
+    if nats is None or book is None:
+        return [f"R7: no NetworkPolicy/nats and NetworkPolicy/logbook through {NETWORK_POLICY}"]
+    if not {"app.kubernetes.io/name: nats", "app.kubernetes.io/component: nats"} <= {line.strip() for line in nats.lines}:
+        problems.append(f"R7: {nats} does not select NATS's server")
+    if "app.kubernetes.io/name: logbook" not in {line.strip() for line in book.lines}:
+        problems.append(f"R7: {book} does not select logbook")
+    for doc in (nats, book):
+        if "- podSelector: {}" not in {line.strip() for line in doc.lines}:
+            problems.append(f"R7: {doc} does not let in the namespace's own pods")
+    if f"kubernetes.io/metadata.name: {INGRESS_NAMESPACE}" not in {line.strip() for line in nats.lines}:
+        problems.append(f"R7: {nats} does not let in the ingress controller's namespace ({INGRESS_NAMESPACE})")
+    if values(nats.lines, "port") != ["8080"]:
+        problems.append(f"R7: {nats} opens ports {values(nats.lines, 'port')} to the ingress controller, not 8080 only")
+    if any("namespaceSelector:" in line for line in book.lines):
+        problems.append(f"R7: {book} lets in another namespace")
+    for doc in (nats, book):
+        if block(doc.lines, "policyTypes") != ["- Ingress"]:
+            problems.append(f"R7: {doc}'s policyTypes are {block(doc.lines, 'policyTypes')}, not Ingress only")
+        if sum("podSelector: {}" in line for line in doc.lines) != 1 or any("ipBlock:" in line for line in doc.lines):
+            problems.append(f"R7: {doc} lets in more than the namespace's own pods and the ingress controller")
+    selector = block(nats.lines, "namespaceSelector")
+    if sum("namespaceSelector:" in line for line in nats.lines) != 1 or selector != [
+        "matchLabels:", f"kubernetes.io/metadata.name: {INGRESS_NAMESPACE}"
+    ]:
+        problems.append(f"R7: {nats} lets in other namespaces than the ingress controller's: {selector}")
+    return problems
+
+
+def block(lines: list[str], key: str) -> list[str]:
+    """The stripped lines under the first `key:` line: those indented deeper, and the
+    items of a list kustomize writes at the key's own indentation."""
+    for i, line in enumerate(lines):
+        m = re.match(rf"^(\s*)(- )?{re.escape(key)}:$", line)
+        if not m:
+            continue
+        indent = len(m.group(1))
+        out = []
+        for following in lines[i + 1 :]:
+            depth = len(following) - len(following.lstrip())
+            same_level_item = depth == indent and not m.group(2) and following.lstrip().startswith("- ")
+            if depth <= indent and not same_level_item:
+                break
+            out.append(following.strip())
+        return out
+    return []
+
+
 def nats_config(where: str, conf: dict) -> list[str]:
     problems = []
     if "cluster" in conf:
@@ -277,13 +485,20 @@ def nats_config(where: str, conf: dict) -> list[str]:
     return problems
 
 
-def check(kustomization: str, text: str) -> list[str]:
+def check(kustomization: str, text: str, compose: str | None = None) -> list[str]:
     docs = documents(text)
     problems = portable(docs)
-    if kustomization.rstrip("/") == NATS_CHART:
+    k = kustomization.rstrip("/")
+    if k == NATS_CHART:
         problems += nats_chart(docs)
-    if kustomization.rstrip("/") == NATS_WEBSOCKET:
-        problems += nats_websocket(docs)
+    if k == BASE:
+        if compose is None:
+            compose = COMPOSE.read_text(encoding="utf-8")
+        problems += base(docs, compose)
+    if k == NATS_WEBSOCKET:
+        problems += labelled(docs) + nats_websocket(docs)
+    if k == NETWORK_POLICY:
+        problems += labelled(docs) + network_policy(docs)
     return problems
 
 
