@@ -7,13 +7,22 @@ name: Parity laps
 # in deploy/compose/compose.yaml, and every recording is checked against its sha256
 # in recordings/SOURCES.yaml before anything runs. The log names the images it used.
 #
-# It runs for PRs that touch the stack, the recordings or the harness, every week on
-# `main` (an image pinned by tag and digest doesn't move, but a runner's docker or
-# compose can), and by hand. It is not a required check: a required check must report
+# It runs for PRs that touch the stack, the recordings or the harness, for pushes to
+# `main` that touch them (two PRs that each pass can break parity together, and this
+# shows it straight after the second merges), every week on `main` (an image pinned
+# by tag and digest doesn't move, but a runner's docker or compose can), and by hand. It is not a required check: a required check must report
 # on every PR and in the merge queue, and this one is filtered by path. Making it one
 # means moving the job into ci.yml without the path filter.
 on:
   pull_request:
+    paths:
+      - deploy/**
+      - parity/**
+      - recordings/**
+      - Makefile
+      - .github/workflows/parity-laps.yml
+  push:
+    branches: [main]
     paths:
       - deploy/**
       - parity/**
@@ -27,9 +36,11 @@ on:
 # Nothing by default; the job asks for what it uses.
 permissions: {}
 
-# A new push to a PR cancels its superseded run; scheduled and manual runs finish.
+# A new push to a PR cancels its superseded run. Every other run has a group of its
+# own, so a push to main never cancels or replaces another's run, and every merge
+# that touches the paths is checked.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Actions are pinned by commit SHA (the tag in the comment); Renovate bumps them
@@ -37,7 +48,9 @@ concurrency:
 jobs:
   parity-laps:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The harness's own waits time out well inside this, so a stuck side fails with
+    # its own error first.
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:

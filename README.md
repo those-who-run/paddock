@@ -45,7 +45,8 @@ pinned images and the checks.
 replays a recording through v1's image and through the compose stack, and
 compares the laps each stored. The recordings it and the stack replay are
 copied from v1 into [`recordings/`](recordings/README.md), each with its
-provenance in `SOURCES.yaml`.
+provenance in `SOURCES.yaml`. `make parity` runs the harness on the three default
+recordings, and CI's `parity-laps` job runs it.
 
 The roadmap is [`ROADMAP.md`](ROADMAP.md), the issue format is
 [`docs/ISSUE_FORMAT.md`](docs/ISSUE_FORMAT.md), and the decisions are in
