@@ -134,6 +134,11 @@ no skips, coverage floor 90%), build and govulncheck. CI runs the same through
 laps (AC2, AC3, AC4), and the two sides run against a recorded command runner
 and a fake `/healthz`.
 
+CI's `parity-laps` job
+([`parity-laps.yml`](../.github/workflows/parity-laps.yml)) runs the harness
+itself on the default recordings (R6), as `make parity` from paddock's root:
+for PRs that touch `deploy/`, `recordings/`, the harness or the Makefile,
+every Monday, and by hand. It is not a required check.
+
 Still to come (#40): the `lap.completed` events read from `EVENTS`, so a
-difference can be pinned on `ecu` or on `logbook` (R1), and the CI job that
-runs the harness itself on the default recordings (R6).
+difference can be pinned on `ecu` or on `logbook` (R1).

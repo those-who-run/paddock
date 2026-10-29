@@ -6,7 +6,9 @@
 # podman, and compose-it docker with compose v2 and curl.
 #
 # The walking skeleton (deploy/compose, paddock#39) has its own targets: up, replay,
-# sub, export, down and reset.
+# sub, export, down and reset. `make parity` runs the parity harness (parity/,
+# paddock#40) on its default recordings; it is not part of `check`, since CI runs it
+# in a workflow of its own (parity-laps.yml).
 
 PY ?= python3
 # The compose command; `COMPOSE='podman compose' make up` for podman.
@@ -37,6 +39,7 @@ help:
 	@echo "deploy-render - kustomize build --enable-helm of deploy/'s kustomizations, kubeconform strict, and their checks"
 	@echo "nats-it - deploy/nats/bootstrap.sh twice against a real nats-server -js, and what the streams capture"
 	@echo "compose-it - the walking skeleton from nothing: up, NATS, the bootstrap, logbook's health, export, reset"
+	@echo "parity - the parity harness on its three default recordings, v1's laps against v2's (CI's parity-laps job)"
 	@echo
 	@echo "The walking skeleton on this machine (deploy/compose/README.md):"
 	@echo "up     - start nats, run the stream and KV bootstrap, start logbook and wait for its /healthz"
@@ -91,6 +94,14 @@ nats-it:
 .PHONY: compose-it
 compose-it:
 	scripts/compose_it.sh
+
+# `parity laps` on R4's three recordings (parity/README.md), through v1's image and
+# the compose stack's pinned images: exit 0 when every recording's laps match. Needs
+# Go, docker with compose v2 (CONTAINER and COMPOSE name others), and 127.0.0.1:4222,
+# :8222 and :8080 free, so a `make up` stack must be down.
+.PHONY: parity
+parity:
+	$(MAKE) -C parity laps
 
 # The walking skeleton. Each target prints the commands it runs.
 

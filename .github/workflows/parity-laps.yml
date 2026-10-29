@@ -1,0 +1,53 @@
+name: Parity laps
+
+# The parity harness's own run (paddock#40 R6, AC1 and AC4): `make parity` replays
+# the three default recordings through v1's image and through the compose stack, and
+# fails on any lap that differs. It needs no secrets and fetches nothing but the
+# images and the Go toolchain: v1's image is pinned by digest in parity/v1.go, v2's
+# in deploy/compose/compose.yaml, and every recording is checked against its sha256
+# in recordings/SOURCES.yaml before anything runs. The log names the images it used.
+#
+# It runs for PRs that touch the stack, the recordings or the harness, every week on
+# `main` (an image pinned by tag and digest doesn't move, but a runner's docker or
+# compose can), and by hand. It is not a required check: a required check must report
+# on every PR and in the merge queue, and this one is filtered by path. Making it one
+# means moving the job into ci.yml without the path filter.
+on:
+  pull_request:
+    paths:
+      - deploy/**
+      - parity/**
+      - recordings/**
+      - Makefile
+      - .github/workflows/parity-laps.yml
+  schedule:
+    - cron: "23 4 * * 1" # Mondays, 04:23 UTC
+  workflow_dispatch:
+
+# Nothing by default; the job asks for what it uses.
+permissions: {}
+
+# A new push to a PR cancels its superseded run; scheduled and manual runs finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Actions are pinned by commit SHA (the tag in the comment); Renovate bumps them
+# (renovate.json).
+jobs:
+  parity-laps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The harness is standard library only, so there is nothing to cache.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: parity/go.mod
+          cache: false
+      - name: The parity harness on the default recordings
+        run: make parity
