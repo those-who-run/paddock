@@ -215,6 +215,11 @@ class ImagePins(unittest.TestCase):
         text = (ROOT / "scripts" / "nats_it.sh").read_text()
         self.assertEqual(len(re.findall(r"^NATS_(?:BOX|SERVER)=", text, re.M)), len(refs))
 
+    def test_the_manager_finds_the_jobs_nats_box(self) -> None:
+        # So a nats-box bump moves the cluster's bootstrap Job with compose and nats-it.
+        (box, *_) = self.refs("scripts/nats_it.sh")
+        self.assertEqual(self.refs("deploy/nats/bootstrap-job.yaml"), [box])
+
     def test_the_readme_runs_the_tested_nats_box(self) -> None:
         (box, *_) = self.refs("scripts/nats_it.sh")
         self.assertEqual(self.refs("deploy/nats/README.md"), [box])
