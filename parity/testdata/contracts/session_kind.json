@@ -1,0 +1,14 @@
+{
+  "sessionId": "01JB9QZ4V3X8M2K7T5R1N6PDWA",
+  "kind": {
+    "sessionType": "SESSION_TYPE_LAP_RACE",
+    "totalLaps": 6,
+    "field": true,
+    "fuelUse": "FUEL_USE_ON",
+    "carsOnTrack": true,
+    "start": "START_TYPE_ROLLING",
+    "evidence": "6 laps, 2 cars; fuel use on; rolling start at 128 km/h"
+  },
+  "at": 1384,
+  "runId": "01JB9QYR2T6W8Y1A3C5E7G9HKM"
+}

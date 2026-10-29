@@ -18,12 +18,15 @@ GO_FILES = $(shell find . -name '*.go' -not -path '*/.*' -not -path '*/testdata/
 BUILD := build
 # The recordings to compare; empty is R4's three.
 RECORDINGS ?=
+# What `make events` compares: runs, or --all; empty is R4's three.
+RUNS ?=
 
 .PHONY: help
 help:
 	@echo "check - the Go checks in go.yml's order: fmt-check, tidy, vet, lint, test, build, vuln"
 	@echo "test  - the tests, with the race detector, in shuffled order, no skips, and the coverage floor"
 	@echo "laps  - the harness on RECORDINGS (default: R4's three), through v1's image and the compose stack"
+	@echo "events - events and callouts on RUNS (default: R4's three; --all for every recording and the restart pair)"
 	@echo "fmt   - format the Go code with gofmt"
 
 .PHONY: check
@@ -72,3 +75,7 @@ vuln:
 .PHONY: laps
 laps:
 	go run . laps $(RECORDINGS)
+
+.PHONY: events
+events:
+	go run . events $(RUNS)

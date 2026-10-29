@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"regexp"
@@ -94,4 +95,32 @@ var unsafeName = regexp.MustCompile(`[^a-z0-9-]+`)
 // with anything outside [a-z0-9-] as -.
 func safeName(stem string) string {
 	return strings.Trim(unsafeName.ReplaceAllString(strings.ToLower(stem), "-"), "-")
+}
+
+// v1Events is v1events.py: v1's engine over a run, its decisions as items.
+//
+//go:embed v1events.py
+var v1Events string
+
+// Events replays the run's recordings through v1's engine in v1's own image and
+// reads the items v1events.py writes (paddock#104). It needs no volume: the store
+// is a temporary one inside the container.
+func (s *v1Side) Events(ctx context.Context, run Run) ([]Item, error) {
+	args := []string{s.container, "run", "--rm"}
+	var inside []string
+	for _, rec := range run.Recordings {
+		path := "/recording/" + rec.Name
+		args = append(args, "-v", rec.Path+":"+path+":ro,z")
+		inside = append(inside, path)
+	}
+	args = append(args, "--entrypoint", "python", s.image, "-c", v1Events)
+	out, err := s.run(ctx, append(args, inside...)...)
+	if err != nil {
+		return nil, fmt.Errorf("v1 events: %w", err)
+	}
+	items, err := readItems(out)
+	if err != nil {
+		return nil, fmt.Errorf("v1 events: %w", err)
+	}
+	return items, nil
 }

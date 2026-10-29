@@ -14,7 +14,8 @@ import (
 // cannedSide is a side with laps already stored: no containers.
 type cannedSide struct {
 	images []string
-	laps   map[string][]Lap // by recording name
+	laps   map[string][]Lap  // by recording name
+	events map[string][]Item // by run name
 	calls  int
 }
 
@@ -26,6 +27,11 @@ func (c *cannedSide) Images(context.Context) ([]string, error) {
 func (c *cannedSide) Laps(_ context.Context, rec Recording, _ int) ([]Lap, error) {
 	c.calls++
 	return c.laps[rec.Name], nil
+}
+
+func (c *cannedSide) Events(_ context.Context, run Run) ([]Item, error) {
+	c.calls++
+	return c.events[run.Name()], nil
 }
 
 func ip(n int) *int          { return &n }
@@ -233,7 +239,14 @@ func TestUsage(t *testing.T) {
 // failingSide fails at one step.
 type failingSide struct {
 	cannedSide
-	imagesErr, lapsErr error
+	imagesErr, lapsErr, eventsErr error
+}
+
+func (f *failingSide) Events(ctx context.Context, run Run) ([]Item, error) {
+	if f.eventsErr != nil {
+		return nil, f.eventsErr
+	}
+	return f.cannedSide.Events(ctx, run)
 }
 
 func (f *failingSide) Images(ctx context.Context) ([]string, error) {

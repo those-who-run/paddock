@@ -1,0 +1,18 @@
+{
+  "sessionId": "01JB9R1C8E4Q6W2Y9T3K7M5PXB",
+  "gap": {
+    "startedAt": "2026-10-18T13:45:07.776810Z",
+    "endedAt": "2026-10-18T13:45:16.437865Z",
+    "lap": 7,
+    "reason": "GAP_REASON_ENGINEER_RESTART"
+  },
+  "track": {
+    "trackId": 10,
+    "name": "Suzuka Circuit",
+    "confidence": "TRACK_CONFIDENCE_CONFIRMED",
+    "evidence": "carried over from before the engineer restart",
+    "carried": true
+  },
+  "at": 1,
+  "runId": "01JB9R1BX4N7Q2S5V8Z3D6F9JP"
+}

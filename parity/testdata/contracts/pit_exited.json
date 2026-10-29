@@ -1,0 +1,25 @@
+{
+  "sessionId": "01JBBX7Q2M5R8T1V4W6Y9K3NZC",
+  "stop": {
+    "stop": 1,
+    "inLap": 6,
+    "outLap": 7,
+    "pitLaneMs": 30220,
+    "stationaryMs": 17130,
+    "fuelBefore": 8.685,
+    "fuelAfter": 100.0,
+    "fuelAdded": 91.315,
+    "tyresChanged": true,
+    "pitLaneKph": 60.0,
+    "positionBefore": 5,
+    "positionAfter": 10,
+    "evidence": "entry loading cut at 60.0 km/h; exit loading cut"
+  },
+  "stint": 2,
+  "entry": 1,
+  "enteredAt": "2026-10-17T18:03:07.588057Z",
+  "exitedAt": "2026-10-17T18:03:37.804885Z",
+  "at": 13056,
+  "exitedT": 6853873.780025139,
+  "enteredT": 6853843.563197786
+}

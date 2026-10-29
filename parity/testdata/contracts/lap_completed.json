@@ -1,0 +1,14 @@
+{
+  "sessionId": "01JB8Z3K5Q9T2M7XW4R6N1PDHE",
+  "lap": 3,
+  "lapTimeMs": 98765,
+  "complete": true,
+  "fuelAtStart": 45.5,
+  "fuelAtEnd": 41.75,
+  "fuelUsed": 3.75,
+  "position": 2,
+  "pitRole": "PIT_ROLE_NONE",
+  "firstSeq": 13311,
+  "lastSeq": 19236,
+  "countsForBest": true
+}

@@ -1,9 +1,11 @@
 # The parity harness
 
 `parity laps` replays a recording through v1 and through v2, normalises the
-laps each side stored to the same JSON lines, and compares them (#40). It is
-the walking skeleton's referee: a v2 piece is done when the same recording
-gives the same laps as v1. It is a test tool, not service code, so it is a Go
+laps each side stored to the same JSON lines, and compares them (#40).
+`parity events` does the same for what each side decided: every event and
+callout, v1's from its engine and v2's heard on the bus as `ecu` publishes
+them ([below](#events-and-callouts), #104). It is the referee: a v2 piece is
+done when the same recording gives the same laps, events and callouts as v1. It is a test tool, not service code, so it is a Go
 module of its own here, beside the compose stack it drives in
 [`deploy/compose/`](../deploy/compose/README.md).
 
@@ -85,7 +87,7 @@ others, as for paddock's own targets
 compose file's ports on 127.0.0.1, so a `make up` stack must be down first.
 
 The v2 side runs the compose file's `replay` service (paddock#39): `ecu`'s
-image (0.1.4, with `ecu replay`) and its own entrypoint, so the service's
+image (0.1.6, with `ecu replay`) and its own entrypoint, so the service's
 command is `ecu`'s arguments, with the server in `TWR_NATS_URL`.
 
 ## What is compared
@@ -119,10 +121,104 @@ each side (sessions without laps aren't in either side's lap export), then
 each difference with its session, lap, field and both values. After the tables
 comes a line saying how many recordings matched.
 
-The new end reasons and session types of contracts v0.1.4 are not compared
-yet. `logbook export --laps` prints laps only, with no session columns, and R2
-compares laps. Comparing them needs a session export from `logbook` (or the
-`EVENTS` read, below).
+The new end reasons and session types of contracts v0.1.4 are not in the lap
+comparison: `logbook export --laps` prints laps only. `parity events` compares
+the session's kind; v1 stored no end reason ([accepted.go](accepted.go)).
+
+## Events and callouts
+
+```sh
+go run . events                                  # R4's three default recordings
+go run . events real-nuc-sugo-two-stops-2026-10-18
+go run . events --all                            # every recording, then the restart pair
+go run . events a.jsonl.gz+b.jsonl.gz            # two recordings, one after the other
+make events RUNS=--all
+```
+
+```
+parity events [--v1-image IMG] [--compose FILE] [--healthz URL] [--nats URL] [--keep] [--all] RUN…
+```
+
+A `RUN` is a recording, as for `laps`, or recordings joined by `+`, replayed
+in order onto one store and one bus: v1 started again on the same store, `ecu`
+replayed again under the same source. `--all` is every recording in
+`recordings/SOURCES.yaml`, then the restart pair
+(`real-nuc-suzuka-before-restart-2026-10-18` then
+`real-nuc-suzuka-joined-mid-race-2026-10-18`). `--nats` is NATS as the compose
+file publishes it (`nats://127.0.0.1:4222`); `--keep` keeps v2's stack and
+both sides' items, as for `laps`. The exit codes are `laps`' own.
+
+**v1's side** runs [`v1events.py`](v1events.py) in v1's image, with
+`--entrypoint python`: v1's engine over the run's recordings, as v1's `replay`
+runs it, with every rule on and the bundled script off (`script: false`), into
+a temporary store. Nothing in v1 is changed: the engine's, the store's and the
+rules' methods are wrapped on their instances, as `ecu`'s
+`testdata/*/make_golden.py` scripts wrap them (#103 R4). A recording before
+the last ends as the engineer stopping, so the next can continue its session.
+
+**v2's side** brings up a fresh compose project, as for `laps`, and the
+checker subscribes to `twr.v1.parity.evt.>` and `twr.v1.parity.callout.>`
+before the first replay (R1). A core subscription hears every event and
+callout as `ecu` publishes it, whichever stream keeps it, so `CALLOUTS` being
+a work queue doesn't matter, and the same works on a live source (R7). After
+each replay it waits until nothing new has come for 2 s. Each message is
+decoded into its `contracts` message by its subject; one sent twice (the same
+`Nats-Msg-Id`) counts once, as JetStream keeps it once. The stack goes down with
+its volumes after the run, so nothing is left behind (AC4).
+
+**The items.** Both sides give one JSON line per event or callout, in v2's
+names and values (snake case, enum names without their prefix in lower case,
+`null` for a value left out, integers as numbers):
+
+```json
+{"type":"pit.entered","part":1,"session":1,"at":455,"fields":{"stop":1,"in_lap":3,"fuel_before":22.899,"position_before":1}}
+```
+
+- `part` is the recording's place in the run, from 1, and `session` the
+  session's place in the run, from 1 (0 with none open): each side mints its
+  own ids.
+- `at` is the frame, counted from 1 in its recording: `ecu`'s `seq` in a
+  replay, and the recording's line on v1's side. `session.started` takes its
+  `first_seq`, `session.ended` its `last_seq`, `race.finished` the frame it is
+  as of (the flag, or the timed finish's line). A lap has none: it is matched
+  by its number.
+- The types and the fields compared are `compared` in [`items.go`](items.go):
+  `session.started`, `session.continued`, `session.kind`, `session.track`,
+  `pit.entered`, `pit.exited`, `pit.teleport`, `lap.completed` (its time,
+  whether it is complete and its pit role), `race.finished`, `session.ended`
+  (finished) and `callout` (rule, kind, priority, pit lane and slots). Text and
+  v1's pit-lane outcome (spoken, held or dropped) are shown, not compared.
+- A callout's kind on v1's side is the first phrase key its rule picked for it,
+  and its pit lane the rule's `pit_lane`. v1 phrases words, not numbers, so its
+  slots are `null` and not compared; a rule's port (#91 to #98) adds its slots
+  to `v1events.py`, and from then on they are.
+
+**Matching** (R2): items pair by part, type, a callout's rule or a lap's number,
+and frame, within the type's frame tolerance (`frameTolerance`, zero for every
+type until one has a written reason). Two callouts of one rule on one frame pair
+by kind. Numbers compare within a field's tolerance (fuel 0.001 L, pit times
+10 ms, v1's rounding), the rest exactly. An item on one side only is a
+difference. v2's items of a type v1's side doesn't give yet (`race.position`,
+say) are counted and named, not compared.
+
+**Accepted differences** (R4) are in [`accepted.go`](accepted.go), the one
+reviewed list, each with its reason and the issue that accepted it: a position
+of 1 outside a field (#276), a session cut after its timed finish (ecu#32), and
+what `ecu` does not do yet (pit roles #83, joined part way #75, the start check
+#74, callouts #89). An entry for something still to do is removed by the PR that
+does it. The fields left out on purpose (v1's session type, which `kind`
+replaces, the end reason v1 never stored, the callout's text) are listed there
+too. Any other difference fails the run.
+
+**The output** lists each run's differences, a line each with the part, the
+frame (`843/844` where a tolerance let them differ), the session, the item, the
+field and both values, and any accepted entry's id; then a table (R5) with a line
+per run: events and callouts on each side and matched, the differences, and
+those accepted.
+
+CI's `parity-events` job runs `make parity-events` from paddock's root: every
+recording in `recordings/`. The restart pair is left out until `ecu` continues
+a session after a restart (#76); `--all` runs it.
 
 ## Checks
 
@@ -131,8 +227,10 @@ compares laps. Comparing them needs a session export from `logbook` (or the
 no skips, coverage floor 90%), build and govulncheck. CI runs the same through
 `go.yml` in its `parity / check` job. The tools are pinned in
 `tools/go.mod`. The tests need no containers: the comparison runs on canned
-laps (AC2, AC3, AC4), and the two sides run against a recorded command runner
-and a fake `/healthz`.
+laps (AC2, AC3, AC4) and on one real run's items in `testdata/run/` (the pit
+stop through v1 1.0.0 and `ecu` 0.1.6), the callouts on `contracts`' examples
+(`testdata/contracts/`, v0.2.3), and the two sides run against a recorded
+command runner, a fake `/healthz` and a fake listener.
 
 CI's `parity-laps` job
 ([`parity-laps.yml`](../.github/workflows/parity-laps.yml)) runs the harness
@@ -140,5 +238,6 @@ itself on the default recordings (R6), as `make parity` from paddock's root:
 for PRs and pushes to `main` that touch `deploy/`, `recordings/`, the harness
 or the Makefile, every Monday, and by hand. It is not a required check.
 
-Still to come (#40): the `lap.completed` events read from `EVENTS`, so a
-difference can be pinned on `ecu` or on `logbook` (R1).
+Still to come (#40): pinning a lap difference on `ecu` or on `logbook` (R1).
+`parity events` hears `ecu`'s `lap.completed` on the bus, but compares only
+its time, completeness and pit role.

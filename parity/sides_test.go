@@ -319,3 +319,7 @@ func (s sideOf) Images(ctx context.Context) ([]string, error) { return s.images.
 func (s sideOf) Laps(ctx context.Context, rec Recording, want int) ([]Lap, error) {
 	return s.laps.Laps(ctx, rec, want)
 }
+
+func (s sideOf) Events(ctx context.Context, run Run) ([]Item, error) {
+	return s.laps.Events(ctx, run)
+}
