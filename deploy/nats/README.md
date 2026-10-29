@@ -25,8 +25,9 @@ bucket is added by the milestone that first uses it.
 
 `CALLOUTS` keeps a callout 30 s, not ADR 0001's 15 s, as decided on #73: the
 race summary's own expiry is 30 s, so the stream never ages out a callout a rule
-still allows. Its duplicate window is 30 s too, not #73's 2 min: the server cuts
-a window longer than `max_age` to `max_age`, and `make nats` refuses one that is.
+still allows. Its duplicate window is 30 s too, not #73's 2 min: the server
+refuses a window longer than `max_age`, and so does `make nats`, before it gets
+there.
 
 ## Running the bootstrap
 

@@ -145,6 +145,14 @@ class Definitions(unittest.TestCase):
         problems = self.problems()
         self.assertIn("subjects.yaml names KV bucket live, which has no file in deploy/nats/kv", problems)
 
+    def test_a_stream_named_in_subjects_yaml_needs_a_file(self) -> None:
+        # Deleting the file would otherwise leave its subjects in no stream, unnoticed.
+        (self.nats / "streams" / "callouts.json").unlink()
+        self.assertIn(
+            "twr.v1.<src>.callout.p0 goes to CALLOUTS in subjects.yaml, which has no file in deploy/nats/streams",
+            self.problems(),
+        )
+
     def test_a_changed_copy_of_subjects_yaml_fails(self) -> None:
         path = self.nats / "subjects.yaml"
         path.write_text(path.read_text() + "\n")
@@ -184,8 +192,7 @@ class Definitions(unittest.TestCase):
     def test_a_duplicate_window_longer_than_max_age_fails(self) -> None:
         self.edit("streams/events.json", max_age=60_000_000_000)
         self.assertIn(
-            "deploy/nats/streams/events.json: duplicate_window is longer than max_age, "
-            "and the server would cut it to max_age",
+            "deploy/nats/streams/events.json: duplicate_window is longer than max_age, which the server refuses",
             self.problems(),
         )
 
