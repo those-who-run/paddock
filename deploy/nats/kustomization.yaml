@@ -14,8 +14,7 @@ resources:
 # One ConfigMap a directory, mounted at streams/ and kv/, as decided on #43: a new
 # definition file is mounted with the others, with no volume `items` list to forget
 # it in. A ConfigMap still lists its files, so tests/test_bootstrap_job.py fails when
-# a file in streams/ or kv/ is missing here. The names carry a hash of the contents,
-# so a changed definition changes the Job.
+# a file in streams/ or kv/ is missing here.
 configMapGenerator:
   - name: twr-nats-streams
     files:
@@ -29,3 +28,23 @@ configMapGenerator:
   - name: twr-nats-bootstrap-script
     files:
       - bootstrap.sh
+  # The Job's identity, never mounted: every file the Job runs, under one hash. Its
+  # name, twr-nats-bootstrap-<hash>, is the Job's (kustomizeconfig.yaml), so a changed
+  # definition, script or Job template is a new Job, which Argo CD's selective sync
+  # and a plain `kubectl apply` both create and run (README.md, "On a cluster"). The
+  # keys keep each file's directory, so a stream and a bucket of one name cannot
+  # collide. tests/test_bootstrap_job.py fails when it differs from the lists above.
+  - name: twr-nats-bootstrap
+    files:
+      - bootstrap-job.yaml
+      - bootstrap.sh
+      - streams.callouts.json=streams/callouts.json
+      - streams.events.json=streams/events.json
+      - streams.telemetry.json=streams/telemetry.json
+      - kv.ecu.json=kv/ecu.json
+      - kv.live.json=kv/live.json
+
+# The Job's name is a reference to the ConfigMap twr-nats-bootstrap, so it takes the
+# ConfigMap's hash. A replacement cannot do it: it sees the name before the hash.
+configurations:
+  - kustomizeconfig.yaml

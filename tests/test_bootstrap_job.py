@@ -4,9 +4,13 @@ bootstrap-job.yaml, paddock#43).
 A ConfigMap generator lists its files, so a new definition file left out of it would
 never be mounted and the Job would pass without creating it: every file in
 deploy/nats/streams and deploy/nats/kv is in its directory's generator, and nothing
-else is. The Job runs the image compose runs the bootstrap in, as a non-root user on
-a read-only root file system with no service account token, waits 5 min for
-JetStream, reruns on every Argo CD sync and deletes itself 10 min after it finishes.
+else is, and every one of them, the script and the Job are in the ConfigMap whose hash
+names the Job, so a change to any of them is a new Job, which runs. The Job runs the
+image compose runs the bootstrap in, as a non-root user on a read-only root file
+system with no service account token, and waits 5 min for JetStream. It is no Argo CD
+hook, since a selective sync runs none, and does not delete itself, since self-heal
+would create it again. `make deploy-render` renders it and checks a changed file
+renames it.
 
 Standard library only, as paddock's other checks are, so the files are read line by
 line: kustomize's YAML here is block style, one key a line."""
@@ -21,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 NATS = ROOT / "deploy" / "nats"
 KUSTOMIZATION = NATS / "kustomization.yaml"
 JOB = NATS / "bootstrap-job.yaml"
+CONFIG = NATS / "kustomizeconfig.yaml"
 COMPOSE = ROOT / "deploy" / "compose" / "compose.yaml"
 
 
@@ -64,6 +69,23 @@ class Generators(unittest.TestCase):
     def test_the_script(self) -> None:
         self.assertEqual(self.gens.get("twr-nats-bootstrap-script"), ["bootstrap.sh"])
 
+    def test_the_jobs_identity(self) -> None:
+        # Every file the Job runs, keyed by its directory, so the Job's name changes
+        # with any of them (kustomizeconfig.yaml).
+        want = ["bootstrap-job.yaml", "bootstrap.sh"] + [
+            f"{directory}.{p.name}={directory}/{p.name}"
+            for directory in ("streams", "kv")
+            for p in sorted((NATS / directory).glob("*.json"))]
+        self.assertEqual(sorted(self.gens.get("twr-nats-bootstrap", [])), sorted(want),
+                         "twr-nats-bootstrap must list the Job, the script and every "
+                         "stream and bucket file, and only those")
+
+    def test_the_jobs_name_is_a_reference(self) -> None:
+        self.assertTrue(has(KUSTOMIZATION.read_text(), "- kustomizeconfig.yaml"))
+        config = CONFIG.read_text()
+        self.assertRegex(config, r"- kind: ConfigMap\n\s+version: v1\n\s+fieldSpecs:\n"
+                                 r"\s+- kind: Job\n\s+group: batch\n\s+path: metadata/name\n")
+
     def test_parser_sees_a_missing_file(self) -> None:
         text = KUSTOMIZATION.read_text().replace("      - streams/telemetry.json\n", "")
         self.assertNotIn("streams/telemetry.json", generators(text)["twr-nats-streams"])
@@ -74,12 +96,13 @@ class Job(unittest.TestCase):
         self.job = JOB.read_text()
 
     def test_name_and_reruns(self) -> None:
-        for line in ("name: twr-nats-bootstrap",
-                     "ttlSecondsAfterFinished: 600",
-                     "argocd.argoproj.io/hook: Sync",
-                     "argocd.argoproj.io/hook-delete-policy: BeforeHookCreation"):
-            with self.subTest(line=line):
-                self.assertTrue(has(self.job, line))
+        # The ConfigMap's name, so kustomize gives it the ConfigMap's hash.
+        self.assertTrue(has(self.job, "name: twr-nats-bootstrap"))
+        # No hook, which a selective sync would skip, and no TTL, after which
+        # self-heal would create the Job again and it would run every 10 min.
+        for text in ("argocd.argoproj.io/hook", "ttlSecondsAfterFinished"):
+            with self.subTest(text=text):
+                self.assertNotRegex(self.job, rf"(?m)^\s*{re.escape(text)}")
 
     def test_hardened(self) -> None:
         for line in ("automountServiceAccountToken: false",
