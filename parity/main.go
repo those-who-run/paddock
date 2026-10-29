@@ -229,7 +229,7 @@ func realSides(log io.Writer) sides {
 			run: execRunner, compose: compose, file: o.compose, keep: o.keep, log: log,
 			healthz: "http://127.0.0.1:8080/healthz",
 			client:  &http.Client{Timeout: 5 * time.Second},
-			wait:    5 * time.Minute, settle: 15 * time.Second, poll: time.Second,
+			wait:    5 * time.Minute, settle: 15 * time.Second, quiet: 2 * time.Second, poll: time.Second,
 		}
 		return v1, v2
 	}

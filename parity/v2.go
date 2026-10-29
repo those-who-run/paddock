@@ -26,8 +26,8 @@ type v2Side struct {
 	client  *http.Client
 	// wait is how long logbook may take to come up, and then to store the laps;
 	// settle is how long its laps_written must stay still to count as done when
-	// the other side's lap count isn't reached.
-	wait, settle, poll time.Duration
+	// the other side's lap count isn't reached, and quiet how long once it is.
+	wait, settle, quiet, poll time.Duration
 }
 
 // logbookHealth is the part of logbook's /healthz the harness reads.
@@ -42,7 +42,9 @@ func (s *v2Side) stack(project string, args ...string) []string {
 // Images lists the compose file's images (R5): ecu's, through its replay service,
 // logbook's, and NATS's.
 func (s *v2Side) Images(ctx context.Context) ([]string, error) {
-	out, err := s.run(ctx, append(append([]string{}, s.compose...), "-f", s.file, "config", "--images")...)
+	// The replay service is in the `replay` profile (#39), and compose lists only
+	// the services of active profiles, so ecu would be missing without it.
+	out, err := s.run(ctx, append(append([]string{}, s.compose...), "-f", s.file, "--profile", "replay", "config", "--images")...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,9 +109,12 @@ func (s *v2Side) Laps(ctx context.Context, rec Recording, want int) (laps []Lap,
 }
 
 // waitLaps polls logbook's /healthz. With want < 0 it returns once logbook answers
-// 200. Otherwise it returns once laps_written reaches want, or, when want is 0 or
-// isn't reached, once laps_written has stayed the same for settle: a v2 that stores
-// fewer laps than v1 is a difference to report, not a wait without end.
+// 200. Otherwise it returns once laps_written has reached want and stayed the same
+// for quiet, or, when want is 0 or isn't reached, has stayed the same for settle: a
+// v2 that stores fewer laps than v1 is a difference to report, not a wait without
+// end. Reaching want isn't enough on its own: v2 may store a lap more than v1 (an
+// incomplete last lap, say), and stopping logbook early would hand that lap's
+// events back unstored and hide the difference.
 func (s *v2Side) waitLaps(ctx context.Context, want int) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.wait)
 	defer cancel()
@@ -120,10 +125,10 @@ func (s *v2Side) waitLaps(ctx context.Context, want int) (int, error) {
 		case err != nil:
 		case want < 0:
 			return laps, nil
-		case want > 0 && laps >= want:
-			return laps, nil
 		case laps != last:
 			last, since = laps, time.Now()
+		case want > 0 && laps >= want && time.Since(since) >= s.quiet:
+			return laps, nil
 		case time.Since(since) >= s.settle:
 			return laps, nil
 		}

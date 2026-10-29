@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -135,7 +136,7 @@ func newV2(f *fakeRunner, url string, keep bool, log *bytes.Buffer) *v2Side {
 	return &v2Side{
 		run: f.run, compose: []string{"docker", "compose"}, file: "/paddock/deploy/compose/compose.yaml",
 		keep: keep, log: log, healthz: url, client: http.DefaultClient,
-		wait: 2 * time.Second, settle: 100 * time.Millisecond, poll: 10 * time.Millisecond,
+		wait: 2 * time.Second, settle: 100 * time.Millisecond, quiet: 40 * time.Millisecond, poll: 10 * time.Millisecond,
 	}
 }
 
@@ -222,7 +223,7 @@ func TestV2Images(t *testing.T) {
 	if err != nil || len(images) != 2 || images[0] != "ghcr.io/those-who-run/twr-ecu:0.1.4" {
 		t.Fatalf("%q %v", images, err)
 	}
-	if f.calls[0] != "docker compose -f /paddock/deploy/compose/compose.yaml config --images" {
+	if f.calls[0] != "docker compose -f /paddock/deploy/compose/compose.yaml --profile replay config --images" {
 		t.Errorf("%q", f.calls[0])
 	}
 	if _, err := newV2(&fakeRunner{}, "", false, &bytes.Buffer{}).Images(context.Background()); err == nil {
@@ -263,4 +264,58 @@ func TestSafeName(t *testing.T) {
 	if got := safeName("Real Race 2laps.v2_"); got != "real-race-2laps-v2" {
 		t.Errorf("%q", got)
 	}
+}
+
+// v2 stores a lap more than v1 (an incomplete last lap, say), just after reaching
+// v1's count: the harness waits for logbook to go quiet, so the export has the
+// extra lap and the run differs, rather than stopping logbook at v1's count.
+func TestV2StoresALapMoreThanV1(t *testing.T) {
+	var n atomic.Int64
+	srv := fakeLogbook(&n)
+	defer srv.Close()
+	extra := `{"session_id":"01JB","lap":2,"lap_time_ms":null,"complete":false,"fuel_start":65.6,"fuel_end":60.1,"fuel_used":5.5,"position":1,"frames":20}
+`
+	f := &fakeRunner{}
+	v2 := newV2(f, srv.URL, false, &bytes.Buffer{})
+	v2.run = func(ctx context.Context, argv ...string) ([]byte, error) {
+		cmd := strings.Join(argv, " ")
+		switch {
+		case strings.Contains(cmd, "replay replay"):
+			n.Store(1)
+			go func() {
+				time.Sleep(20 * time.Millisecond)
+				n.Store(2)
+			}()
+		case strings.Contains(cmd, "logbook export"):
+			if n.Load() == 2 {
+				return []byte(exported + extra), nil
+			}
+			return []byte(exported), nil
+		}
+		return f.run(ctx, argv...)
+	}
+	v1 := &cannedSide{images: []string{"v1"}, laps: map[string][]Lap{pitRec.Name: {
+		{Session: 1, Lap: 1, LapTimeMs: ip(57109), Complete: true, FuelStart: fp(96.72), FuelEnd: fp(65.6), FuelUsed: fp(31.12), Position: ip(1), Frames: 118},
+	}}}
+	images := &failingSide{cannedSide: cannedSide{images: []string{"v2"}}}
+	var out, errOut bytes.Buffer
+	code := compareAll(context.Background(), []Recording{pitRec}, v1, sideOf{images, v2}, options{}, &out, &errOut)
+	if code != exitDiffer {
+		t.Fatalf("exit %d, want 1\n%s%s", code, out.String(), errOut.String())
+	}
+	if !regexp.MustCompile(`(?m)^\s+1\s+2\s+lap\s+missing\s+stored\s*$`).MatchString(out.String()) {
+		t.Errorf("no extra lap:\n%s", out.String())
+	}
+}
+
+// sideOf takes its images from one side and its laps from another.
+type sideOf struct {
+	images Side
+	laps   Side
+}
+
+func (s sideOf) Images(ctx context.Context) ([]string, error) { return s.images.Images(ctx) }
+
+func (s sideOf) Laps(ctx context.Context, rec Recording, want int) ([]Lap, error) {
+	return s.laps.Laps(ctx, rec, want)
 }

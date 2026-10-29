@@ -64,12 +64,15 @@ For each recording:
   the stream and KV bootstrap, `logbook`) and waits for `logbook`'s `/healthz`.
   It runs `ecu replay --src parity --speed max RECORDING` through the stack's
   `replay` service, with the recording mounted at `/recording/`. Then it waits
-  until `logbook`'s `laps_written` reaches v1's lap count, or stays the same for
-  15 s. It stops `logbook`, runs `logbook export --data /data --laps --src parity`
+  until `logbook`'s `laps_written` has reached v1's lap count and stayed the
+  same for 2 s, or, short of it, has stayed the same for 15 s. The quiet period
+  matters: v2 may store a lap more than v1, and `logbook` hands back the events
+  it hasn't stored when it stops. It stops `logbook`, runs `logbook export --data /data --laps --src parity`
   and takes the stack down with its volumes.
 
 The images are printed first (AC4): v1's from `--v1-image`, v2's from
-`compose config --images`.
+`compose --profile replay config --images`, since the `replay` service is in
+that profile and compose lists only the services of active profiles.
 
 The harness runs `docker` and `docker compose`. `CONTAINER` and `COMPOSE` name
 others, as for paddock's own targets
