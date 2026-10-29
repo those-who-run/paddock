@@ -12,8 +12,9 @@
 #   4. runs `make export` against the running stack: logbook is stopped, the export
 #      reads its volume, logbook starts and is healthy again;
 #   5. replays real-race-2laps-2026-10-14 at full speed (`make replay`, AC2), waits
-#      for logbook's /healthz to count its laps written, and checks that
-#      `make export SRC=replay-compose` prints those laps;
+#      until logbook's /healthz counts its laps written and stays there for 2 s,
+#      checks it wrote exactly those, and that `make export SRC=replay-compose`
+#      prints them;
 #   6. tears it down (`make reset`) and checks no container or volume of the project
 #      is left (AC4).
 #
@@ -105,17 +106,30 @@ $MAKE --no-print-directory export || fail "make export failed"
 echo "== make replay of $recording at full speed (AC2)"
 $MAKE --no-print-directory replay FILE="$recording" SPEED=max || fail "make replay failed"
 
-echo "== logbook stores its $want_laps laps"
-# laps_written counts since logbook started, and the export above restarted it.
+echo "== logbook stores its $want_laps laps, and no more"
+# laps_written counts since logbook started, and the export above restarted it. As
+# parity/v2.go's waitLaps: once it reaches the count it must stay the same for
+# laps_quiet seconds, so a lap more than v1's is stored and seen rather than handed
+# back unstored when the export stops logbook.
+laps_quiet=2
 start=$(date +%s)
+last=-1
+since=$start
 while :; do
 	body=$(curl -fsS --max-time 2 http://127.0.0.1:8080/healthz 2>/dev/null) || body=
 	written=$(printf '%s' "$body" | sed -n 's/.*"laps_written": *\([0-9][0-9]*\).*/\1/p')
-	[ "${written:-0}" -lt "$want_laps" ] || break
-	[ $(($(date +%s) - start)) -lt "$laps_wait" ] || fail "logbook wrote ${written:-no} laps in $laps_wait s (want $want_laps): $body"
+	now=$(date +%s)
+	if [ "${written:--1}" -ne "$last" ]; then
+		last=${written:--1}
+		since=$now
+	elif [ "$last" -ge "$want_laps" ] && [ $((now - since)) -ge "$laps_quiet" ]; then
+		break
+	fi
+	[ $((now - start)) -lt "$laps_wait" ] || fail "logbook wrote ${written:-no} laps in $laps_wait s (want $want_laps): $body"
 	sleep 1
 done
 echo "$body"
+[ "$last" -eq "$want_laps" ] || fail "logbook wrote $last laps (want $want_laps)"
 
 echo "== make export SRC=replay-compose prints them (AC2)"
 laps=$($MAKE --no-print-directory export SRC=replay-compose) || fail "make export failed"

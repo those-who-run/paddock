@@ -117,8 +117,9 @@ environment variable names (`NATS_URL`, `TWR_NATS_URL`, `TWR_DATA_DIR`,
   0, checks NATS's `/healthz` with JetStream, that the bootstrap made
   `TELEMETRY`, `EVENTS` and the `live` bucket, and that `logbook` reports
   connected, and runs `make export` against the running stack. Then it runs
-  `make replay FILE=real-race-2laps-2026-10-14.jsonl.gz SPEED=max`, waits for
-  `logbook`'s `/healthz` to count the 4 laps v1 stored for it written, and
-  checks that `make export SRC=replay-compose` prints those 4 (AC2). Then
+  `make replay FILE=real-race-2laps-2026-10-14.jsonl.gz SPEED=max`, waits
+  until `logbook`'s `/healthz` counts the 4 laps v1 stored for it written and
+  stays there for 2 s (so a fifth lap would be stored and seen), checks it
+  wrote exactly 4, and checks that `make export SRC=replay-compose` prints those 4 (AC2). Then
   `make reset`, and it checks that no container or volume of the `twr` project
   is left.
