@@ -10,14 +10,24 @@ between the laptop and the cluster. The streams and buckets are
 |---|---|---|
 | [`streams/telemetry.json`](streams/telemetry.json) | `TELEMETRY`: full-rate frames, `twr.v1.*.frame.gt7` (not the 20 Hz `.lo` copy) | file, limits, 2 h, 2 GiB, discard old, 2 min duplicate window, 1 replica |
 | [`streams/events.json`](streams/events.json) | `EVENTS`: domain events, `twr.v1.*.evt.>` | file, limits, 30 d, 1 GiB, discard old, 2 min duplicate window, 1 replica |
-| [`kv/live.json`](kv/live.json) | `live`: the current state, every key carrying its source | file, history 1, 64 KiB a value, 64 MiB, 1 replica |
-| [`subjects.yaml`](subjects.yaml) | A copy of `contracts`' `subjects.yaml` at `v0.1.5`, for the check below | |
+| [`streams/callouts.json`](streams/callouts.json) | `CALLOUTS`: what `ecu`'s rules decide to say, `twr.v1.*.callout.>` (`p0`, `p1`, `p2`), for `radio` to speak once (#73) | file, work queue, 30 s, 64 MiB, discard old, 30 s duplicate window on the callout's id, 1 replica |
+| [`kv/live.json`](kv/live.json) | `live`: the current state, every key carrying its source: `ecu.status`, `ecu.session`, `ecu.pit` and `ecu.fuel` of each source | file, history 1, 64 KiB a value, 64 MiB, 1 replica |
+| [`kv/ecu.json`](kv/ecu.json) | `ecu`: `ecu`'s own state, which no reader of `live` sees: `sessions.open.<src>`, the open session a restarted `ecu` continues or ends (#73, #76) | file, history 1, 1 MiB a value, 64 MiB, 1 replica |
+| [`subjects.yaml`](subjects.yaml) | A copy of `contracts`' `subjects.yaml` at `v0.2.3`, for the check below | |
 | [`bootstrap.sh`](bootstrap.sh) | Creates what is missing, updates what differs | |
 
 Each file's `$comment` says why each value is what it is. The limits are a
 buffer for subscribers, not how long results are kept: `logbook`'s store keeps
-sessions, laps and frames after the streams have aged them out. `CALLOUTS` and
-the `config` bucket are added by the milestones that first use them.
+sessions, laps and frames after the streams have aged them out. The keys in
+each bucket, and what each value is, are `contracts`' (its `subjects.yaml`).
+`ecu` alone writes them; the bootstrap only creates the buckets. The `config`
+bucket is added by the milestone that first uses it.
+
+`CALLOUTS` keeps a callout 30 s, not ADR 0001's 15 s, as decided on #73: the
+race summary's own expiry is 30 s, so the stream never ages out a callout a rule
+still allows. Its duplicate window is 30 s too, not #73's 2 min: the server
+refuses a window longer than `max_age`, and so does `make nats`, before it gets
+there.
 
 ## Running the bootstrap
 
@@ -218,10 +228,12 @@ NATS's volume need not survive removing the stack: the streams are buffers, and
   stream file that overlaps another fails here, before it reaches a server.
 - `make nats-it` starts an empty `nats-server -js` in a container and runs
   [`test/integration.sh`](test/integration.sh) in `nats-box`: the bootstrap
-  creates both streams and the bucket with the settings of #36, a second run
+  creates the streams and buckets with the settings of #36 and #73, a second run
   changes nothing, a core publish on `twr.v1.parity.frame.gt7` lands in
   `TELEMETRY` and one on `…frame.gt7.lo` in no stream, an event lands in
-  `EVENTS` and is stored once when published twice with one `Nats-Msg-Id`, and
+  `EVENTS` and is stored once when published twice with one `Nats-Msg-Id`, a
+  callout on `twr.v1.replay-test.callout.p0` lands in `CALLOUTS` once for one
+  `Nats-Msg-Id` and is gone once it is older than 30 s, and
   an overlapping stream ([`test/refused/`](test/refused/streams/overlap.json))
   is refused with the server's message. Then a copy with one limit changed in
   each file is updated in place, and the next run is `unchanged`. A change of

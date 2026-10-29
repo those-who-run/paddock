@@ -8,7 +8,8 @@
 #      answering 200 on /healthz (AC1), and nothing else running: nats-box (profile
 #      `tools`) is not started by `up`;
 #   3. checks NATS's monitoring /healthz with JetStream, and that the bootstrap made
-#      TELEMETRY, EVENTS and the live bucket, through nats-box (profile `tools`);
+#      CALLOUTS, TELEMETRY, EVENTS and the live and ecu buckets, through nats-box
+#      (profile `tools`);
 #   4. runs `make export` against the running stack: logbook is stopped, the export
 #      reads its volume, logbook starts and is healthy again;
 #   5. replays real-race-2laps-2026-10-14 at full speed (`make replay`, AC2), waits
@@ -87,10 +88,10 @@ echo "== NATS answers with JetStream on 127.0.0.1:8222"
 curl -fsS --max-time 5 'http://127.0.0.1:8222/healthz?js-enabled-only=true' || fail "NATS /healthz is not ok"
 echo
 
-echo "== the bootstrap made the streams and the bucket"
+echo "== the bootstrap made the streams and the buckets"
 streams=$(compose run --rm -T nats-box nats --no-context stream ls --names) || fail "nats stream ls failed"
 echo "$streams"
-for want in TELEMETRY EVENTS KV_live; do
+for want in CALLOUTS TELEMETRY EVENTS KV_ecu KV_live; do
 	printf '%s\n' "$streams" | grep -qx "$want" || fail "no $want after the bootstrap"
 done
 
