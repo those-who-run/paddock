@@ -46,8 +46,6 @@ images:
   - name: ghcr.io/those-who-run/twr-logbook
     newTag: 0.1.4
     digest: sha256:6784811e6371d22c4511537b7ba98ea0c576868bf9e30d88f8bd6492bd7a9c9e
-  # A placeholder until radio's first release (paddock#55 R4): no twr-radio image is
-  # published yet. Bump it, with compose's, to that release's tag and index digest.
   - name: ghcr.io/those-who-run/twr-radio
     newTag: 0.1.0
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:1b8b75ca4eccad93ae7c289dbbc4b96db32270aedbbbd3d44ec86abb1be2d1fb

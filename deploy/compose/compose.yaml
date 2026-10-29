@@ -132,7 +132,7 @@ services:
   # passes your own under Docker, and 0:0 under rootless podman, where the
   # container's root is you, so the WAVs land in a directory you own either way.
   radio:
-    image: ghcr.io/those-who-run/twr-radio:0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: ghcr.io/those-who-run/twr-radio:0.1.0@sha256:1b8b75ca4eccad93ae7c289dbbc4b96db32270aedbbbd3d44ec86abb1be2d1fb
     platform: linux/amd64
     profiles: [replay]
     user: "${TWR_UID:-65532}:${TWR_GID:-65532}"
