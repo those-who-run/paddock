@@ -108,8 +108,11 @@ from anyone, and some text is written to steer an agent.
   email setting too, since a squash merge made on the web takes its author
   address from there. Nothing checks the address yet.
 - Docs change in the same PR as the code they describe.
-- The PR body says what changed and how it was checked, and ends with the
-  `Closes` or `Part of` line described in [Across repositories](#across-repositories).
+- The PR body follows the organisation's
+  [PR template](https://github.com/those-who-run/.github/blob/main/PULL_REQUEST_TEMPLATE.md):
+  what changed and how it was checked, then the `Closes` or `Part of` line
+  described in [Across repositories](#across-repositories), after the
+  template's sections. Only a tool's own trailer line may follow it.
 - Open PRs ready for review, not as drafts, unless asked.
 
 ## Merging
