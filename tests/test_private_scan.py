@@ -7,7 +7,11 @@ the scan on the repository itself."""
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,6 +30,7 @@ def dot(*labels: str) -> str:
 
 
 PRIVATE_HOST = dot("nuc", "home", "arpa")
+N = "nats"
 ALLOW = "github.com  The org's code host.\nk8s.io  Kubernetes API groups.\n"
 
 
@@ -83,9 +88,31 @@ class Hosts(unittest.TestCase):
     def test_placeholders_pass(self) -> None:
         text = (
             "host: nats.example.com\nhttps://example.com/x a.example b.example.org c.test d.invalid\n"
-            "nats://nats.twr.svc.cluster.local:4222 printer.local http://localhost:8080\n"
+            "nats://nats.twr.svc.cluster.local:4222 logbook.twr.svc.cluster.local http://localhost:8080\n"
         )
         self.assertEqual(scan(text), [])
+
+    def test_mdns_local_is_not_a_placeholder(self) -> None:
+        self.assertEqual(len(scan(dot("printer", "local") + "\n")), 1)
+        self.assertEqual(len(scan("http://" + dot("nuc", "local") + ":8080\n")), 1)
+
+    def test_wildcard_and_leading_dot_hosts_fail(self) -> None:
+        for line in (
+            "*." + dot("home", "lan"),
+            "NO_PROXY=." + dot("home", "lan"),
+            "domain ." + dot("pitwall", "home", "lan"),
+            '["*.' + dot("nuc", "lab") + '"]',
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(scan(line + "\n")), 1)
+
+    def test_home_network_suffixes_fail(self) -> None:
+        for tld in ("box", "lab", "homelab", "private", "lan", "internal"):
+            with self.subTest(tld=tld):
+                self.assertEqual(len(scan("ssh " + dot("nuc", tld) + "\n")), 1)
+
+    def test_code_ending_like_a_tld_passes(self) -> None:
+        self.assertEqual(scan("metadata.labels.app spec.site page.info self.me Path.home() x.build\n"), [])
 
     def test_names_with_no_dot_pass(self) -> None:
         self.assertEqual(scan("TWR_NATS_URL=nats://nats:4222 http://logbook:8080 nats://user:pass@host:4222\n"), [])
@@ -110,35 +137,59 @@ class Hosts(unittest.TestCase):
 
 
 class Bootstrap(unittest.TestCase):
+    # The scan reads Python too, so each command is built with N and never appears
+    # whole in this file.
+
     def test_a_stream_add_in_a_script_fails(self) -> None:
-        problems = scan("#!/bin/sh\nnats --server x stream add --config s.json\n", "scripts/x.sh")
+        problems = scan(f"#!/bin/sh\n{N} --server x stream add --config s.json\n", "scripts/x.sh")
         self.assertEqual(len(problems), 1)
         self.assertTrue(problems[0].startswith("bootstrap: scripts/x.sh:2: "), problems)
 
     def test_each_form_fails(self) -> None:
-        for line in ("nats kv add live", "nats stream edit EVENTS", "nats str create X", "nats kv new b"):
+        for line in ("kv add live", "stream edit EVENTS", "str create X", "kv new b", "object add files", "obj add f"):
             with self.subTest(line=line):
-                self.assertEqual(len(scan(line + "\n", "Makefile")), 1)
+                self.assertEqual(len(scan(f"{N} {line}\n", "Makefile")), 1)
 
-    def test_a_yaml_command_fails(self) -> None:
-        text = 'command: ["nats", "stream", "add", "--config", "/s.json"]\n'
+    def test_a_yaml_flow_command_fails(self) -> None:
+        text = f'command: ["{N}", "stream", "add", "--config", "/s.json"]\n'
         self.assertEqual(len(scan(text, "deploy/base/job.yaml")), 1)
 
+    def test_a_yaml_block_list_fails(self) -> None:
+        text = f"spec:\n  args:\n    - {N}\n    - --server\n    - nats://nats:4222\n    - stream\n    - add\n  x: y\n"
+        problems = scan(text, "deploy/base/job.yaml")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith("bootstrap: deploy/base/job.yaml:3: "), problems)
+
+    def test_a_yaml_list_of_other_items_passes(self) -> None:
+        text = f"a:\n  - {N}\n  - stream\nb:\n  - add\n"
+        self.assertEqual(scan(text, "x.yaml"), [])
+
+    def test_a_continued_line_fails(self) -> None:
+        text = f"run:\n\t{N} --server x \\\n\t\tkv \\\n\t\tadd live\n"
+        problems = scan(text, "Makefile")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith("bootstrap: Makefile:2: "), problems)
+
+    def test_python_fails(self) -> None:
+        text = f'subprocess.run(["{N}", "kv", "add", "live"])\n'
+        self.assertEqual(len(scan(text, "scripts/x.py")), 1)
+
     def test_a_markdown_code_block_fails_and_prose_passes(self) -> None:
-        text = "bootstrap.sh runs `nats stream add --config`.\n\n```sh\nnats kv add live\n```\n"
+        text = f"bootstrap.sh runs `{N} stream add --config`.\n\n```sh\n{N} kv add live\n```\n"
         problems = scan(text, "deploy/README.md")
         self.assertEqual(len(problems), 1)
         self.assertTrue(problems[0].startswith("bootstrap: deploy/README.md:4: "), problems)
 
     def test_comments_and_data_pass(self) -> None:
-        self.assertEqual(scan("# the fields of nats kv add\n", "deploy/x.sh"), [])
-        self.assertEqual(scan('{"why": "nats kv add fixes it"}\n', "deploy/nats/kv/x.json"), [])
+        self.assertEqual(scan(f"# the fields of {N} kv add\n", "deploy/x.sh"), [])
+        self.assertEqual(scan(f"# the fields of {N} kv add\n", "scripts/x.py"), [])
+        self.assertEqual(scan(f'{{"why": "{N} kv add fixes it"}}\n', "deploy/nats/kv/x.json"), [])
 
     def test_bootstrap_sh_may(self) -> None:
-        self.assertEqual(scan("nats stream add --config s.json\n", private_scan.BOOTSTRAP), [])
+        self.assertEqual(scan(f"{N} stream add --config s.json\n", private_scan.BOOTSTRAP), [])
 
     def test_reads_pass(self) -> None:
-        self.assertEqual(scan("nats stream info EVENTS\nnats kv get live x\n", "x.sh"), [])
+        self.assertEqual(scan(f"{N} stream info EVENTS\n{N} kv get live x\n", "x.sh"), [])
 
 
 class Allowlist(unittest.TestCase):
@@ -155,6 +206,36 @@ class Allowlist(unittest.TestCase):
         scan_ = private_scan.scan("x.md", "https://github.com/x\n", allow)
         self.assertEqual(scan_, [])
         self.assertEqual(allow.used, {"github.com"})
+
+
+class Main(unittest.TestCase):
+    def run_main(self, allow: str, files: dict[str, str]) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "scripts").mkdir()
+            (root / private_scan.ALLOW).write_text(allow)
+            for name, text in files.items():
+                (root / name).write_text(text)
+            subprocess.run(["git", "init", "-q", d], check=True)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = private_scan.main(root)
+            return code, err.getvalue()
+
+    def test_a_used_allowlist_passes(self) -> None:
+        code, err = self.run_main(ALLOW, {"a.md": "https://github.com/x networking.k8s.io/v1\n"})
+        self.assertEqual((code, err), (0, ""))
+
+    def test_an_unused_entry_fails(self) -> None:
+        # The allowlist names k8s.io itself; that must not count as a use.
+        code, err = self.run_main(ALLOW, {"a.md": "https://github.com/x\n"})
+        self.assertEqual(code, 1)
+        self.assertIn("allowlist: scripts/private_scan.allow:2: k8s.io is used by no file", err)
+
+    def test_a_private_value_fails(self) -> None:
+        code, err = self.run_main(ALLOW, {"a.md": f"github.com k8s.io {PRIVATE_IP}\n"})
+        self.assertEqual(code, 1)
+        self.assertIn(f"address: a.md:1: {PRIVATE_IP}", err)
 
 
 if __name__ == "__main__":

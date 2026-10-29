@@ -35,15 +35,17 @@ In every text file git knows, Markdown, docs and ADRs included
 | Rule | Why |
 |---|---|
 | `address`: no IPv4 address outside `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` and loopback (`0.0.0.0` too, which is every interface) | The repository is public, and an address names someone's machine. The three documentation ranges never route anywhere, so examples use `192.0.2.x`. |
-| `host`: no host name except placeholders (`example.com`, `*.example`, `*.local`, and the other names RFC 2606 and 6761 reserve), names with no dot (an in-cluster Service, `localhost`), and the public hosts in [`scripts/private_scan.allow`](../scripts/private_scan.allow) | A host name points at someone's setup just as an address does. A public host the docs need (a registry, a specification) goes in the allowlist with the reason it is there. |
-| `bootstrap`: no command that adds or edits a JetStream stream or KV bucket with the `nats` CLI anywhere but [`nats/bootstrap.sh`](nats/bootstrap.sh) | The streams and buckets are declared once, in [`nats/`](nats/README.md), and created only by the bootstrap. A second place that creates them drifts from the files and from what compose and the cluster run. |
+| `host`: no host name except placeholders (`example.com`, `*.example`, `cluster.local` for in-cluster names, and the other names RFC 2606 and 6761 reserve; not `.local`, which is mDNS, a home network's real names), names with no dot (an in-cluster Service, `localhost`), and the public hosts in [`scripts/private_scan.allow`](../scripts/private_scan.allow) | A host name points at someone's setup just as an address does. A public host the docs need (a registry, a specification) goes in the allowlist with the reason it is there. |
+| `bootstrap`: no command that adds or edits a JetStream stream, KV bucket or object store with the `nats` CLI anywhere but [`nats/bootstrap.sh`](nats/bootstrap.sh) | The streams and buckets are declared once, in [`nats/`](nats/README.md), and created only by the bootstrap. A second place that creates them drifts from the files and from what compose and the cluster run. |
 
 The `host` rule reads the host of every URL, and every other dotted name that
-ends in a common top-level domain (`.com`, `.io`, `.dev`, `.lan`, `.arpa` and
-the others in the script). File names such as `compose.yaml` are not hosts to
-it. The `bootstrap` rule reads commands only: shell, Makefiles, YAML and
-Markdown code blocks, not comments or prose, so a page can still say what the
-bootstrap runs.
+ends in a common top-level domain or a home network's suffix (`.com`, `.io`,
+`.dev`, `.lan`, `.local`, `.lab`, `.arpa` and the others in the script),
+wildcards (`*.`) and a leading dot (a `NO_PROXY` entry) included. File names
+such as `compose.yaml` are not hosts to it. The `bootstrap` rule reads commands
+only: shell, Makefiles, YAML, Python and Markdown code blocks, not comments or
+prose, so a page can still say what the bootstrap runs. A command continued
+with a backslash, or written as a YAML list (a Job's `args:`), counts as one.
 
 When the scan fails:
 

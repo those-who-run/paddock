@@ -8,20 +8,24 @@ does not ignore), Markdown, docs and ADRs included, line by line, for:
 - ``address``: an IPv4 address outside the documentation ranges (192.0.2.0/24,
   198.51.100.0/24, 203.0.113.0/24), loopback and 0.0.0.0;
 - ``host``: a host name that is not a placeholder (``example.com``, ``*.example``,
-  ``*.local`` and the other names RFC 2606 and RFC 6761 reserve), not a name with no
-  dot (an in-cluster Service, ``localhost``), and not in the allowlist,
-  scripts/private_scan.allow, where each public host has a reason;
-- ``bootstrap``: a ``nats stream`` or ``nats kv`` command that adds or edits a
-  stream or bucket anywhere but deploy/nats/bootstrap.sh, which is the one place
-  they are defined. Only commands are read: shell, Makefiles, YAML and Markdown's
-  code blocks, not their comments or prose, so a page may say what bootstrap.sh
-  runs.
+  the other names RFC 2606 and RFC 6761 reserve, and ``cluster.local`` for
+  in-cluster names), not a name with no dot (an in-cluster Service,
+  ``localhost``), and not in the allowlist, scripts/private_scan.allow, where each
+  public host has a reason. ``.local`` is mDNS, a home network's own names, so it
+  is not a placeholder;
+- ``bootstrap``: a ``nats stream``, ``nats kv`` or ``nats object`` command that adds
+  or edits a stream or bucket anywhere but deploy/nats/bootstrap.sh, which is the
+  one place they are defined. Only commands are read: shell, Makefiles, YAML,
+  Python and Markdown's code blocks, not their comments or prose, so a page may say
+  what bootstrap.sh runs. A command split over lines with a backslash, or written
+  as a YAML block list (a Job's ``args:``), is read as one line.
 
 A host name is found two ways: the host of any URL (``scheme://[user@]host``), and
-any other dotted name that ends in a top-level domain from HOST_TLDS. A dotted name
-ending in anything else (``compose.yaml``, ``sys.argv``, a NATS subject) is not a
-host to this scan; HOST_TLDS leaves out the top-level domains that are also file
-extensions here (``.sh``, ``.py``, ``.md``).
+any other dotted name that ends in a top-level domain from HOST_TLDS, after a
+wildcard's ``*.`` or a leading dot (a NO_PROXY entry) too. A dotted
+name ending in anything else (``compose.yaml``, ``sys.argv``, a NATS subject) is not
+a host to this scan; HOST_TLDS leaves out the top-level domains that are also file
+extensions or code here (``.sh``, ``.py``, ``.md``, ``.app``, ``.build``).
 
 Each failure names the rule, the file and the line. An allowlist entry no line uses
 fails too, so the list stays short. Standard library only, as paddock's other
@@ -52,28 +56,41 @@ ALLOWED_NETWORKS = tuple(
 IPV4 = re.compile(r"(?<![\w.])(\d{1,3}(?:\.\d{1,3}){3})(?![\w]|\.\d)")
 
 # Names that are reserved and can never be a real host: RFC 2606's example.* and
-# .example, .invalid and .test; RFC 6761's localhost; and .local, which also covers
-# in-cluster names (svc.cluster.local).
-PLACEHOLDER_SUFFIXES = ("example.com", "example.net", "example.org", "example", "invalid", "test", "localhost", "local")
+# .example, .invalid and .test; RFC 6761's localhost; and cluster.local, the
+# in-cluster names (svc.cluster.local). Not .local: mDNS gives a home network's
+# machines their real names there.
+PLACEHOLDER_SUFFIXES = (
+    "example.com", "example.net", "example.org", "example", "invalid", "test", "localhost", "cluster.local",
+)
 
 # The top-level domains a bare dotted name is read as a host for: the common generic
 # ones, the country codes most likely here, and the suffixes home networks use. Not
-# .sh, .py, .md or .go, which are file names here far more often than hosts.
+# .sh, .py, .md or .go, which are file names here far more often than hosts, nor
+# .app, .page, .site, .build, .me or .info, which end code (metadata.labels.app)
+# as often. A name followed by ( is a call, not a host. A URL's host is read whatever its top-level domain.
 HOST_TLDS = (
-    "com net org io dev app ai cloud co me info biz xyz tech site online page build eu uk ie de fr nl es it "
-    "us ca au nz lan home internal intranet corp localdomain arpa"
+    "com net org io dev ai cloud co biz xyz tech online eu uk ie de fr nl es it "
+    "us ca au nz lan home homelab lab box private local internal intranet corp localdomain arpa"
 ).split()
 HOST_LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+# Starts after a non-name character, or after the dot of `*.name` or of a leading
+# `.name` (a NO_PROXY or cookie domain).
 BARE_HOST = re.compile(
-    rf"(?<![\w.-])((?:{HOST_LABEL}\.)+(?:{'|'.join(HOST_TLDS)}))(?![\w-]|\.[a-z0-9])", re.IGNORECASE
+    rf"(?:(?<=\*\.)|(?<=^\.)|(?<=[\s\"'`=,(\[]\.)|(?<![\w.-]))((?:{HOST_LABEL}\.)+(?:{'|'.join(HOST_TLDS)}))(?![\w(-]|\.[a-z0-9])", re.IGNORECASE
 )
 ESCAPE = re.compile(r"\\[nrt]")
 # A URL's host: after the scheme and any user:password@, up to the port or path.
 URL_HOST = re.compile(r"\b[a-z][a-z0-9+.-]*://(?:[^\s/@'\"`<>]*@)?([^\s:/?#'\"`<>()\[\],;|\\]+)", re.IGNORECASE)
 
-# `nats stream add`, `nats kv edit`, and the CLI's aliases, with any flags between.
-NATS_DEFINE = re.compile(r"\bnats\b.*?\b(?:stream|str|kv)\b[\s\"',]+(?:add|create|new|edit|update)\b")
-COMMAND_FILES = re.compile(r"(\.(sh|bash|ya?ml|mk)$)|(^|/)(Makefile|Dockerfile[^/]*|Containerfile[^/]*)$")
+# `nats stream add`, `nats kv edit`, `nats object add`, and the CLI's aliases, with
+# any flags between.
+NATS_DEFINE = re.compile(
+    r"\bnats\b.*?\b(?:stream|str|kv|object|obj)\b[\s\"',]+(?:add|create|new|edit|update)\b"
+)
+COMMAND_FILES = re.compile(r"(\.(sh|bash|ya?ml|mk|py)$)|(^|/)(Makefile|Dockerfile[^/]*|Containerfile[^/]*)$")
+# A YAML block list item that is a scalar (`- nats`, `- "stream"`, `- nats://x:4222`),
+# not a mapping (`- name: x`) or a comment.
+LIST_ITEM = re.compile(r"^(\s*)- ((?:(?!:\s|:$|\s#)[^#])(?:(?!:\s|:$|\s#).)*?)\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
 
 
@@ -145,7 +162,7 @@ def hosts(line: str, allow: Allowlist) -> list[str]:
 
 def command_lines(path: str, lines: list[str]) -> list[tuple[int, str]]:
     """The lines of a file that are commands: not comments, and in Markdown only
-    those inside a code block."""
+    those inside a code block. Joined as in logical_lines."""
     if path.endswith(".md"):
         out, fenced = [], False
         for n, line in enumerate(lines, 1):
@@ -153,10 +170,42 @@ def command_lines(path: str, lines: list[str]) -> list[tuple[int, str]]:
                 fenced = not fenced
             elif fenced:
                 out.append((n, line))
-        return out
+        return logical_lines(out)
     if COMMAND_FILES.search(path):
-        return [(n, line) for n, line in enumerate(lines, 1) if not line.lstrip().startswith("#")]
+        return logical_lines([(n, line) for n, line in enumerate(lines, 1) if not line.lstrip().startswith("#")])
     return []
+
+
+def logical_lines(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """A command as one line, numbered by its first: a line ending in a backslash
+    joined to the next, and a YAML block list's scalar items (`- nats`, `- stream`,
+    `- add`, a Job's args) joined into one."""
+    out: list[tuple[int, str]] = []
+    cont: tuple[int, str] | None = None  # a line ending in \, waiting for the rest
+    items: tuple[int, str, str] | None = None  # a list's first line, indent, items so far
+    for n, line in lines:
+        if cont is not None:
+            n, line = cont[0], cont[1] + " " + line
+            cont = None
+        if line.rstrip().endswith("\\"):
+            cont = (n, line.rstrip()[:-1])
+            continue
+        m = LIST_ITEM.match(line)
+        if items is not None and m and m.group(1) == items[1]:
+            items = (items[0], items[1], items[2] + " " + m.group(2))
+            continue
+        if items is not None:
+            out.append((items[0], items[2]))
+            items = None
+        if m:
+            items = (n, m.group(1), m.group(2))
+        else:
+            out.append((n, line))
+    if cont is not None:
+        out.append(cont)
+    if items is not None:
+        out.append((items[0], items[2]))
+    return out
 
 
 def scan(path: str, text: str, allow: Allowlist) -> list[str]:
@@ -184,15 +233,15 @@ def scan(path: str, text: str, allow: Allowlist) -> list[str]:
     return problems
 
 
-def files() -> list[str]:
+def files(root: Path) -> list[str]:
     """Every file git tracks, and every new one it does not ignore."""
     out = subprocess.run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        cwd=ROOT,
+        cwd=root,
         check=True,
         capture_output=True,
     ).stdout.decode()
-    return sorted({p for p in out.split("\0") if p and (ROOT / p).is_file()})
+    return sorted({p for p in out.split("\0") if p and (root / p).is_file()})
 
 
 def read_text(path: Path) -> str | None:
@@ -206,16 +255,18 @@ def read_text(path: Path) -> str | None:
         return None
 
 
-def main() -> int:
-    allow, problems = read_allowlist((ROOT / ALLOW).read_text(encoding="utf-8"))
-    paths = files()
+def main(root: Path = ROOT) -> int:
+    allow, problems = read_allowlist((root / ALLOW).read_text(encoding="utf-8"))
     scanned = 0
-    for p in paths:
-        text = read_text(ROOT / p)
+    for p in files(root):
+        text = read_text(root / p)
         if text is None:
             continue
         scanned += 1
-        problems += scan(p, text, allow)
+        # The allowlist names every entry, so it is read against a copy: its own
+        # lines would otherwise count each entry as used. Its addresses and its
+        # bootstrap lines are still checked.
+        problems += scan(p, text, Allowlist(dict(allow.entries)) if p == str(ALLOW) else allow)
     for host in sorted(set(allow.entries) - allow.used):
         problems.append(f"allowlist: {ALLOW}:{allow.entries[host]}: {host} is used by no file; remove it")
     for p in problems:
