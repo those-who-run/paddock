@@ -36,6 +36,7 @@ import copy
 import json
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 # v1's lap roles, as LapCompleted.pit_role names them.
@@ -46,6 +47,10 @@ FUEL_USE = {None: "unknown", True: "on", False: "off"}
 CORNERS = ("CORNER_FRONT_LEFT", "CORNER_FRONT_RIGHT", "CORNER_REAR_LEFT", "CORNER_REAR_RIGHT")
 # lap_time's kinds with no delta_ms (contracts v0.2.3's Callout comment).
 NO_DELTA = ("delta_first", "template_in_lap", "template_out_lap", "template_pit_lap")
+# The wall-clock time of each recording's first frame, as `ecu replay` dates it
+# with no --clock, and as ecu's testdata/summary/make_golden.py runs v1's store:
+# the store's clock moves with the frames' own times (v1's RecordingClock).
+EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()
 
 
 def callout_kind(rule: str, keys: list[str], briefed: bool) -> str:
@@ -109,8 +114,58 @@ def secs_ms(secs):
     return None if secs is None else round(secs * 1000)
 
 
+def summary_fields(summary: dict) -> dict:
+    """session.ended's fields from the summary.json v1 wrote, in contracts v0.2.3's
+    SessionSummary names, as ecu's internal/race/testdata/summary/make_golden.py
+    reads it (paddock#86 AC1). The laps are `parity laps`'s. Times are epoch
+    milliseconds. Two v1 never stored are derived where v1 decided them:
+    best_lap is the first complete lap with v1's best_lap_ms (GT7's best wins
+    whatever the lap, as SessionSummary.best_lap says), and finishing_position
+    is final_position for a lap race that finished, as SessionSummary gives it."""
+    best_ms = summary["best_lap_ms"]
+    best = next(
+        (lap["lap"] for lap in summary["laps"] if lap["complete"] and best_ms and lap["lap_time_ms"] == best_ms),
+        None,
+    )
+    kind = (summary["session_kind"] or {}).get("kind")
+    finishing = summary["final_position"] if summary["finished"] and kind == "lap_race" else None
+    return {
+        "started_at": secs_ms(summary["started_at"]),
+        "ended_at": secs_ms(summary["ended_at"]),
+        "driving_ms": summary["driving_ms"],
+        "paused_ms": summary["paused_ms"],
+        "ended_paused": summary["ended_paused"],
+        "car_code": summary["car_code"],
+        "car_name": summary["car_name"],
+        "total_laps": summary["total_laps"],
+        "laps_completed": summary["laps_completed"],
+        "best_lap": best,
+        "best_lap_ms": best_ms,
+        "finished": summary["finished"],
+        "finishing_position": finishing,
+        "final_position": summary["final_position"],
+        "total_cars": summary["total_cars"],
+        "joined_on_lap": summary["joined_on_lap"],
+        "stints": summary["stints"],
+        "pit_stops": len(summary["pit_stops"]),
+        "fuel_burned": summary["fuel_burned"],
+        "fuel_burned_by_stint": summary["fuel_burned_by_stint"],
+    }
+
+
 def emit(item, part, session, at, **fields):
     print(json.dumps({"type": item, "part": part, "session": session, "at": at, "fields": fields}))
+
+
+class Clock:
+    """v1's store clock on a recording's frames: the first at EPOCH, each later one
+    EPOCH plus its time since the first (v1's RecordingClock)."""
+
+    def __init__(self) -> None:
+        self.now = EPOCH
+
+    def __call__(self) -> float:
+        return self.now
 
 
 class Run:
@@ -134,6 +189,7 @@ class Run:
         self.pauses = 0  # the session's pauses so far, for the pause's number
         self.frame_end: list = []  # what a rule's slots clear after each frame
         self.restore: list = []  # what puts back a v1 module's function wrapped for a replay
+        self.clock = Clock()  # the store's clock, on the recording's frames
 
     def session(self, store: SessionStore) -> int:
         s = store.session
@@ -160,7 +216,8 @@ class Run:
             self.frame_of.setdefault((s.packet_id, s.t), []).append(n)
         self.seen = {}
         self.line, self.held_at = 0, None
-        store = SessionStore(self.store_dir)
+        self.clock.now = EPOCH
+        store = SessionStore(self.store_dir, clock=self.clock)
         cfg = copy.deepcopy(DEFAULT_RULES)
         validate_templates(cfg)
         rules = build_rules(cfg["rules"])
@@ -173,8 +230,10 @@ class Run:
         for rule in rules:
             self.wrap_rule(rule, store, part)
         self.wrap_decisions(rules, settled, store, part)
+        t0 = states[0].t if states else 0.0
         try:
             for state in states:
+                self.clock.now = EPOCH + (state.t - t0)
                 engine.process(state)
                 while engine.queue.pop(state.t) is not None:
                     pass
@@ -465,6 +524,9 @@ class Run:
                     car_code=state.car_code,
                     total_laps=state.total_laps or None,
                     joined_on_lap=session.joined_on_lap,
+                    # A held start (the start check): the line v1 decided on, which
+                    # its clock dated the session from. Shown, never compared.
+                    decided_at=self.line if self.frame < self.line else None,
                 )
             return session
 
@@ -500,7 +562,7 @@ class Run:
             out = end(state, **kw)
             if session and out is not None:
                 summary = json.loads(Path(out).read_text())
-                emit("session.ended", part, session, self.frame_at(state), finished=summary["finished"])
+                emit("session.ended", part, session, self.frame_at(state), **summary_fields(summary))
             return out
 
         store.end_session = end_session

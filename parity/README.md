@@ -189,8 +189,8 @@ names and values (snake case, enum names without their prefix in lower case,
   pause's length and number, and the time paused so far), `pit.entered`,
   `pit.exited`, `pit.teleport`, `lap.completed` (its time, whether it is
   complete and its pit role), `race.final_lap`, `race.position` (the settled
-  place and the one before it), `race.finished`, `session.ended` (finished) and
-  `callout` (rule, kind, priority, pit lane and slots). Text, evidence and v1's
+  place and the one before it), `race.finished`, `session.ended` (its summary,
+  below) and `callout` (rule, kind, priority, pit lane and slots). Text, evidence and v1's
   pit-lane outcome (spoken, held or dropped) are shown, not compared.
 - v1 had no event for some of these, so `v1events.py` reads them where v1 decided
   them, as `ecu`'s `testdata/*/make_golden.py` scripts do: `race.final_lap` from
@@ -212,6 +212,19 @@ names and values (snake case, enum names without their prefix in lower case,
   picked (`wrap_slots` in `v1events.py`, each rule as its `ecu` golden reads it),
   in contracts v0.2.3's names, with a slot left out where protojson leaves it
   out. A callout with no slots on the bus is the same as one with empty slots.
+- `session.ended` compares the session's summary (#86 AC1): `started_at` and
+  `ended_at` (epoch milliseconds), `driving_ms`, `paused_ms`, `ended_paused`,
+  `car_code`, `car_name`, `total_laps`, `laps_completed`, `best_lap` and
+  `best_lap_ms`, `finished`, `finishing_position`, `final_position`,
+  `total_cars`, `joined_on_lap`, `stints`, `pit_stops` (how many),
+  `fuel_burned` and `fuel_burned_by_stint`, all exactly. v1's side is the
+  `summary.json` v1 wrote, as `ecu`'s `internal/race/testdata/summary/make_golden.py`
+  reads it, with v1's store on the recording's clock (its first frame at
+  2026-01-01T00:00:00Z, as `ecu replay` dates it with no `--clock`). v1 stored
+  neither `best_lap` nor `finishing_position`, so they are derived as
+  `SessionSummary` defines them: the first complete lap with v1's best time,
+  and `final_position` for a lap race that finished. The laps are `parity
+  laps`'s.
 - A start v1 held for GT7's cars-on-track flag and then ignored as a replay or
   a demo is a `session.discarded` on v1's side, in no session, on the frame v1
   decided on, with the frame the start was on as `first_seq`.
@@ -229,7 +242,9 @@ say) are counted and named, not compared.
 
 **Accepted differences** (R4) are in [`accepted.go`](accepted.go), the one
 reviewed list, each with its reason and the issue that accepted it: a position
-of 1 outside a field (#276). An entry for something still to do is removed by the PR that does it. The
+of 1 outside a field (#276), in an event and in the summary, and `ecu`#52's
+other two departures from v1's summary: a best lap where v1 took lap 1 as the only
+timed lap (#83) and a held start's `started_at`, up to 5 s earlier (#74). An entry for something still to do is removed by the PR that does it. The
 fields left out on purpose (v1's session type, which `kind` replaces, the end
 reason v1 never stored, the callout's text, `lap.best`) are listed there too. Any other difference fails
 the run. After the table, each entry that allowed no difference is named; when
@@ -254,7 +269,7 @@ no skips, coverage floor 90%), build and govulncheck. CI runs the same through
 `go.yml` in its `parity / check` job. The tools are pinned in
 `tools/go.mod`. The tests need no containers: the comparison runs on canned
 laps (AC2, AC3, AC4) and on one real run's items in `testdata/run/` (the pit
-stop through v1 1.0.0 and `ecu` 0.1.9's race machine and rules), the callouts on `contracts`' examples
+stop through v1 1.0.0 and `ecu` 0.1.10's race machine and rules), the callouts on `contracts`' examples
 (`testdata/contracts/`, v0.2.3), and the two sides run against a recorded
 command runner, a fake `/healthz` and a fake listener.
 
