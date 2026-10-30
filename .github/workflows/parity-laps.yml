@@ -3,7 +3,7 @@ name: Parity laps
 # The parity harness's own runs: parity-laps (paddock#40 R6, AC1 and AC4), where
 # `make parity` replays the three default recordings through v1's image and through
 # the compose stack and fails on any lap that differs, and parity-events (paddock#104,
-# below). They need no secrets and fetch nothing but the images, the Go toolchain
+# below) and parity-spoken (paddock#64, at the end). They need no secrets and fetch nothing but the images, the Go toolchain
 # and the harness's Go modules (checksummed in parity/go.sum): v1's image is pinned
 # by digest in parity/v1.go, v2's in deploy/compose/compose.yaml, and every recording
 # is checked against its sha256 in recordings/SOURCES.yaml before anything runs. The
@@ -13,7 +13,7 @@ name: Parity laps
 # `main` that touch them (two PRs that each pass can break parity together, and this
 # shows it straight after the second merges), every week on `main` (an image pinned
 # by tag and digest doesn't move, but a runner's docker or compose can), and by hand.
-# Neither is a required check: a required check must report on every PR and in the
+# None is a required check: a required check must report on every PR and in the
 # merge queue, and these are filtered by path. Making one so means moving the job
 # into ci.yml without the path filter.
 on:
@@ -88,3 +88,25 @@ jobs:
           cache: false
       - name: Events and callouts on every recording
         run: make parity-events
+
+  # `parity spoken` (paddock#64 R1, R3): paddock#64's nine recordings through v1's
+  # `replay` and through ecu replay with radio on the console in instant timing,
+  # both with `script: false`; what each says is diffed, rule and text in order.
+  # Each recording gets a fresh compose project, taken down with its volumes.
+  parity-spoken:
+    runs-on: ubuntu-latest
+    # About 40 s a recording: the stack and radio up and down, both replays, and
+    # 5 s of quiet from radio.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: parity/go.mod
+          cache: false
+      - name: What radio says against what v1 says, on paddock#64's recordings
+        run: make brundle-demo

@@ -45,6 +45,7 @@ help:
 	@echo "compose-it - the walking skeleton from nothing: up, NATS, the bootstrap, logbook's health, export, reset"
 	@echo "parity - the parity harness on its three default recordings, v1's laps against v2's (CI's parity-laps job)"
 	@echo "parity-events - every recording's events and callouts, v1's against v2's off the bus (CI's parity-events job)"
+	@echo "brundle-demo - what radio says on paddock#64's nine recordings against v1, script off (CI's parity-spoken job)"
 	@echo
 	@echo "The walking skeleton on this machine (deploy/compose/README.md):"
 	@echo "up     - start nats, run the stream and KV bootstrap, start logbook and wait for its /healthz"
@@ -116,6 +117,14 @@ parity:
 .PHONY: parity-events
 parity-events:
 	$(MAKE) -C parity events RUNS="$$(cd recordings && ls *.jsonl.gz | tr '\n' ' ')"
+
+# The Brundle demo's scripted part (paddock#64, docs/demos/brundle.md): radio's
+# console in instant timing against v1's `replay`, both with `script: false`, on
+# #64's nine recordings, as CI's parity-spoken job runs it. Needs what `make parity`
+# needs.
+.PHONY: brundle-demo
+brundle-demo:
+	$(MAKE) -C parity spoken
 
 # The walking skeleton. Each target prints the commands it runs.
 

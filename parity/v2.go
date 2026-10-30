@@ -28,6 +28,9 @@ type v2Side struct {
 	// settle is how long its laps_written must stay still to count as done when
 	// the other side's lap count isn't reached, and quiet how long once it is.
 	wait, settle, quiet, poll time.Duration
+	// said is how long radio's spoken lines must stay the same for a spoken run to
+	// be over: its replay clock says the last callout a second after it comes.
+	said time.Duration
 	// nats is NATS as compose publishes it, and listen how the checker listens.
 	nats   string
 	listen listenFunc

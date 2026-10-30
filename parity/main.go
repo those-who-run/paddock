@@ -1,10 +1,11 @@
 // Command parity is the walking skeleton's referee (paddock#40, paddock#104): it
 // replays each recording through v1 and through v2, normalises both sides' stored
-// laps, or the events and callouts each side decided, to the same lines and
-// compares them.
+// laps, or the events and callouts each side decided, or what each side spoke
+// (paddock#64), to the same lines and compares them.
 //
 //	parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…
 //	parity events [--v1-image IMG] [--compose FILE] [--healthz URL] [--nats URL] [--keep] [--all] RUN…
+//	parity spoken [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--all] RECORDING…
 //
 // The exit code is 0 when every recording matches, 1 when any differs, and 2 when
 // the run is refused or a side fails. README.md has the detail.
@@ -73,9 +74,12 @@ func cli(ctx context.Context, args []string, stdout, stderr io.Writer, mk sides)
 		return laps(ctx, args[1:], stdout, stderr, mk)
 	case len(args) > 0 && args[0] == "events":
 		return events(ctx, args[1:], stdout, stderr, mk)
+	case len(args) > 0 && args[0] == "spoken":
+		return spoken(ctx, args[1:], stdout, stderr, mk)
 	}
 	_, _ = fmt.Fprintln(stderr, "usage: parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…")
 	_, _ = fmt.Fprintln(stderr, "       parity events [--v1-image IMG] [--compose FILE] [--healthz URL] [--nats URL] [--keep] [--all] RUN…")
+	_, _ = fmt.Fprintln(stderr, "       parity spoken [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--all] RECORDING…")
 	return exitRefused
 }
 
@@ -281,6 +285,7 @@ func realSides(log io.Writer) sides {
 			healthz: o.healthz, nats: o.nats, listen: natsListen,
 			client: &http.Client{Timeout: 5 * time.Second},
 			wait:   5 * time.Minute, settle: 15 * time.Second, quiet: 2 * time.Second, poll: time.Second,
+			said: 5 * time.Second,
 		}
 		return v1, v2
 	}

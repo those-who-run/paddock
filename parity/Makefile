@@ -27,6 +27,7 @@ help:
 	@echo "test  - the tests, with the race detector, in shuffled order, no skips, and the coverage floor"
 	@echo "laps  - the harness on RECORDINGS (default: R4's three), through v1's image and the compose stack"
 	@echo "events - events and callouts on RUNS (default: R4's three; --all for every recording and the restart pair)"
+	@echo "spoken - what radio says against what v1 says, script off, on RECORDINGS (default: paddock#64's nine)"
 	@echo "fmt   - format the Go code with gofmt"
 
 .PHONY: check
@@ -79,3 +80,8 @@ laps:
 .PHONY: events
 events:
 	go run . events $(RUNS)
+
+# What radio says against what v1 says (paddock#64): RECORDINGS, or #64's nine.
+.PHONY: spoken
+spoken:
+	go run . spoken $(RECORDINGS)
