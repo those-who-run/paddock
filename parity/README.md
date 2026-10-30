@@ -214,17 +214,20 @@ names and values (snake case, enum names without their prefix in lower case,
   out. A callout with no slots on the bus is the same as one with empty slots.
 - `session.ended` compares the session's summary (#86 AC1): `started_at` and
   `ended_at` (epoch milliseconds), `driving_ms`, `paused_ms`, `ended_paused`,
-  `car_code`, `car_name`, `total_laps`, `laps_completed`, `best_lap` and
-  `best_lap_ms`, `finished`, `finishing_position`, `final_position`,
-  `total_cars`, `joined_on_lap`, `stints`, `pit_stops` (how many),
-  `fuel_burned` and `fuel_burned_by_stint`, all exactly. v1's side is the
+  `car_code`, `car_name`, `total_laps`, `laps_completed`, `best_lap`,
+  `best_lap_ms`, `fastest_lap_ms`, `game_best_lap_ms` (v1's `gt7_best_lap_ms`),
+  `total_time_ms`, `kind` (the summary's session type, v1's `session_kind`),
+  `finished`, `finishing_position`, `final_position`, `total_cars`,
+  `joined_on_lap`, `stints`, `pit_stops` (how many), `fuel_burned`,
+  `fuel_burned_by_stint`, `fuel_stints` and `fuel_used`, all exactly. v1's side is the
   `summary.json` v1 wrote, as `ecu`'s `internal/race/testdata/summary/make_golden.py`
   reads it, with v1's store on the recording's clock (its first frame at
   2026-01-01T00:00:00Z, as `ecu replay` dates it with no `--clock`). v1 stored
   neither `best_lap` nor `finishing_position`, so they are derived as
-  `SessionSummary` defines them: the first complete lap with v1's best time,
-  and `final_position` for a lap race that finished. The laps are `parity
-  laps`'s.
+  `SessionSummary` defines them: the first lap with v1's best time (complete
+  or not when the best is GT7's own, else the first complete one), and
+  `final_position` for a lap race that finished. What is left out (the laps,
+  the track, the raw fuel levels and `gaps`) is named in `notCompared`.
 - A start v1 held for GT7's cars-on-track flag and then ignored as a replay or
   a demo is a `session.discarded` on v1's side, in no session, on the frame v1
   decided on, with the frame the start was on as `first_seq`.

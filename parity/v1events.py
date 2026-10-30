@@ -118,13 +118,19 @@ def summary_fields(summary: dict) -> dict:
     """session.ended's fields from the summary.json v1 wrote, in contracts v0.2.3's
     SessionSummary names, as ecu's internal/race/testdata/summary/make_golden.py
     reads it (paddock#86 AC1). The laps are `parity laps`'s. Times are epoch
-    milliseconds. Two v1 never stored are derived where v1 decided them:
-    best_lap is the first complete lap with v1's best_lap_ms (GT7's best wins
-    whatever the lap, as SessionSummary.best_lap says), and finishing_position
-    is final_position for a lap race that finished, as SessionSummary gives it."""
+    milliseconds. Two v1 never stored are derived where v1 decided them, as
+    SessionSummary defines them: best_lap is the first lap with v1's best_lap_ms,
+    whatever its completeness when that best is GT7's own, else the first
+    complete one; finishing_position is final_position for a lap race that
+    finished."""
     best_ms = summary["best_lap_ms"]
+    gt7 = best_ms is not None and best_ms == summary["gt7_best_lap_ms"]
     best = next(
-        (lap["lap"] for lap in summary["laps"] if lap["complete"] and best_ms and lap["lap_time_ms"] == best_ms),
+        (
+            lap["lap"]
+            for lap in summary["laps"]
+            if (gt7 or lap["complete"]) and best_ms and lap["lap_time_ms"] == best_ms
+        ),
         None,
     )
     kind = (summary["session_kind"] or {}).get("kind")
@@ -141,6 +147,10 @@ def summary_fields(summary: dict) -> dict:
         "laps_completed": summary["laps_completed"],
         "best_lap": best,
         "best_lap_ms": best_ms,
+        "fastest_lap_ms": summary["fastest_lap_ms"],
+        "game_best_lap_ms": summary["gt7_best_lap_ms"],
+        "total_time_ms": summary["total_time_ms"],
+        "kind": kind,
         "finished": summary["finished"],
         "finishing_position": finishing,
         "final_position": summary["final_position"],
@@ -150,6 +160,8 @@ def summary_fields(summary: dict) -> dict:
         "pit_stops": len(summary["pit_stops"]),
         "fuel_burned": summary["fuel_burned"],
         "fuel_burned_by_stint": summary["fuel_burned_by_stint"],
+        "fuel_stints": summary["fuel_stints"],
+        "fuel_used": summary["fuel_used"],
     }
 
 

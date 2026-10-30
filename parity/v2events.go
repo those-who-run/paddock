@@ -241,19 +241,25 @@ func summaryFields(s *eventsv1.SessionSummary) map[string]any {
 	if s.GetCarName() != "" {
 		name = s.GetCarName()
 	}
-	stints := []any{}
-	for _, x := range s.GetFuelBurnedByStint() {
-		stints = append(stints, x)
+	floats := func(xs []float64) []any {
+		out := []any{}
+		for _, x := range xs {
+			out = append(out, x)
+		}
+		return out
 	}
 	return map[string]any{
 		"started_at": millis(s.GetStartedAt()), "ended_at": millis(s.GetEndedAt()),
 		"driving_ms": num(s.GetDrivingMs()), "paused_ms": num(s.GetPausedMs()), "ended_paused": s.GetEndedPaused(),
 		"car_code": num(s.GetCarCode()), "car_name": name, "total_laps": num(s.GetTotalLaps()),
 		"laps_completed": num(s.GetLapsCompleted()), "best_lap": opt(s.BestLap), "best_lap_ms": opt(s.BestLapTimeMs),
+		"fastest_lap_ms": opt(s.FastestLapMs), "game_best_lap_ms": opt(s.GameBestLapMs), "total_time_ms": opt(s.TotalTimeMs),
+		"kind":     enum(s.GetSessionType(), "SESSION_TYPE_"),
 		"finished": s.GetFinished(), "finishing_position": opt(s.FinishingPosition),
 		"final_position": opt(s.FinalPosition), "total_cars": opt(s.TotalCars), "joined_on_lap": opt(s.JoinedOnLap),
 		"stints": num(s.GetStints()), "pit_stops": float64(len(s.GetPitStops())),
-		"fuel_burned": s.GetFuelBurned(), "fuel_burned_by_stint": stints,
+		"fuel_burned": s.GetFuelBurned(), "fuel_burned_by_stint": floats(s.GetFuelBurnedByStint()),
+		"fuel_stints": floats(s.GetFuelStints()), "fuel_used": s.GetFuelUsed(),
 	}
 }
 

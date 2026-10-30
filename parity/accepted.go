@@ -57,6 +57,18 @@ func onlyLapOne(items []Item, part, session int) float64 {
 	return ms
 }
 
+// noGameBest says whether a side's summary of a session has no GT7 best: with
+// one, lap 1 counts for best when GT7 set it there (LapCompleted.counts_for_best).
+func noGameBest(items []Item, part, session int) bool {
+	for _, it := range items {
+		if it.Type == "session.ended" && it.Part == part && it.Session == session {
+			v, ok := it.Fields["game_best_lap_ms"]
+			return ok && v == nil
+		}
+	}
+	return false
+}
+
 // heldStart says whether a side started a session from a held start: v1's
 // session.started names the later frame it decided on (v1events.py).
 func heldStart(items []Item, part, session int) bool {
@@ -100,12 +112,12 @@ var accepted = []acceptance{
 	{
 		ID:    "best-lap-one",
 		Issue: "those-who-run/paddock#83",
-		Reason: "With no GT7 best, the summary's best lap is the quickest lap that counts (contracts v0.2.3's " +
+		Reason: "With no GT7 best (v1's gt7_best_lap_ms null), the summary's best lap is the quickest lap that counts (contracts v0.2.3's " +
 			"SessionSummary.best_lap, #83's R3 over R5; ecu#52's second departure), and lap 1 does not count, where " +
 			"v1's fallback took lap 1 when it was the only timed lap. On the 24 h race and the first qualifying of " +
 			"2026-10-14, v1's best is that lap 1 and v2 has none.",
 		Match: func(d EventDiff, run runView) bool {
-			if d.Type != "session.ended" || d.V2 != "null" {
+			if d.Type != "session.ended" || d.V2 != "null" || !noGameBest(run.v1, d.Part, d.Session) {
 				return false
 			}
 			ms := onlyLapOne(run.v1, d.Part, d.Session)
@@ -140,9 +152,15 @@ var notCompared = []struct{ What, Issue, Reason string }{
 		"v1's session type (race, time trial, practice) is replaced in v2 by the session's kind, compared as session.kind."},
 	{"session.ended reason", "those-who-run/paddock#86",
 		"v1 stored no end reason, so END_REASON_MENU against END_REASON_QUIT and the like has nothing to compare with."},
-	{"session.ended laps, fuel levels and track", "those-who-run/paddock#86",
-		"`parity laps` compares the stored laps; the summary's kind and track are session.kind's and session.track's last, " +
-			"compared there. Its other values are compared on session.ended."},
+	{"session.ended laps", "those-who-run/paddock#86",
+		"The summary's laps[] are the stored laps, which `parity laps` compares lap by lap."},
+	{"session.ended track", "those-who-run/paddock#86",
+		"The summary's track is session.track's last verdict, compared on each session.track."},
+	{"session.ended fuel_capacity, fuel_at_start and fuel_at_end", "those-who-run/paddock#86",
+		"Raw fuel levels of a frame, which v1's rounded recordings hold only at float32 precision; `parity laps` " +
+			"compares each lap's fuel at its start and end, and session.ended compares fuel_used, fuel_burned and the stints."},
+	{"session.ended gaps", "those-who-run/paddock#76",
+		"Empty on both sides until ecu continues a session after a restart (#76); the restart pair is not in CI yet."},
 	{"callout text", "those-who-run/paddock#104",
 		"ecu publishes the meaning (rule, kind, slots) and radio phrases it (#71); Brundle's diff compares the spoken text."},
 	{"lap.best", "those-who-run/paddock#103",

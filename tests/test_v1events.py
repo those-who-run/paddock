@@ -121,12 +121,17 @@ def v1_summary(**over) -> dict:
         "total_laps": 10,
         "laps_completed": 10,
         "best_lap_ms": 97412,
+        "fastest_lap_ms": 97412,
+        "gt7_best_lap_ms": 97412,
+        "total_time_ms": 980457,
         "finished": True,
         "joined_on_lap": None,
         "final_position": 1,
         "total_cars": 2,
         "fuel_burned": 130.393,
         "fuel_burned_by_stint": [73.825, 56.568],
+        "fuel_stints": [73.825, 56.568],
+        "fuel_used": 37.625,
         "stints": 2,
         "pit_stops": [{"stop": 1}],
         "laps": laps,
@@ -144,6 +149,8 @@ class TheSummary(unittest.TestCase):
         self.assertEqual(got["best_lap_ms"], ex["bestLapTimeMs"])
         self.assertEqual(got["finishing_position"], ex["finishingPosition"])
         self.assertEqual(got["final_position"], ex["finalPosition"])
+        self.assertEqual(got["fuel_used"], ex["fuelUsed"])
+        self.assertEqual(got["kind"], ex["sessionType"].removeprefix("SESSION_TYPE_").lower())
 
     def test_the_values(self) -> None:
         got = v1events.summary_fields(v1_summary())
@@ -153,13 +160,18 @@ class TheSummary(unittest.TestCase):
         self.assertEqual(got["fuel_burned_by_stint"], [73.825, 56.568])
         self.assertNotIn("laps", got)  # parity laps compares them
 
-    def test_the_best_lap_is_the_first_complete_lap_with_its_time(self) -> None:
+    def test_the_best_lap(self) -> None:
         laps = [
             {"lap": 1, "lap_time_ms": 90000, "complete": False},
             {"lap": 2, "lap_time_ms": 90000, "complete": True},
             {"lap": 3, "lap_time_ms": 90000, "complete": True},
         ]
-        self.assertEqual(v1events.summary_fields(v1_summary(best_lap_ms=90000, laps=laps))["best_lap"], 2)
+        # GT7's own best: the first lap with its time, whatever its completeness.
+        gt7 = v1_summary(best_lap_ms=90000, gt7_best_lap_ms=90000, laps=laps)
+        self.assertEqual(v1events.summary_fields(gt7)["best_lap"], 1)
+        # v1's fallback, with no GT7 best: the first complete lap with its time.
+        fallback = v1_summary(best_lap_ms=90000, gt7_best_lap_ms=None, laps=laps)
+        self.assertEqual(v1events.summary_fields(fallback)["best_lap"], 2)
         self.assertIsNone(v1events.summary_fields(v1_summary(best_lap_ms=None, laps=laps))["best_lap"])
 
     def test_a_finishing_position_only_for_a_lap_race_that_finished(self) -> None:

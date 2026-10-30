@@ -258,8 +258,9 @@ func TestEventExamplesNormalise(t *testing.T) {
 		"lap_completed":     `complete=true lap=3 lap_time_ms=98765 pit_role=none at=-`,
 		"race_finished":     `kind=flag lap=6 position=1 at=23410`,
 		"session_ended": `best_lap=4 best_lap_ms=97412 car_code=0 car_name=null driving_ms=0 ended_at=null ended_paused=false ` +
-			`final_position=1 finished=false finishing_position=1 fuel_burned=0 fuel_burned_by_stint=[] joined_on_lap=null ` +
-			`laps_completed=10 paused_ms=0 pit_stops=0 reason=finished started_at=null stints=0 total_cars=null total_laps=0 at=61840`,
+			`fastest_lap_ms=null final_position=1 finished=false finishing_position=1 fuel_burned=0 fuel_burned_by_stint=[] ` +
+			`fuel_stints=[] fuel_used=37.625 game_best_lap_ms=null joined_on_lap=null kind=lap_race laps_completed=10 paused_ms=0 ` +
+			`pit_stops=0 reason=finished started_at=null stints=0 total_cars=null total_laps=0 total_time_ms=null at=61840`,
 		"race_position":     `position=3 previous_position=11 at=31877`,
 		"race_final_lap":    `lap=6 at=19237`,
 		"session_discarded": `evidence=fuel is draining (98.3 -> 97.6), which only a replay does first_seq=40210 reason=replay at=40291`,
@@ -348,6 +349,10 @@ func TestAcceptedDifferences(t *testing.T) {
 	// A held start on v1's side names the later frame it decided on.
 	held := item1("session.started", 1, 1, map[string]any{"car_code": 1.0, "total_laps": nil, "joined_on_lap": nil, "decided_at": 4.0})
 	summary := func(field string, v any) Item { return item1("session.ended", 1, 99, map[string]any{field: v}) }
+	// A best lap's summary on each side: one field, beside the GT7 best both sides agree on.
+	best := func(field string, v, game any) Item {
+		return item1("session.ended", 1, 99, map[string]any{field: v, "game_best_lap_ms": game})
+	}
 	lap := func(n float64, ms any, complete bool) Item {
 		return Item{Type: "lap.completed", Part: 1, Session: 1, Fields: map[string]any{"lap": n, "lap_time_ms": ms, "complete": complete, "pit_role": "none"}}
 	}
@@ -374,19 +379,25 @@ func TestAcceptedDifferences(t *testing.T) {
 			[]Item{soloKind, summary("final_position", 2.0)}, []Item{soloKind, summary("final_position", nil)}, "",
 		},
 		"best lap 1, the only timed": {
-			append([]Item{summary("best_lap_ms", 504963.0)}, lapOne...), append([]Item{summary("best_lap_ms", nil)}, lapOne...), "best-lap-one",
+			append([]Item{best("best_lap_ms", 504963.0, nil)}, lapOne...), append([]Item{best("best_lap_ms", nil, nil)}, lapOne...), "best-lap-one",
 		},
 		"best lap number 1": {
-			append([]Item{summary("best_lap", 1.0)}, lapOne...), append([]Item{summary("best_lap", nil)}, lapOne...), "best-lap-one",
+			append([]Item{best("best_lap", 1.0, nil)}, lapOne...), append([]Item{best("best_lap", nil, nil)}, lapOne...), "best-lap-one",
 		},
 		"best lap with another timed": {
-			append([]Item{summary("best_lap_ms", 504963.0)}, twoTimed...), append([]Item{summary("best_lap_ms", nil)}, twoTimed...), "",
+			append([]Item{best("best_lap_ms", 504963.0, nil)}, twoTimed...), append([]Item{best("best_lap_ms", nil, nil)}, twoTimed...), "",
 		},
 		"best lap not lap 1's time": {
-			append([]Item{summary("best_lap_ms", 500000.0)}, lapOne...), append([]Item{summary("best_lap_ms", nil)}, lapOne...), "",
+			append([]Item{best("best_lap_ms", 500000.0, nil)}, lapOne...), append([]Item{best("best_lap_ms", nil, nil)}, lapOne...), "",
+		},
+		"best lap 1 with a GT7 best": {
+			append([]Item{best("best_lap_ms", 504963.0, 504963.0)}, lapOne...), append([]Item{best("best_lap_ms", nil, 504963.0)}, lapOne...), "",
+		},
+		"best lap number 1 with a GT7 best": {
+			append([]Item{best("best_lap", 1.0, 504963.0)}, lapOne...), append([]Item{best("best_lap", nil, 504963.0)}, lapOne...), "",
 		},
 		"best lap on v2 only differs": {
-			append([]Item{summary("best_lap_ms", 504963.0)}, lapOne...), append([]Item{summary("best_lap_ms", 500000.0)}, lapOne...), "",
+			append([]Item{best("best_lap_ms", 504963.0, nil)}, lapOne...), append([]Item{best("best_lap_ms", 500000.0, nil)}, lapOne...), "",
 		},
 		"a held start 3 s later": {
 			[]Item{held, summary("started_at", 1767225603001.0)}, []Item{held, summary("started_at", 1767225600000.0)}, "held-start-started-at",
