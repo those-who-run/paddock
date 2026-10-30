@@ -322,6 +322,19 @@ func TestV2ItemsNumberSessionsAndDropRepeats(t *testing.T) {
 	}
 }
 
+// A callout heard before its session's session.started still lands in that
+// session: the two come on different subjects, in either order.
+func TestV2ItemsACalloutBeforeItsStart(t *testing.T) {
+	msgs := []busMsg{
+		{Subject: "twr.v1.parity.callout.p2", Data: example(t, "callout_lap_time")},
+		{Subject: "twr.v1.parity.evt.A.session.started", Data: example(t, "session_started")},
+	}
+	items, err := v2Items(msgs, 1, map[string]int{}, map[string]bool{})
+	if err != nil || len(items) != 2 || items[0].Type != "callout" || items[0].Session != 1 || items[1].Session != 1 {
+		t.Fatalf("%v %+v", err, items)
+	}
+}
+
 func TestEnumAndOpt(t *testing.T) {
 	if enum(enumName("FINISH_KIND_UNSPECIFIED"), "FINISH_KIND_") != nil || opt(nil) != nil {
 		t.Error("unspecified is null")

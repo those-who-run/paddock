@@ -22,6 +22,21 @@ var decode = protojson.UnmarshalOptions{DiscardUnknown: true}
 // sessions by their ids, in the order they started, across parts. A message sent
 // twice (the same Nats-Msg-Id) counts once, as JetStream keeps it once.
 func v2Items(msgs []busMsg, part int, sessions map[string]int, seen map[string]bool) ([]Item, error) {
+	// Callouts and events are two subjects, so a callout raised on the frame its
+	// session starts (start_brief) can arrive before session.started. Number the
+	// sessions first, so it still lands in its session.
+	for _, m := range msgs {
+		if !strings.HasSuffix(m.Subject, ".session.started") {
+			continue
+		}
+		var e eventsv1.SessionStarted
+		if err := decode.Unmarshal(m.Data, &e); err != nil {
+			return nil, fmt.Errorf("%s: %w", m.Subject, err)
+		}
+		if _, ok := sessions[e.GetSessionId()]; !ok {
+			sessions[e.GetSessionId()] = len(sessions) + 1
+		}
+	}
 	var items []Item
 	for _, m := range msgs {
 		if m.ID != "" {
