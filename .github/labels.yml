@@ -32,6 +32,9 @@
 - name: "component: radio"
   color: c5def5
   description: "Voice: callouts to speech to Discord (Python)"
+- name: "component: podium"
+  color: c5def5
+  description: "Results cards: after-session posts to Discord over REST (Go)"
 - name: "component: pitwall"
   color: c5def5
   description: "The pit wall: web app and its API"

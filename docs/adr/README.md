@@ -49,6 +49,7 @@ Signs it is time:
 | [0006](0006-images-on-ghcr.md) | v2 images on GitHub's container registry, `ghcr.io/those-who-run/twr-<repo>:X.Y.Z`, pushed with the publishing job's own `GITHUB_TOKEN`, amd64 only; v1 stays on Docker Hub. Supersedes ADR 0001, point 4, on images. |
 | [0007](0007-the-store-engine.md) | The store's engine: DuckDB embedded in `logbook` through the official Go driver, writing the Parquet lap files itself, with cgo and glibc confined to `logbook`'s image; one engine, the index in `index.duckdb`. Supersedes ADR 0003, points 6 and 7. |
 | [0008](0008-contracts-tooling-and-tags.md) | Contracts' tooling and tags: `buf` and `protoc-gen-go` pinned in `tools/go.mod` and run with `go tool`, `protoc-gen-go` as a local plugin; the Go module at the repository root, `github.com/those-who-run/contracts`, with plain `vX.Y.Z` tags. Supersedes in part ADR 0002: how `buf generate` gets its plugin (point 1) and the Go module's place and tag scheme (point 6). |
+| [0010](0010-results-cards.md) | Results cards are posted by `podium`, their own subscriber in Go (`ghcr.io/those-who-run/twr-podium`, `component: podium`), over Discord's REST API with the second bot's token and no gateway session; `podium` is the home for everything posted after a session. |
 
 ## v1's records
 

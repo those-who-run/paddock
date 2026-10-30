@@ -214,6 +214,8 @@ callout as v1.
 
 - A subscriber to `session.ended` posts the session's results card, exactly
   once: posted sessions are kept, so a redelivered event posts nothing.
+- The subscriber is `podium`, posting over Discord's REST API
+  ([ADR 0010](docs/adr/0010-results-cards.md)).
 
 **Demo:** a replayed race posts one card, and a redelivered `session.ended`
 posts nothing.
