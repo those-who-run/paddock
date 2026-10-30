@@ -104,6 +104,7 @@ named after F1 drivers, and these rules with it.
 | 21 | Ricciardo | feature | Dash designer | Style first |
 | 22 | Stewart | feature | Ephemeral environment for end-to-end tests | Campaigned for safety when nobody else would |
 | 23 | Coulthard | feature | F1 weekend: a pit wall plugin (experiment) | Went from the cockpit to the commentary box, and watches every race weekend |
+| 24 | Häkkinen | feature | Observability: logs, metrics, NATS health and tracing | Said little on the radio, so the team read him from his data |
 
 ## Parity dependencies
 
@@ -273,6 +274,10 @@ Each is specced in full when it comes up.
   strategy, lap charts and driver telemetry, and a GT7 lap against an F1 lap at
   a circuit both share. It tests how an outside source plugs into the UI
   without touching the engineer, and stays an experiment until it earns more.
+- **Häkkinen, Observability:** ecu's structured logs, metrics against the frame
+  budget, NATS stream and consumer health with a dashboard and alerts, and a
+  decision on tracing across the bus. The stack tells you what it is doing
+  without anyone reading code.
 
 ## Experiments
 
