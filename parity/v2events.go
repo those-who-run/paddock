@@ -47,7 +47,8 @@ func v2Item(m busMsg, sessions map[string]int) (Item, error) {
 		if err := decode.Unmarshal(m.Data, &c); err != nil {
 			return Item{}, err
 		}
-		var slots any
+		// No slots and empty slots are one: a phrase with no values (Callout's slots).
+		var slots any = map[string]any{}
 		if c.Slots != nil {
 			b, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(c.Slots)
 			if err != nil {
@@ -178,6 +179,44 @@ func v2Message(typ string) (proto.Message, func(proto.Message) Item) {
 			e := m.(*eventsv1.RaceFinished)
 			return item("", 0, at(e.GetAt()), map[string]any{
 				"kind": enum(e.GetKind(), "FINISH_KIND_"), "lap": num(e.GetLap()), "position": opt(e.Position),
+			})
+		}
+	case "session.discarded":
+		// Not a session's: no session.started came for its id, so it is in session 0,
+		// as v1 had none open.
+		return &eventsv1.SessionDiscarded{}, func(m proto.Message) Item {
+			e := m.(*eventsv1.SessionDiscarded)
+			return item("", 0, at(e.GetAt()), map[string]any{
+				"reason": enum(e.GetReason(), "DISCARD_REASON_"), "first_seq": float64(e.GetFirstSeq()),
+				"evidence": e.GetEvidence(),
+			})
+		}
+	case "session.paused":
+		return &eventsv1.SessionPaused{}, func(m proto.Message) Item {
+			e := m.(*eventsv1.SessionPaused)
+			return item("", 0, at(e.GetAt()), map[string]any{
+				"kind": enum(e.GetKind(), "PAUSE_KIND_"), "since_t": e.GetSinceT(), "paused_ms": num(e.GetPausedMs()),
+				"pause": num(e.GetPause()),
+			})
+		}
+	case "session.resumed":
+		return &eventsv1.SessionResumed{}, func(m proto.Message) Item {
+			e := m.(*eventsv1.SessionResumed)
+			return item("", 0, at(e.GetAt()), map[string]any{
+				"kind": enum(e.GetKind(), "PAUSE_KIND_"), "since_t": e.GetSinceT(), "pause_ms": num(e.GetPauseMs()),
+				"paused_ms": num(e.GetPausedMs()), "pause": num(e.GetPause()),
+			})
+		}
+	case "race.final_lap":
+		return &eventsv1.RaceFinalLapStarted{}, func(m proto.Message) Item {
+			e := m.(*eventsv1.RaceFinalLapStarted)
+			return item("", 0, at(e.GetAt()), map[string]any{"lap": num(e.GetLap())})
+		}
+	case "race.position":
+		return &eventsv1.RacePositionChanged{}, func(m proto.Message) Item {
+			e := m.(*eventsv1.RacePositionChanged)
+			return item("", 0, at(e.GetAt()), map[string]any{
+				"previous_position": opt(e.PreviousPosition), "position": num(e.GetPosition()),
 			})
 		}
 	case "session.ended":

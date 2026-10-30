@@ -87,7 +87,7 @@ others, as for paddock's own targets
 compose file's ports on 127.0.0.1, so a `make up` stack must be down first.
 
 The v2 side runs the compose file's `replay` service (paddock#39): `ecu`'s
-image (0.1.6, with `ecu replay`) and its own entrypoint, so the service's
+image (0.1.9, with `ecu replay`) and its own entrypoint, so the service's
 command is `ecu`'s arguments, with the server in `TWR_NATS_URL`.
 
 ## What is compared
@@ -184,10 +184,21 @@ names and values (snake case, enum names without their prefix in lower case,
   by its number.
 - The types and the fields compared are `compared` in [`items.go`](items.go):
   `session.started`, `session.continued`, `session.kind`, `session.track`,
-  `pit.entered`, `pit.exited`, `pit.teleport`, `lap.completed` (its time,
-  whether it is complete and its pit role), `race.finished`, `session.ended`
-  (finished) and `callout` (rule, kind, priority, pit lane and slots). Text and
-  v1's pit-lane outcome (spoken, held or dropped) are shown, not compared.
+  `session.discarded` (replay or demo, and the held start's first frame),
+  `session.paused` and `session.resumed` (flagged or frozen, when it began, the
+  pause's length and number, and the time paused so far), `pit.entered`,
+  `pit.exited`, `pit.teleport`, `lap.completed` (its time, whether it is
+  complete and its pit role), `race.final_lap`, `race.position` (the settled
+  place and the one before it), `race.finished`, `session.ended` (finished) and
+  `callout` (rule, kind, priority, pit lane and slots). Text, evidence and v1's
+  pit-lane outcome (spoken, held or dropped) are shown, not compared.
+- v1 had no event for some of these, so `v1events.py` reads them where v1 decided
+  them, as `ecu`'s `testdata/*/make_golden.py` scripts do: `race.final_lap` from
+  the final lap rule's call, `race.position` from a second `PositionRule` with
+  only its 3 s settle (no start grace, no interval, as `ecu`'s event is the fact
+  without the callout's limits), and the pauses from the engine's `PauseClock`.
+  `lap.best` has no v1 side: v1 kept only the session's best, with a fallback
+  the lap model departs from (#83), so `ecu`'s are counted, not compared.
 - A callout's kind on v1's side is the kind contracts v0.2.3 names for it
   (`callout_kind` in `v1events.py`, from the phrase keys its rule picked, with
   a situational pool counting as the rule chose it): `start_brief` is
@@ -196,13 +207,14 @@ names and values (snake case, enum names without their prefix in lower case,
   first key (`lap_time`'s `{delta}` key, a new best's own). Its pit lane is the
   rule's `pit_lane` policy, not v1's held or dropped outcome, which waits for
   radio's #59. A callout v1 raised in the pit lane and dropped is left out, as
-  ecu never publishes one (contracts' `PitLane`). v1 phrases words, not
-  numbers, so its slots are `null` and not compared; a rule's port (#91 to #98)
-  adds its slots to `v1events.py`, and from then on they are.
+  ecu never publishes one (contracts' `PitLane`).
+- A callout's slots on v1's side are the values its rule put in the phrases it
+  picked (`wrap_slots` in `v1events.py`, each rule as its `ecu` golden reads it),
+  in contracts v0.2.3's names, with a slot left out where protojson leaves it
+  out. A callout with no slots on the bus is the same as one with empty slots.
 - A start v1 held for GT7's cars-on-track flag and then ignored as a replay or
-  a demo gives a `start.ignored` item on v1's side, with the frame the start
-  was on. It is no event and is not compared: the start check's accepted entry
-  reads it.
+  a demo is a `session.discarded` on v1's side, in no session, on the frame v1
+  decided on, with the frame the start was on as `first_seq`.
 
 **Matching** (R2): items pair by part, type, a callout's rule or a lap's number,
 and frame, within the type's frame tolerance (`frameTolerance`, zero for every
@@ -217,12 +229,10 @@ say) are counted and named, not compared.
 
 **Accepted differences** (R4) are in [`accepted.go`](accepted.go), the one
 reviewed list, each with its reason and the issue that accepted it: a position
-of 1 outside a field (#276), and what `ecu` does not do yet (pit roles #83,
-joined part way #75, the start check #74, only for a session that started where
-v1 ignored a start, and callouts #89, only while v2 publishes none). An entry
-for something still to do is removed by the PR that does it. The fields left out
-on purpose (v1's session type, which `kind` replaces, the end reason v1 never
-stored, the callout's text) are listed there too. Any other difference fails
+of 1 outside a field (#276), and what `ecu` does not do yet (joined part way,
+#75). An entry for something still to do is removed by the PR that does it. The
+fields left out on purpose (v1's session type, which `kind` replaces, the end
+reason v1 never stored, the callout's text, `lap.best`) are listed there too. Any other difference fails
 the run. After the table, each entry that allowed no difference is named; when
 the runs cover every recording in `recordings/` (CI's, and `--all`), such an
 entry is stale and fails the run until it is removed.
@@ -245,7 +255,7 @@ no skips, coverage floor 90%), build and govulncheck. CI runs the same through
 `go.yml` in its `parity / check` job. The tools are pinned in
 `tools/go.mod`. The tests need no containers: the comparison runs on canned
 laps (AC2, AC3, AC4) and on one real run's items in `testdata/run/` (the pit
-stop through v1 1.0.0 and `ecu` 0.1.6), the callouts on `contracts`' examples
+stop through v1 1.0.0 and `ecu` 0.1.9's race machine and rules), the callouts on `contracts`' examples
 (`testdata/contracts/`, v0.2.3), and the two sides run against a recorded
 command runner, a fake `/healthz` and a fake listener.
 

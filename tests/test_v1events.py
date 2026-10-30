@@ -5,7 +5,10 @@ rule"), so ecu's first callouts are compared with v1's on the contract's terms.
 Each rule is checked against contracts' callout example for it
 (parity/testdata/contracts/, v0.2.3), with the phrase keys v1's rule picks for that
 callout, in the order it picks them (v1.0.0's rules/*.py). The module's v1 imports
-are inside the replay, so it loads without v1."""
+are inside the replay, so it loads without v1.
+
+The slots are checked the same way, on the contract's examples: what v1's rule put
+in the phrases it picked, left out where ecu's protojson leaves a slot out."""
 
 from __future__ import annotations
 
@@ -13,6 +16,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "parity" / "testdata" / "contracts"
@@ -68,6 +72,33 @@ class TheOtherKinds(unittest.TestCase):
         self.assertEqual(kind("fuel", ["template_pit_next"], False), "template_pit_next")
         self.assertEqual(kind("final_lap", ["template"], False), "template")
         self.assertEqual(kind("fuel", [], False), "")
+
+
+class TheSlots(unittest.TestCase):
+    def test_present_leaves_out_what_protojson_does(self) -> None:
+        slots = {"lap": 3, "delta_ms": 0, "track": "", "timed": False, "corners": [], "laps": None}
+        self.assertEqual(v1events.present(slots), {"lap": 3, "delta_ms": 0})
+
+    def test_the_brief(self) -> None:
+        # contracts' start brief example: the laps, then the place in the field.
+        slots = example("callout_start_brief")["slots"]
+        state = SimpleNamespace(total_laps=slots["laps"], position=slots["position"], total_cars=slots["totalCars"])
+        got = v1events.brief_slots(["template_laps", "template_position"], [], state)
+        self.assertEqual(got, {"laps": 6, "position": 10, "total_cars": 20})
+        tracks = ["Sportsland SUGO"]
+        self.assertEqual(v1events.brief_slots(["template_track"], tracks, state), {"track": "Sportsland SUGO"})
+        self.assertEqual(tracks, [])
+
+    def test_a_joined_brief(self) -> None:
+        joined = SimpleNamespace(current_lap=5, total_laps=12, has_lap_count=True, position=4, total_cars=16)
+        self.assertEqual(
+            v1events.brief_slots(["template_joined", "template_joined_position"], [], joined),
+            {"lap": 5, "laps": 12, "position": 4, "total_cars": 16},
+        )
+        timed = SimpleNamespace(current_lap=2, has_lap_count=False, laps_left=None)
+        self.assertEqual(v1events.brief_slots(["template_joined", "template_timed"], [], timed), {"lap": 2, "timed": True})
+        late = SimpleNamespace(laps_left=3)
+        self.assertEqual(v1events.brief_slots(["template_laps_to_go"], [], late), {"laps_left": 3})
 
 
 if __name__ == "__main__":

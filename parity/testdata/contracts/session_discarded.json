@@ -1,0 +1,7 @@
+{
+  "sessionId": "01JB9S2D5F7R3X8Z1V4L6N9QYC",
+  "reason": "DISCARD_REASON_REPLAY",
+  "evidence": "fuel is draining (98.3 -> 97.6), which only a replay does",
+  "firstSeq": 40210,
+  "at": 40291
+}

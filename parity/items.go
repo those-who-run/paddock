@@ -36,16 +36,21 @@ var compared = map[string][]string{
 	"session.continued": {},
 	"session.kind":      {"kind", "total_laps", "field", "fuel_use", "cars_on_track", "start"},
 	"session.track":     {"track_id", "confidence", "family"},
+	"session.discarded": {"reason", "first_seq"},
+	"session.paused":    {"kind", "since_t", "paused_ms", "pause"},
+	"session.resumed":   {"kind", "since_t", "pause_ms", "paused_ms", "pause"},
 	"pit.entered":       {"stop", "in_lap", "fuel_before", "position_before"},
 	"pit.exited": {
 		"stop", "stint", "in_lap", "out_lap", "pit_lane_ms", "stationary_ms",
 		"fuel_before", "fuel_after", "fuel_added", "tyres_changed", "position_before", "position_after",
 	},
-	"pit.teleport":  {"lap", "entry_at"},
-	"lap.completed": {"lap", "lap_time_ms", "complete", "pit_role"},
-	"race.finished": {"kind", "lap", "position"},
-	"session.ended": {"finished"},
-	"callout":       {"rule", "kind", "priority", "pit_lane", "slots"},
+	"pit.teleport":   {"lap", "entry_at"},
+	"lap.completed":  {"lap", "lap_time_ms", "complete", "pit_role"},
+	"race.final_lap": {"lap"},
+	"race.position":  {"previous_position", "position"},
+	"race.finished":  {"kind", "lap", "position"},
+	"session.ended":  {"finished"},
+	"callout":        {"rule", "kind", "priority", "pit_lane", "slots"},
 }
 
 // frameTolerance is how many frames apart two items of a type may be and still
@@ -264,9 +269,6 @@ func diffPair(p Pair) []EventDiff {
 	}
 	for _, f := range compared[it.Type] {
 		a, b := p.V1.Fields[f], p.V2.Fields[f]
-		if f == "slots" && a == nil {
-			continue // v1 phrases words, not slots (accepted.go, notCompared)
-		}
 		if !valueEqual(f, a, b) {
 			d := base
 			d.Field, d.V1, d.V2 = f, show(a), show(b)

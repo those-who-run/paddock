@@ -73,15 +73,7 @@ func (r EventResult) Failing() int {
 // compareItems pairs both sides' items, lists the differences and marks the
 // accepted ones (R2, R4).
 func compareItems(run Run, v1, v2 []Item) EventResult {
-	var ignored, events []Item
-	for _, it := range v1 {
-		if it.Type == ignoredType {
-			ignored = append(ignored, it)
-		} else {
-			events = append(events, it)
-		}
-	}
-	v1 = lastPerFrame(events)
+	v1 = lastPerFrame(v1)
 	r := EventResult{Run: run, V1: v1, V2: v2}
 	pairs, other := matchItems(v1, v2)
 	r.Other = other
@@ -102,7 +94,7 @@ func compareItems(run Run, v1, v2 []Item) EventResult {
 		}
 		r.Diffs = append(r.Diffs, diffs...)
 	}
-	accept(r.Diffs, runView{v1: v1, v2: v2, ignored: ignored})
+	accept(r.Diffs, runView{v1: v1, v2: v2})
 	return r
 }
 
