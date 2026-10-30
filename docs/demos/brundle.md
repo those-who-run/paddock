@@ -119,5 +119,19 @@ as it meanwhile.
 
 ## Results
 
-The scripted check's results are recorded in the PR that added it, from CI's
-`parity-spoken` job.
+The first run, on 2026-10-30: CI's `parity-spoken` job on paddock#318 (run
+41076286424), v1 1.0.0 against `ecu` 0.1.10 and `radio` 0.1.2. **9 of 9
+recordings match**: 123 callouts said the same, in the same order, by both, and
+no known difference was needed.
+
+| Recording | v1 said | v2 said | Matched |
+|---|---|---|---|
+| `real-nuc-suzuka-no-stop-2026-10-15` | 23 | 23 | 23 |
+| `real-nuc-suzuka-pit-stop-2026-10-15` | 15 | 15 | 15 |
+| `real-nuc-gilles-villeneuve-pit-stop-2026-10-17` | 11 | 11 | 11 |
+| `real-nuc-sugo-two-stops-2026-10-18` | 52 | 52 | 52 |
+| `real-nuc-fuji-timed-2026-10-15` | 4 | 4 | 4 |
+| `real-nuc-suzuka-timed-race-2026-10-16` | 16 | 16 | 16 |
+| `real-nuc-suzuka-joined-mid-race-2026-10-18` | 2 | 2 | 2 |
+| `real-nuc-sugo-replay-2026-10-18` | 0 | 0 | 0 |
+| `real-nuc-laguna-seca-demo-2026-10-18` | 0 | 0 | 0 |
