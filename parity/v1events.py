@@ -200,6 +200,7 @@ class Run:
     def __init__(self, store_dir: Path, gap: float = 0.0) -> None:
         self.store_dir = store_dir
         self.gap = gap  # seconds between a recording's last frame and the next's first
+        self.shutting_down = False  # in an end_session for the engineer's shutdown
         self.sessions: dict[str, int] = {}  # v1's session id: its place in the run
         self.part = 0
         self.frame = 0
@@ -317,8 +318,11 @@ class Run:
         apply_kind = engine._apply_kind
 
         def _apply_kind(kind):
+            apply_kind(kind)
             if store.session is not None:
-                k = kind.record()
+                # The record v1's store kept, not the detector's: a continued session
+                # keeps the start seen before the restart (set_kind, #273).
+                k = store.session.kind or kind.record()
                 emit(
                     "session.kind",
                     part,
@@ -331,7 +335,6 @@ class Run:
                     cars_on_track=k["cars_on_track"],
                     start=k["start"],
                 )
-            apply_kind(kind)
 
         engine._apply_kind = _apply_kind
 
@@ -582,9 +585,13 @@ class Run:
 
         def _flush_lap(lap_no, state, complete):
             s = store.session
-            laps = len(s.laps) if s is not None else 0
+            last = s.laps[-1] if s is not None and s.laps else None
             out = flush(lap_no, state, complete)
-            if s is not None and len(s.laps) > laps:
+            # A new lap at the end: one more, or the lap a restart fell in, which
+            # replaces its part from before the gap with the whole lap (#273). The
+            # part flushed at a shutdown is not a decision: v1 replaces it if the
+            # session continues, and ecu keeps it in its record only (#76).
+            if s is not None and s.laps and s.laps[-1] is not last and not self.shutting_down:
                 lap = s.laps[-1]
                 emit(
                     "lap.completed",
@@ -605,7 +612,11 @@ class Run:
         def end_session(state, **kw):
             engine.finish_check()  # a finish in the step that ends the session comes first
             session = self.session(store)
-            out = end(state, **kw)
+            self.shutting_down = bool(kw.get("shutdown"))
+            try:
+                out = end(state, **kw)
+            finally:
+                self.shutting_down = False
             # A shutdown's end holds the card (#273): the session may continue, and
             # ecu publishes no session.ended at a stop (`ecu replay --keep-open`).
             if session and out is not None and not kw.get("shutdown"):
