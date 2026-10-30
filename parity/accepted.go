@@ -42,15 +42,6 @@ var accepted = []acceptance{
 				(kind == "solo_laps" || kind == "solo_timed")
 		},
 	},
-	{
-		ID:    "pending-joined",
-		Issue: "those-who-run/paddock#75",
-		Reason: "ecu does not mark a session joined part way yet, so session.started has no " +
-			"joined_on_lap where v1 stored the lap it joined on. Remove with #75.",
-		Match: func(d EventDiff, _ runView) bool {
-			return d.Type == "session.started" && d.Field == "joined_on_lap" && d.V2 == "null"
-		},
-	},
 }
 
 // notCompared are the fields and values left out of the comparison on purpose,

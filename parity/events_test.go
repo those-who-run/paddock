@@ -350,7 +350,7 @@ func TestAcceptedDifferences(t *testing.T) {
 		"solo position":           {[]Item{soloKind, entry(1.0)}, []Item{soloKind, entry(nil)}, "solo-position"},
 		"position in a field":     {[]Item{raceKind, entry(1.0)}, []Item{raceKind, entry(nil)}, ""},
 		"finished with no finish": {[]Item{ended(false)}, []Item{ended(true)}, ""},
-		"joined":                  {[]Item{started(7.0)}, []Item{started(nil)}, "pending-joined"},
+		"no joined_on_lap on v2":  {[]Item{started(7.0)}, []Item{started(nil)}, ""},
 		"no start on v1":          {nil, []Item{started(nil)}, ""},
 		"missing on v2":           {[]Item{started(nil)}, nil, ""},
 	} {
@@ -421,7 +421,7 @@ func TestUnusedEntries(t *testing.T) {
 	}
 	out.Reset()
 	code = compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{everyRecording: true}, &out, &bytes.Buffer{})
-	if code != exitDiffer || !strings.Contains(out.String(), "unused over every recording: remove them") {
+	if code != exitDiffer || !strings.Contains(out.String(), "1 accepted entry unused over every recording: remove it") {
 		t.Fatalf("%d\n%s", code, out.String())
 	}
 	sums := map[string]string{pitRec.Name: "x"}
