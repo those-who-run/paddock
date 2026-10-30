@@ -64,11 +64,13 @@ Settles: #65 (R3).
 The debrief, the PB card and the weekly digest
 (those-who-run/those-who-run#102, those-who-run/those-who-run#105,
 those-who-run/those-who-run#106) go in `podium` when they are built, so those
-features do not start another repository. So does any other line written to
-the results channel, such as #61 R6's warning about an empty voice channel:
-`radio` publishes an event and `podium` posts it.
+features do not start another repository.
 
-Settles: #65 (R5); #61 R6 (who posts the line).
+Settles: #65 (R5).
+
+#61 R6 already provides for cards not being in `radio`: `radio` publishes an
+event (#61's Interfaces suggest `voice.unheard`) and the card poster, now
+`podium`, writes the line.
 
 ## What #65 does because of this
 
@@ -89,8 +91,8 @@ The label is added to [`../labels.md`](../labels.md) and
 - **The switch scales one more piece.** When v2 is live, `podium` is one of
   its live pieces beside `ecu` and `radio` (ADR 0004, point 1), so the
   switch (#109, Alonso) scales "the card subscriber", which is `podium`.
-- **`radio` stays voice only.** It never posts to a text channel; anything it
-  wants written there is an event for `podium`.
+- **`radio` posts no cards;** #61 R6's line reaches the results channel as an
+  event for `podium`.
 
 Changing any point here needs a new record that supersedes this one.
 
