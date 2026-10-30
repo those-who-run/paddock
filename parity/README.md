@@ -87,7 +87,7 @@ others, as for paddock's own targets
 compose file's ports on 127.0.0.1, so a `make up` stack must be down first.
 
 The v2 side runs the compose file's `replay` service (paddock#39): `ecu`'s
-image (0.1.9, with `ecu replay`) and its own entrypoint, so the service's
+image (0.1.10, with `ecu replay`) and its own entrypoint, so the service's
 command is `ecu`'s arguments, with the server in `TWR_NATS_URL`.
 
 ## What is compared
@@ -229,8 +229,7 @@ say) are counted and named, not compared.
 
 **Accepted differences** (R4) are in [`accepted.go`](accepted.go), the one
 reviewed list, each with its reason and the issue that accepted it: a position
-of 1 outside a field (#276), and what `ecu` does not do yet (joined part way,
-#75). An entry for something still to do is removed by the PR that does it. The
+of 1 outside a field (#276). An entry for something still to do is removed by the PR that does it. The
 fields left out on purpose (v1's session type, which `kind` replaces, the end
 reason v1 never stored, the callout's text, `lap.best`) are listed there too. Any other difference fails
 the run. After the table, each entry that allowed no difference is named; when
