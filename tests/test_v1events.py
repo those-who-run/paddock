@@ -181,6 +181,15 @@ class TheSummary(unittest.TestCase):
         self.assertEqual(timed["final_position"], 1)
         self.assertIsNone(v1events.summary_fields(v1_summary(session_kind=None))["finishing_position"])
 
+    def test_the_gaps(self) -> None:
+        self.assertEqual(v1events.summary_fields(v1_summary())["gaps"], [])
+        gap = {"from": 1767227032.7768, "to": 1767227041.4768, "lap": 7, "reason": "engineer restart"}
+        got = v1events.summary_fields(v1_summary(gaps=[gap]))["gaps"]
+        self.assertEqual(
+            got,
+            [{"started_at": 1767227032777, "ended_at": 1767227041477, "lap": 7, "reason": "engineer_restart"}],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

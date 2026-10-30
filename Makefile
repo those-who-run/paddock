@@ -110,13 +110,12 @@ compose-it:
 parity:
 	$(MAKE) -C parity laps
 
-# The events and callouts each side decided, on every recording paddock keeps
-# (paddock#104), as CI's parity-events job runs it. The restart pair is left out
-# until ecu continues a session after a restart (#76): `make -C parity events
-# RUNS=--all` runs it too.
+# The events and callouts each side decided, on every recording paddock keeps and
+# then the restart pair, one session continued across an ecu restart (paddock#104,
+# #76), as CI's parity-events job runs it.
 .PHONY: parity-events
 parity-events:
-	$(MAKE) -C parity events RUNS="$$(cd recordings && ls *.jsonl.gz | tr '\n' ' ')"
+	$(MAKE) -C parity events RUNS=--all
 
 # The Brundle demo's scripted part (paddock#64, docs/demos/brundle.md): radio's
 # console in instant timing against v1's `replay`, both with `script: false`, on

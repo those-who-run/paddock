@@ -140,8 +140,13 @@ parity events [--v1-image IMG] [--compose FILE] [--healthz URL] [--nats URL] [--
 ```
 
 A `RUN` is a recording, as for `laps`, or recordings joined by `+`, replayed
-in order onto one store and one bus: v1 started again on the same store, `ecu`
-replayed again under the same source. `--all` is every recording in
+in order onto one store and one bus as one engineer stopped and started again
+(#76), so a session can continue across them: v1 shut down (its results card
+held) and started again on the same store; `ecu replay` under the same source,
+each recording but the last with `--keep-open` and each after the first with
+`--clock` 8.7 s after the last frame of the one before, read from that
+recording (ecu#56's commands). v1's store clock takes the same 8.7 s. A run has
+its own stack, so its `ecu` bucket holds no other run's kept session. `--all` is every recording in
 `recordings/SOURCES.yaml`, then the restart pair
 (`real-nuc-suzuka-before-restart-2026-10-18` then
 `real-nuc-suzuka-joined-mid-race-2026-10-18`). `--nats` is NATS as the compose
@@ -226,8 +231,15 @@ names and values (snake case, enum names without their prefix in lower case,
   neither `best_lap` nor `finishing_position`, so they are derived as
   `SessionSummary` defines them: the first lap with v1's best time (complete
   or not when the best is GT7's own, else the first complete one), and
-  `final_position` for a lap race that finished. What is left out (the laps,
-  the track, the raw fuel levels and `gaps`) is named in `notCompared`.
+  `final_position` for a lap race that finished. `gaps` are compared, each
+  gap's start and end in epoch milliseconds, its lap and its reason (v1's
+  "engineer restart" is `engineer_restart`). What is left out (the laps, the
+  track and the raw fuel levels) is named in `notCompared`.
+- A session the engineer's shutdown ended has no `session.ended` on v1's side,
+  as `ecu` publishes none at a stop: v1 holds its results card. If v1 lets go
+  of the card instead of continuing the session (another session started, or
+  the window passed), its `session.ended` is emitted then, at frame 0, as
+  `ecu`'s end from the record has `last_seq` 0.
 - A start v1 held for GT7's cars-on-track flag and then ignored as a replay or
   a demo is a `session.discarded` on v1's side, in no session, on the frame v1
   decided on, with the frame the start was on as `first_seq`.
@@ -260,9 +272,12 @@ field and both values, and any accepted entry's id; then a table (R5) with a lin
 per run: events and callouts on each side and matched, the differences, and
 those accepted.
 
-CI's `parity-events` job runs `make parity-events` from paddock's root: every
-recording in `recordings/`. The restart pair is left out until `ecu` continues
-a session after a restart (#76); `--all` runs it.
+CI's `parity-events` job runs `make parity-events` from paddock's root:
+`--all`, every recording in `recordings/` and then the restart pair, which is
+one continued session on both sides (#76): one `session.started`, a
+`session.continued` with the carried `session.track` at the second
+recording's first frame, and one `session.ended` whose `gaps` hold the
+restart.
 
 ## What is spoken
 

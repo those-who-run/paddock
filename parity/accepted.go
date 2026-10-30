@@ -159,8 +159,6 @@ var notCompared = []struct{ What, Issue, Reason string }{
 	{"session.ended fuel_capacity, fuel_at_start and fuel_at_end", "those-who-run/paddock#86",
 		"Raw fuel levels of a frame, which v1's rounded recordings hold only at float32 precision; `parity laps` " +
 			"compares each lap's fuel at its start and end, and session.ended compares fuel_used, fuel_burned and the stints."},
-	{"session.ended gaps", "those-who-run/paddock#76",
-		"Empty on both sides until ecu continues a session after a restart (#76); the restart pair is not in CI yet."},
 	{"callout text", "those-who-run/paddock#104",
 		"ecu publishes the meaning (rule, kind, slots) and radio phrases it (#71); Brundle's diff compares the spoken text."},
 	{"lap.best", "those-who-run/paddock#103",
