@@ -237,6 +237,61 @@ CI's `parity-events` job runs `make parity-events` from paddock's root: every
 recording in `recordings/`. The restart pair is left out until `ecu` continues
 a session after a restart (#76); `--all` runs it.
 
+## What is spoken
+
+```sh
+go run . spoken                                  # paddock#64's nine recordings
+go run . spoken real-nuc-sugo-two-stops-2026-10-18
+go run . spoken --all                            # every recording
+make spoken RECORDINGS=real-nuc-fuji-timed-2026-10-15
+```
+
+```
+parity spoken [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--all] RECORDING…
+```
+
+The Brundle demo's scripted check (paddock#64 R1, [the demo](../docs/demos/brundle.md)):
+what radio says against what v1 says, callout for callout. Both sides speak with
+v1's bundled script off (`script: false`, the one rules file
+[`spoken.go`](spoken.go) writes and both mount), since v1 seeds nothing and its
+script picks at random: with it off, each callout has one phrase. With no
+`RECORDING`, the nine paddock#64's acceptance criteria name: a clean race, two
+pit stops, two stops with the lane across the line, a time trial, a timed race,
+a session joined part way, and a replay and a demo that must stay silent. The
+flags and exit codes are `laps`' own; `--keep` keeps both sides' lines.
+
+- **v1** runs its own `those-who-run replay RECORDING` in v1's image with
+  `GT7_RULES_FILE` naming that file, and reads its `ConsolePlayer`'s lines,
+  `[t s] (rule) text`, from among its log lines. Its replay drains the queue
+  after every frame, so the lines are what v1's queue said, pit-lane holds and
+  drops included.
+- **v2** brings up a fresh compose project, as for `laps`, then `radio` with a
+  compose file laid over the stack's: source `parity`, `console` sink, `instant`
+  timing (every callout said in the queue's order, none stale) and
+  `TWR_RADIO_VOICE_FILE` naming the same file. Once radio logs
+  `callouts: taking`, `ecu replay --src parity --speed max` runs, and radio's
+  console lines (`[hh:mm:ss.ss] (rule) text  kind=… id=…`) are read from its log
+  once none has come for 5 s. A radio that stops during the run fails it.
+
+**The comparison** aligns the two lists on rule and text, in order (their
+longest common subsequence), so one missing callout is one difference, not a
+cascade. Lines left over pair up by rule within a stretch, as a callout said
+otherwise; the rest are said on one side only. A line radio says twice is a
+difference. Each difference is printed with the frame its callout was created
+on (from 1 in its recording), its time from the first frame, the rule, and both
+sides' place and text. Times aren't compared: v1's are the recording's own,
+radio's ecu replay's clock, and both are shown from the first frame.
+
+**Known differences** (R3) are in [`known.go`](known.go), each with its recording,
+rule, both texts, the decision and the issue that took it. A difference no
+entry matches fails the run, and so does an entry for a recording that was run
+and matched nothing. A real difference in what is said is a bug in radio or
+`ecu`, fixed there, not listed.
+
+CI's `parity-spoken` job runs `make brundle-demo` from paddock's root: the nine.
+It is in [`parity-laps.yml`](../.github/workflows/parity-laps.yml) beside the
+other two runs and, like them, not a required check.
+
 ## Checks
 
 `make check` runs the Go checks in the order of `those-who-run/.github`'s
