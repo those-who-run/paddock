@@ -119,4 +119,5 @@ Changing any point here needs a new record that supersedes this one.
   (`store.on_end = self.poster.submit`), and
   [the engineer's docs](https://github.com/those-who-run/those-who-run/blob/main/docs/engineer.md)
   (Results channel).
-- Discord, create message: https://discord.com/developers/docs/resources/message#create-message
+- Discord's API reference, "Create Message" (a REST call; it needs no gateway
+  connection).
