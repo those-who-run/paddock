@@ -645,6 +645,16 @@ func (s *v2Side) Spoken(ctx context.Context, rec Recording) (lines []Line, err e
 	if radioStopped.Match(out) {
 		return nil, fmt.Errorf("v2: radio stopped during the replay:\n%s", tail(string(out), 20))
 	}
+	// A radio killed without a word (out of memory, SIGKILL, a native crash)
+	// leaves no line in its log, only a list cut short: a silent recording would
+	// pass as nothing said on both sides. So it must still be running.
+	running, err := s.run(ctx, stack("--profile", "replay", "ps", "--status", "running", "-q", "radio")...)
+	if err != nil {
+		return nil, fmt.Errorf("v2: radio: %w", err)
+	}
+	if len(bytes.TrimSpace(running)) == 0 {
+		return nil, fmt.Errorf("v2: radio was not running at the end of the replay:\n%s", tail(string(out), 20))
+	}
 	return readRadioLines(out), nil
 }
 

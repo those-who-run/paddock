@@ -255,7 +255,7 @@ func spokenV2(t *testing.T, logs string, logErr error) (*v2Side, *fakeRunner, fu
 	t.Helper()
 	var n atomic.Int64
 	srv := fakeLogbook(&n)
-	f := &fakeRunner{rules: []rule{{has: " logs ", out: logs, err: logErr}}}
+	f := &fakeRunner{rules: []rule{{has: " logs ", out: logs, err: logErr}, {has: " ps --status running -q radio", out: "4f2a9c\n"}}}
 	s := newV2(f, srv.URL, false, &bytes.Buffer{})
 	s.said = 30 * s.poll
 	return s, f, srv.Close
@@ -316,6 +316,19 @@ func TestV2FailsWhenRadioStops(t *testing.T) {
 	s, _, done2 := spokenV2(t, never, nil)
 	defer done2()
 	if _, err := s.Spoken(context.Background(), fujiRec(t)); err == nil || !strings.Contains(err.Error(), "not taking callouts") {
+		t.Errorf("%v", err)
+	}
+}
+
+func TestV2FailsWhenRadioIsGoneWithoutAWord(t *testing.T) {
+	s, f, done := spokenV2(t, fujiRadio, nil)
+	defer done()
+	f.rules[1].out = ""
+	if _, err := s.Spoken(context.Background(), fujiRec(t)); err == nil || !strings.Contains(err.Error(), "not running at the end") {
+		t.Errorf("%v", err)
+	}
+	f.rules[1].err = errors.New("no ps")
+	if _, err := s.Spoken(context.Background(), fujiRec(t)); err == nil || !strings.Contains(err.Error(), "no ps") {
 		t.Errorf("%v", err)
 	}
 }

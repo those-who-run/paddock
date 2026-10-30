@@ -78,8 +78,8 @@ as it meanwhile.
    ```
 
 3. With v1's bot token and the voice channel's id in the shell's environment
-   (`TWR_DISCORD_BOT_TOKEN`, `TWR_DISCORD_VOICE_CHANNEL_ID`, from the password
-   manager, never a file in the repository), start `radio` on the run's source:
+   (`TWR_DISCORD_BOT_TOKEN`, `TWR_DISCORD_VOICE_CHANNEL_ID`, never a file in the
+   repository), start `radio` on the run's source:
 
    ```sh
    mkdir -p .cache/radio-wav
@@ -108,8 +108,11 @@ as it meanwhile.
    `.cache/radio-wav/timeline.jsonl` (each callout's queued, started and
    finished times, or its drop and the stage). What to hear, in order, is v1's
    list from `cd parity && go run . spoken --keep real-nuc-sugo-two-stops-2026-10-18`.
-   With the script on, as here, the words may differ from that list, but not the
-   callouts or their order.
+   That command brings up a stack of its own on the same ports
+   (`127.0.0.1:4222`, `:8222` and `:8080`), so run it before step 1 or after
+   `make down` in step 6, never while the `twr` stack is up. With the script
+   on, as here, the words may differ from that list, but not the callouts or
+   their order.
 
 6. Stop it:
 

@@ -271,7 +271,8 @@ flags and exit codes are `laps`' own; `--keep` keeps both sides' lines.
   `TWR_RADIO_VOICE_FILE` naming the same file. Once radio logs
   `callouts: taking`, `ecu replay --src parity --speed max` runs, and radio's
   console lines (`[hh:mm:ss.ss] (rule) text  kind=… id=…`) are read from its log
-  once none has come for 5 s. A radio that stops during the run fails it.
+  once none has come for 5 s. A radio that logs its stop during the run, or is
+  not running at the end of it (killed without a word), fails the run.
 
 **The comparison** aligns the two lists on rule and text, in order (their
 longest common subsequence), so one missing callout is one difference, not a
