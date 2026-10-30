@@ -15,7 +15,7 @@ import (
 )
 
 // testdata/run holds one run of the pit stop recording as each side gave it, made
-// with v1events.py on v1 1.0.0 and with ecu 0.1.9's race machine and rules (its
+// with v1events.py on v1 1.0.0 and with ecu 0.1.10's race machine and rules (its
 // rulestest.Replay, every output encoded as ecu's publisher encodes it and read by
 // v2Items): the real items, normalised, so the tests compare what the sides give.
 func runItems(t *testing.T, side string) []Item {
@@ -43,8 +43,8 @@ func failing(r EventResult) []EventDiff {
 	return out
 }
 
-// The pit stop through v1 and through ecu 0.1.9: every event and callout matches,
-// slots, pit roles, the final lap, the positions and the pause included, with
+// The pit stop through v1 and through ecu 0.1.10: every event and callout matches,
+// slots, pit roles, the final lap, the positions, the pause and the summary included, with
 // nothing accepted. Only the bests are left, which v1 has no side for.
 func TestTheRealPitStopRunMatches(t *testing.T) {
 	r := compareItems(pitRun, runItems(t, "v1"), runItems(t, "v2"))
@@ -257,7 +257,10 @@ func TestEventExamplesNormalise(t *testing.T) {
 		"pit_teleport":      `entry_at=3 lap=3 at=241`,
 		"lap_completed":     `complete=true lap=3 lap_time_ms=98765 pit_role=none at=-`,
 		"race_finished":     `kind=flag lap=6 position=1 at=23410`,
-		"session_ended":     `finished=false reason=finished at=61840`,
+		"session_ended": `best_lap=4 best_lap_ms=97412 car_code=0 car_name=null driving_ms=0 ended_at=null ended_paused=false ` +
+			`fastest_lap_ms=null final_position=1 finished=false finishing_position=1 fuel_burned=0 fuel_burned_by_stint=[] ` +
+			`fuel_stints=[] fuel_used=37.625 game_best_lap_ms=null joined_on_lap=null kind=lap_race laps_completed=10 paused_ms=0 ` +
+			`pit_stops=0 reason=finished started_at=null stints=0 total_cars=null total_laps=0 total_time_ms=null at=61840`,
 		"race_position":     `position=3 previous_position=11 at=31877`,
 		"race_final_lap":    `lap=6 at=19237`,
 		"session_discarded": `evidence=fuel is draining (98.3 -> 97.6), which only a replay does first_seq=40210 reason=replay at=40291`,
@@ -343,6 +346,18 @@ func TestAcceptedDifferences(t *testing.T) {
 	started := func(joined any) Item {
 		return item1("session.started", 1, 1, map[string]any{"car_code": 1.0, "total_laps": nil, "joined_on_lap": joined})
 	}
+	// A held start on v1's side names the later frame it decided on.
+	held := item1("session.started", 1, 1, map[string]any{"car_code": 1.0, "total_laps": nil, "joined_on_lap": nil, "decided_at": 4.0})
+	summary := func(field string, v any) Item { return item1("session.ended", 1, 99, map[string]any{field: v}) }
+	// A best lap's summary on each side: one field, beside the GT7 best both sides agree on.
+	best := func(field string, v, game any) Item {
+		return item1("session.ended", 1, 99, map[string]any{field: v, "game_best_lap_ms": game})
+	}
+	lap := func(n float64, ms any, complete bool) Item {
+		return Item{Type: "lap.completed", Part: 1, Session: 1, Fields: map[string]any{"lap": n, "lap_time_ms": ms, "complete": complete, "pit_role": "none"}}
+	}
+	lapOne := []Item{lap(1, 504963.0, true), lap(2, nil, false)}
+	twoTimed := []Item{lap(1, 504963.0, true), lap(2, 500204.0, true)}
 	for name, c := range map[string]struct {
 		v1, v2 []Item
 		want   string // the accepted ID, or "" for a failing difference
@@ -353,6 +368,52 @@ func TestAcceptedDifferences(t *testing.T) {
 		"no joined_on_lap on v2":  {[]Item{started(7.0)}, []Item{started(nil)}, ""},
 		"no start on v1":          {nil, []Item{started(nil)}, ""},
 		"missing on v2":           {[]Item{started(nil)}, nil, ""},
+		// paddock#86 AC1: ecu#52's three departures, each as narrow as it is.
+		"solo final position": {
+			[]Item{soloKind, summary("final_position", 1.0)}, []Item{soloKind, summary("final_position", nil)}, "solo-final-position",
+		},
+		"final position in a field": {
+			[]Item{raceKind, summary("final_position", 1.0)}, []Item{raceKind, summary("final_position", nil)}, "",
+		},
+		"solo final position not 1": {
+			[]Item{soloKind, summary("final_position", 2.0)}, []Item{soloKind, summary("final_position", nil)}, "",
+		},
+		"best lap 1, the only timed": {
+			append([]Item{best("best_lap_ms", 504963.0, nil)}, lapOne...), append([]Item{best("best_lap_ms", nil, nil)}, lapOne...), "best-lap-one",
+		},
+		"best lap number 1": {
+			append([]Item{best("best_lap", 1.0, nil)}, lapOne...), append([]Item{best("best_lap", nil, nil)}, lapOne...), "best-lap-one",
+		},
+		"best lap with another timed": {
+			append([]Item{best("best_lap_ms", 504963.0, nil)}, twoTimed...), append([]Item{best("best_lap_ms", nil, nil)}, twoTimed...), "",
+		},
+		"best lap not lap 1's time": {
+			append([]Item{best("best_lap_ms", 500000.0, nil)}, lapOne...), append([]Item{best("best_lap_ms", nil, nil)}, lapOne...), "",
+		},
+		"best lap 1 with a GT7 best": {
+			append([]Item{best("best_lap_ms", 504963.0, 504963.0)}, lapOne...), append([]Item{best("best_lap_ms", nil, 504963.0)}, lapOne...), "",
+		},
+		"best lap number 1 with a GT7 best": {
+			append([]Item{best("best_lap", 1.0, 504963.0)}, lapOne...), append([]Item{best("best_lap", nil, 504963.0)}, lapOne...), "",
+		},
+		"best lap on v2 only differs": {
+			append([]Item{best("best_lap_ms", 504963.0, nil)}, lapOne...), append([]Item{best("best_lap_ms", 500000.0, nil)}, lapOne...), "",
+		},
+		"a held start 3 s later": {
+			[]Item{held, summary("started_at", 1767225603001.0)}, []Item{held, summary("started_at", 1767225600000.0)}, "held-start-started-at",
+		},
+		"a held start too late": {
+			[]Item{held, summary("started_at", 1767225605001.0)}, []Item{held, summary("started_at", 1767225600000.0)}, "",
+		},
+		"a held start earlier on v1": {
+			[]Item{held, summary("started_at", 1767225599000.0)}, []Item{held, summary("started_at", 1767225600000.0)}, "",
+		},
+		"started_at with no hold": {
+			[]Item{started(nil), summary("started_at", 1767225603001.0)}, []Item{started(nil), summary("started_at", 1767225600000.0)}, "",
+		},
+		"ended_at of a held start": {
+			[]Item{held, summary("ended_at", 1767225603001.0)}, []Item{held, summary("ended_at", 1767225600000.0)}, "",
+		},
 	} {
 		r := compareItems(pitRun, c.v1, c.v2)
 		if len(r.Diffs) != 1 || r.Diffs[0].Accepted != c.want {
@@ -421,7 +482,7 @@ func TestUnusedEntries(t *testing.T) {
 	}
 	out.Reset()
 	code = compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{everyRecording: true}, &out, &bytes.Buffer{})
-	if code != exitDiffer || !strings.Contains(out.String(), "1 accepted entry unused over every recording: remove it") {
+	if code != exitDiffer || !strings.Contains(out.String(), "4 accepted entries unused over every recording: remove them") {
 		t.Fatalf("%d\n%s", code, out.String())
 	}
 	sums := map[string]string{pitRec.Name: "x"}

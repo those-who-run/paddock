@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // The accepted differences between v1 and v2 (paddock#104 R4): this file is the
 // one place they are listed, each with its reason and the issue that accepted it,
@@ -30,6 +33,58 @@ func kindOf(items []Item, part, session int) string {
 	return kind
 }
 
+// onlyLapOne is the time of a session's lap 1 when, on that side, it is the
+// session's only complete lap with a time; 0 otherwise.
+func onlyLapOne(items []Item, part, session int) float64 {
+	var ms float64
+	n := 0
+	for _, it := range items {
+		if it.Type != "lap.completed" || it.Part != part || it.Session != session || it.Fields["complete"] != true {
+			continue
+		}
+		t, ok := it.Fields["lap_time_ms"].(float64)
+		if !ok {
+			continue
+		}
+		n++
+		if it.Fields["lap"] == 1.0 {
+			ms = t
+		}
+	}
+	if n != 1 {
+		return 0
+	}
+	return ms
+}
+
+// noGameBest says whether a side's summary of a session has no GT7 best: with
+// one, lap 1 counts for best when GT7 set it there (LapCompleted.counts_for_best).
+func noGameBest(items []Item, part, session int) bool {
+	for _, it := range items {
+		if it.Type == "session.ended" && it.Part == part && it.Session == session {
+			v, ok := it.Fields["game_best_lap_ms"]
+			return ok && v == nil
+		}
+	}
+	return false
+}
+
+// heldStart says whether a side started a session from a held start: v1's
+// session.started names the later frame it decided on (v1events.py).
+func heldStart(items []Item, part, session int) bool {
+	for _, it := range items {
+		if it.Type == "session.started" && it.Part == part && it.Session == session {
+			return it.Fields["decided_at"] != nil
+		}
+	}
+	return false
+}
+
+// maxHeldMs bounds how much later v1 dated a held start than ecu: the start
+// check's hold, 3 s in the one recording with one (real-race-2laps-2026-10-14),
+// as ecu's summary test bounds it (maxHeldSecs).
+const maxHeldMs = 5000
+
 var accepted = []acceptance{
 	{
 		ID:    "solo-position",
@@ -42,6 +97,51 @@ var accepted = []acceptance{
 				(kind == "solo_laps" || kind == "solo_timed")
 		},
 	},
+	{
+		ID:    "solo-final-position",
+		Issue: "those-who-run/paddock#86",
+		Reason: "The summary's side of solo-position (#276, ecu#52's first departure): outside a field " +
+			"SessionSummary has no final_position (contracts v0.1.4), where v1's summary.json kept GT7's 1. " +
+			"v1's 1 in a solo_laps or solo_timed session is v2's null.",
+		Match: func(d EventDiff, run runView) bool {
+			kind := kindOf(run.v1, d.Part, d.Session)
+			return d.Type == "session.ended" && d.Field == "final_position" && d.V1 == "1" && d.V2 == "null" &&
+				(kind == "solo_laps" || kind == "solo_timed")
+		},
+	},
+	{
+		ID:    "best-lap-one",
+		Issue: "those-who-run/paddock#83",
+		Reason: "With no GT7 best (v1's gt7_best_lap_ms null), the summary's best lap is the quickest lap that counts (contracts v0.2.3's " +
+			"SessionSummary.best_lap, #83's R3 over R5; ecu#52's second departure), and lap 1 does not count, where " +
+			"v1's fallback took lap 1 when it was the only timed lap. On the 24 h race and the first qualifying of " +
+			"2026-10-14, v1's best is that lap 1 and v2 has none.",
+		Match: func(d EventDiff, run runView) bool {
+			if d.Type != "session.ended" || d.V2 != "null" || !noGameBest(run.v1, d.Part, d.Session) {
+				return false
+			}
+			ms := onlyLapOne(run.v1, d.Part, d.Session)
+			if ms == 0 {
+				return false
+			}
+			return (d.Field == "best_lap" && d.V1 == "1") || (d.Field == "best_lap_ms" && d.V1 == show(ms))
+		},
+	},
+	{
+		ID:    "held-start-started-at",
+		Issue: "those-who-run/paddock#74",
+		Reason: "A held start's session starts at its first held frame (contracts v0.2.3's SessionStarted.started_at; " +
+			"ecu#52's third departure), where v1's clock read the frame the start check gave its verdict on. " +
+			"v1's started_at is up to the hold later, 3 s on real-race-2laps-2026-10-14's practice.",
+		Match: func(d EventDiff, run runView) bool {
+			if d.Type != "session.ended" || d.Field != "started_at" || !heldStart(run.v1, d.Part, d.Session) {
+				return false
+			}
+			v1, err1 := strconv.ParseFloat(d.V1, 64)
+			v2, err2 := strconv.ParseFloat(d.V2, 64)
+			return err1 == nil && err2 == nil && v1 > v2 && v1-v2 <= maxHeldMs
+		},
+	},
 }
 
 // notCompared are the fields and values left out of the comparison on purpose,
@@ -52,6 +152,15 @@ var notCompared = []struct{ What, Issue, Reason string }{
 		"v1's session type (race, time trial, practice) is replaced in v2 by the session's kind, compared as session.kind."},
 	{"session.ended reason", "those-who-run/paddock#86",
 		"v1 stored no end reason, so END_REASON_MENU against END_REASON_QUIT and the like has nothing to compare with."},
+	{"session.ended laps", "those-who-run/paddock#86",
+		"The summary's laps[] are the stored laps, which `parity laps` compares lap by lap."},
+	{"session.ended track", "those-who-run/paddock#86",
+		"The summary's track is session.track's last verdict, compared on each session.track."},
+	{"session.ended fuel_capacity, fuel_at_start and fuel_at_end", "those-who-run/paddock#86",
+		"Raw fuel levels of a frame, which v1's rounded recordings hold only at float32 precision; `parity laps` " +
+			"compares each lap's fuel at its start and end, and session.ended compares fuel_used, fuel_burned and the stints."},
+	{"session.ended gaps", "those-who-run/paddock#76",
+		"Empty on both sides until ecu continues a session after a restart (#76); the restart pair is not in CI yet."},
 	{"callout text", "those-who-run/paddock#104",
 		"ecu publishes the meaning (rule, kind, slots) and radio phrases it (#71); Brundle's diff compares the spoken text."},
 	{"lap.best", "those-who-run/paddock#103",

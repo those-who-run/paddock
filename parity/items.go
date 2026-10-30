@@ -49,8 +49,13 @@ var compared = map[string][]string{
 	"race.final_lap": {"lap"},
 	"race.position":  {"previous_position", "position"},
 	"race.finished":  {"kind", "lap", "position"},
-	"session.ended":  {"finished"},
-	"callout":        {"rule", "kind", "priority", "pit_lane", "slots"},
+	"session.ended": {
+		"started_at", "ended_at", "driving_ms", "paused_ms", "ended_paused", "car_code", "car_name",
+		"total_laps", "laps_completed", "best_lap", "best_lap_ms", "fastest_lap_ms", "game_best_lap_ms",
+		"total_time_ms", "kind", "finished", "finishing_position", "final_position", "total_cars",
+		"joined_on_lap", "stints", "pit_stops", "fuel_burned", "fuel_burned_by_stint", "fuel_stints", "fuel_used",
+	},
+	"callout": {"rule", "kind", "priority", "pit_lane", "slots"},
 }
 
 // frameTolerance is how many frames apart two items of a type may be and still

@@ -32,6 +32,6 @@
 {"type":"callout","part":1,"session":1,"at":722,"fields":{"kind":"template","pit_lane":"hold","priority":10,"rule":"final_lap","slots":{},"text":""}}
 {"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":6,"lap_time_ms":60310,"pit_role":"none"}}
 {"type":"race.finished","part":1,"session":1,"at":843,"fields":{"kind":"flag","lap":6,"position":1}}
-{"type":"session.ended","part":1,"session":1,"at":843,"fields":{"finished":true,"reason":"finished"}}
+{"type":"session.ended","part":1,"session":1,"at":843,"fields":{"best_lap":5,"best_lap_ms":59541,"car_code":683,"car_name":"Honda Civic Si Group A version '87","driving_ms":390108,"ended_at":1767226006176,"ended_paused":false,"fastest_lap_ms":57109,"final_position":1,"finished":true,"finishing_position":1,"fuel_burned":130.393,"fuel_burned_by_stint":[73.825,56.568],"fuel_stints":[73.825,56.568],"fuel_used":53.291,"game_best_lap_ms":59541,"joined_on_lap":null,"kind":"lap_race","laps_completed":6,"paused_ms":2052,"pit_stops":1,"reason":"finished","started_at":1767225614016,"stints":2,"total_cars":2,"total_laps":6,"total_time_ms":389934}}
 {"type":"callout","part":1,"session":1,"at":843,"fields":{"kind":"delta_slower","pit_lane":"hold","priority":20,"rule":"lap_time","slots":{"delta_ms":769,"lap":6,"lap_time_ms":60310},"text":""}}
 {"type":"callout","part":1,"session":1,"at":843,"fields":{"kind":"template_position_win","pit_lane":"speak","priority":25,"rule":"race_summary","slots":{"best_lap_ms":59541,"position":1},"text":""}}

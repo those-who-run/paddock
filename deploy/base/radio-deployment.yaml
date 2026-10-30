@@ -74,8 +74,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          # /healthz answers 200 once radio is connected to NATS, and 503 before and
-          # while NATS is away; it reconnects on its own, so liveness waits 10 min,
+          # /healthz answers 200 once radio is connected to NATS, and 503 before,
+          # while NATS is away, and once one of radio's tasks has stopped ("ok":
+          # false, paddock#62); it reconnects on its own, so liveness waits 10 min,
           # longer than a NATS restart, as logbook's does. The voice is loaded before
           # the server starts; the start-up probe gives that 5 min.
           startupProbe:

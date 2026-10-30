@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // decode reads a message's protobuf JSON (contracts' content type). Fields a later
@@ -222,12 +224,51 @@ func v2Message(typ string) (proto.Message, func(proto.Message) Item) {
 	case "session.ended":
 		return &eventsv1.SessionEnded{}, func(m proto.Message) Item {
 			e := m.(*eventsv1.SessionEnded)
-			return item("", 0, at(e.GetLastSeq()), map[string]any{
-				"finished": e.GetSummary().GetFinished(), "reason": enum(e.GetReason(), "END_REASON_"),
-			})
+			fields := summaryFields(e.GetSummary())
+			fields["reason"] = enum(e.GetReason(), "END_REASON_")
+			return item("", 0, at(e.GetLastSeq()), fields)
 		}
 	}
 	return nil, nil
+}
+
+// summaryFields are session.ended's summary in the schema's names, as v1events.py
+// reads v1's summary.json (paddock#86 AC1): times in epoch milliseconds, an
+// optional value null when it is left out, and no car name as null, as v1 had
+// none. The laps are `parity laps`'s.
+func summaryFields(s *eventsv1.SessionSummary) map[string]any {
+	var name any
+	if s.GetCarName() != "" {
+		name = s.GetCarName()
+	}
+	floats := func(xs []float64) []any {
+		out := []any{}
+		for _, x := range xs {
+			out = append(out, x)
+		}
+		return out
+	}
+	return map[string]any{
+		"started_at": millis(s.GetStartedAt()), "ended_at": millis(s.GetEndedAt()),
+		"driving_ms": num(s.GetDrivingMs()), "paused_ms": num(s.GetPausedMs()), "ended_paused": s.GetEndedPaused(),
+		"car_code": num(s.GetCarCode()), "car_name": name, "total_laps": num(s.GetTotalLaps()),
+		"laps_completed": num(s.GetLapsCompleted()), "best_lap": opt(s.BestLap), "best_lap_ms": opt(s.BestLapTimeMs),
+		"fastest_lap_ms": opt(s.FastestLapMs), "game_best_lap_ms": opt(s.GameBestLapMs), "total_time_ms": opt(s.TotalTimeMs),
+		"kind":     enum(s.GetSessionType(), "SESSION_TYPE_"),
+		"finished": s.GetFinished(), "finishing_position": opt(s.FinishingPosition),
+		"final_position": opt(s.FinalPosition), "total_cars": opt(s.TotalCars), "joined_on_lap": opt(s.JoinedOnLap),
+		"stints": num(s.GetStints()), "pit_stops": float64(len(s.GetPitStops())),
+		"fuel_burned": s.GetFuelBurned(), "fuel_burned_by_stint": floats(s.GetFuelBurnedByStint()),
+		"fuel_stints": floats(s.GetFuelStints()), "fuel_used": s.GetFuelUsed(),
+	}
+}
+
+// millis is a time as epoch milliseconds, to the nearest; null when it is not set.
+func millis(ts *timestamppb.Timestamp) any {
+	if ts == nil {
+		return nil
+	}
+	return math.Round(float64(ts.AsTime().UnixNano()) / 1e6)
 }
 
 func item(typ string, session int, at *uint32, fields map[string]any) Item {
