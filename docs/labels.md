@@ -37,6 +37,7 @@ One or more per issue. Each names a repository the change lands in.
 | `component: ecu` | `#c5def5` | The core: race state, rules, callouts (Go). | The maintainer at triage. |
 | `component: logbook` | `#c5def5` | The store: laps, sessions, queries (Go). | The maintainer at triage. |
 | `component: radio` | `#c5def5` | Voice: callouts to speech to Discord (Python). | The maintainer at triage. |
+| `component: podium` | `#c5def5` | Results cards: after-session posts to Discord over REST (Go) ([ADR 0010](adr/0010-results-cards.md)). | The maintainer at triage. |
 | `component: pitwall` | `#c5def5` | The pit wall: web app and its API. | The maintainer at triage. |
 | `component: dash` | `#c5def5` | The live wheel dashboard. | The maintainer at triage. |
 | `component: deploy` | `#c5def5` | Kubernetes base, overlays, NATS, the runbook. | The maintainer at triage. |
