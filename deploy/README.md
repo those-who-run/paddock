@@ -48,7 +48,7 @@ headless Service, and `radio`:
   token. It has no CPU limit: Piper is CPU bound, and v1 found a 1-CPU limit
   made its callouts go stale. The image is amd64 only (ADR 0006).
 - **Images** are pinned by tag and digest, the same strings as compose:
-  `logbook` (0.1.4) and `radio` in the base's `images:` block, NATS, `nats-box` and the
+  `logbook` and `radio` in the base's `images:` block, NATS, `nats-box` and the
   exporter in `nats/chart/values.yaml` and `nats/bootstrap-job.yaml`. Each is
   pinned in one place. `make deploy-render` fails when an image in the base's
   render is not compose's, or compose runs one the base does not. `ecu`'s
@@ -83,9 +83,8 @@ headless Service, and `radio`:
 ### radio in Discord
 
 [`components/radio-discord`](components/radio-discord/kustomization.yaml)
-sets `radio`'s sink to `discord` (radio's Discord sink comes with #58; until
-then radio refuses that sink at start) and reads two settings from a Secret
-by name and key only. Nothing in paddock holds their values: the overlay
+sets `radio`'s sink to `discord` (radio 0.1.1 and later, #58) and reads two
+settings from a Secret by name and key only. Nothing in paddock holds their values: the overlay
 includes the component and the Secret is created in the stack's namespace,
 outside git.
 
