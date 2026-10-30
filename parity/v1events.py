@@ -18,8 +18,16 @@ Each line is an item: its type, the recording's place in the run (part, from 1),
 the session's place in the run (from 1; 0 with none open), the frame it happened
 on (at, counted from 1 in its recording, as ecu's seq is in a replay) and its
 fields, in v2's names and values. lap.completed has no at: a lap is matched by its
-number. A start v1 ignored (a replay or a demo) is a start.ignored item, which is
-no event: the harness takes it out and its start check entry reads it.
+number. A start v1 held and then ignored (a replay or a demo) is session.discarded,
+in no session, as of the frame v1 decided on.
+
+Beside the engine's own decisions, v1 had none of these as events, so they are
+read where v1 made them (as ecu's testdata/*/make_golden.py scripts read them):
+race.final_lap from the final_lap rule's call, race.position from a second
+PositionRule with only its 3 s settle (start_grace_secs and min_interval_secs 0,
+as ecu's race.position is the fact without the callout's limits), and
+session.paused and session.resumed from the engine's PauseClock. Each callout
+carries its slots, the values v1 put into the phrases its rule picked.
 """
 
 from __future__ import annotations
@@ -34,6 +42,10 @@ from pathlib import Path
 PIT_ROLES = {None: "none", "in": "in_lap", "out": "out_lap", "in_out": "in_and_out"}
 # v1's fuel use, as SessionKind.fuel_use names it.
 FUEL_USE = {None: "unknown", True: "on", False: "off"}
+# GT7's tyre order, as v1's temps rule reads tire_temp, in contracts' Corner names.
+CORNERS = ("CORNER_FRONT_LEFT", "CORNER_FRONT_RIGHT", "CORNER_REAR_LEFT", "CORNER_REAR_RIGHT")
+# lap_time's kinds with no delta_ms (contracts v0.2.3's Callout comment).
+NO_DELTA = ("delta_first", "template_in_lap", "template_out_lap", "template_pit_lap")
 
 
 def callout_kind(rule: str, keys: list[str], briefed: bool) -> str:
@@ -61,6 +73,38 @@ def callout_kind(rule: str, keys: list[str], briefed: bool) -> str:
     return keys[0] if keys else ""
 
 
+def present(slots: dict) -> dict:
+    """The slots as protojson gives ecu's: a slot not set, an empty track, a false
+    timed and no corners are left out. A 0 is kept, as an optional int32 is."""
+    return {k: v for k, v in slots.items() if v is not None and v != "" and v is not False and v != []}
+
+
+def brief_slots(keys: list[str], tracks: list[str], state) -> dict:
+    """start_brief's slots, from the phrase keys it picked, in contracts v0.2.3's
+    names, as ecu's internal/rules/startbrief/testdata/make_golden.py gives them:
+    the name it spoke for {track}, the frame's total_laps for {laps}, laps_left
+    for template_laps_to_go, the frame's position and total_cars for {p} and
+    {total}, and current_lap for template_joined's {lap}, with total_laps beside
+    it when the race has a lap total."""
+    out: dict = {}
+    for key in keys:
+        if key == "template_track":
+            out["track"] = tracks.pop(0) if tracks else None
+        elif key == "template_laps":
+            out["laps"] = state.total_laps
+        elif key == "template_laps_to_go":
+            out["laps_left"] = state.laps_left
+        elif key == "template_timed":
+            out["timed"] = True
+        elif key in ("template_position", "template_joined_position"):
+            out["position"], out["total_cars"] = state.position, state.total_cars
+        elif key == "template_joined":
+            out["lap"] = state.current_lap
+            if state.has_lap_count:
+                out["laps"] = state.total_laps
+    return out
+
+
 def secs_ms(secs):
     return None if secs is None else round(secs * 1000)
 
@@ -86,6 +130,10 @@ class Run:
         self.at_entry = False  # in _apply_pits: the queue sorted at a pit entry
         self.line = 0  # the recording's line engine.process is on
         self.held_at: int | None = None  # the line of the start v1 holds
+        self.pause: dict = {}  # the pause session.paused was written for
+        self.pauses = 0  # the session's pauses so far, for the pause's number
+        self.frame_end: list = []  # what a rule's slots clear after each frame
+        self.restore: list = []  # what puts back a v1 module's function wrapped for a replay
 
     def session(self, store: SessionStore) -> int:
         s = store.session
@@ -101,6 +149,7 @@ class Run:
         from those_who_run.engine import Engine
         from those_who_run.replay import read_recording
         from those_who_run.rules import build_rules
+        from those_who_run.rules.position import PositionRule
         from those_who_run.store import SessionStore
 
         self.part += 1
@@ -115,11 +164,15 @@ class Run:
         cfg = copy.deepcopy(DEFAULT_RULES)
         validate_templates(cfg)
         rules = build_rules(cfg["rules"])
-        engine = Engine(rules, CalloutQueue(max_age=None), store)
+        # race.position's own PositionRule: in the engine, so it sees every frame and
+        # every pit, track and session the others see, but it raises nothing.
+        settled = PositionRule({"start_grace_secs": 0, "min_interval_secs": 0})
+        engine = Engine([*rules, settled], CalloutQueue(max_age=None), store)
         self.wrap_engine(engine, store, part)
         self.wrap_store(engine, store, part)
         for rule in rules:
             self.wrap_rule(rule, store, part)
+        self.wrap_decisions(rules, settled, store, part)
         try:
             for state in states:
                 engine.process(state)
@@ -130,6 +183,9 @@ class Run:
             engine.close_session(shutdown=not last)
         finally:
             store.close()
+            for undo in self.restore:
+                undo()
+            self.restore, self.frame_end = [], []
 
     def wrap_engine(self, engine: Engine, store: SessionStore, part: int) -> None:
         step = engine._step
@@ -290,18 +346,106 @@ class Run:
 
         def _process(state):
             """v1's start check: a start held for GT7's cars-on-track flag, then
-            ignored as a replay or a demo, is a start.ignored item, as of the frame
-            v1 decided, with the frame the start was on (#74; accepted.go)."""
+            ignored as a replay or a demo, is session.discarded, as of the frame v1
+            decided, with the frame the start was on, as ecu's (#74). Then what a
+            rule's slots kept for the frame is cleared."""
             self.line += 1
             held, ignoring = bool(engine._held), engine.replay
             out = process(state)
             if not held and engine._held:
                 self.held_at = self.line
             if not ignoring and engine.replay:
-                emit("start.ignored", part, 0, self.line, start_at=self.held_at, why=engine.ignoring)
+                emit(
+                    "session.discarded",
+                    part,
+                    0,
+                    self.line,
+                    reason=engine.ignoring,
+                    first_seq=self.held_at,
+                    evidence=engine.driver.why,
+                )
+            for clear in self.frame_end:
+                clear()
             return out
 
         engine.process = _process
+
+        clock = engine.pauses
+        observe = clock.observe
+
+        def observe_pause(state):
+            """session.paused when the PauseClock's since goes from none to a time in an
+            open session, and session.resumed when it goes back, as ecu's
+            internal/race/testdata/pause/make_golden.py reads them. Both on the
+            recording's line: a paused frame never reaches _step."""
+            since, before = clock.since, clock.paused_secs
+            out = observe(state)
+            if since is None and clock.since is not None and store.session is not None:
+                self.pauses += 1
+                kind = "frozen" if state.phase.name == "IN_RACE" else "flagged"
+                self.pause = {"session": self.session(store), "kind": kind, "pause": self.pauses}
+                emit(
+                    "session.paused",
+                    part,
+                    self.pause["session"],
+                    self.line,
+                    kind=kind,
+                    since_t=clock.since,
+                    paused_ms=secs_ms(before),
+                    pause=self.pauses,
+                )
+            elif since is not None and clock.since is None and self.pause:
+                emit(
+                    "session.resumed",
+                    part,
+                    self.pause["session"],
+                    self.line,
+                    kind=self.pause["kind"],
+                    since_t=since,
+                    pause_ms=secs_ms(state.t - since),
+                    paused_ms=secs_ms(clock.paused_secs),
+                    pause=self.pause["pause"],
+                )
+                self.pause = {}
+            return out
+
+        clock.observe = observe_pause
+
+    def wrap_decisions(self, rules, settled, store: SessionStore, part: int) -> None:
+        """race.final_lap and race.position, which v1 decided inside its rules (ecu's
+        internal/race/testdata/final-lap-position/make_golden.py): the final lap
+        when the final_lap rule calls it, and a settled position when the second
+        PositionRule would call it, whose callouts go nowhere. Only with a session
+        open, as ecu publishes only into one."""
+        for rule in rules:
+            if rule.name == "final_lap":
+                final_evaluate = rule.evaluate
+
+                def _final(prev, state, final_evaluate=final_evaluate):
+                    out = final_evaluate(prev, state)
+                    if out and store.session is not None:
+                        emit("race.final_lap", part, self.session(store), self.frame, lap=state.current_lap)
+                    return out
+
+                rule.evaluate = _final
+        evaluate = settled.evaluate
+
+        def _settled(prev, state):
+            before = settled.announced
+            if evaluate(prev, state) and store.session is not None:
+                emit(
+                    "race.position",
+                    part,
+                    self.session(store),
+                    self.frame,
+                    previous_position=before,
+                    position=state.position,
+                )
+            return []
+
+        settled.evaluate = _settled
+        settled.on_end = lambda last, state: []
+        settled.on_finish = lambda state: []
 
     def wrap_store(self, engine: Engine, store: SessionStore, part: int) -> None:
         start = store.start_session
@@ -311,6 +455,7 @@ class Run:
             if session.session_id in self.sessions:
                 emit("session.continued", part, self.sessions[session.session_id], self.frame)
             else:
+                self.pauses = 0  # a pause's number counts from 1 in each session
                 self.sessions[session.session_id] = len(self.sessions) + 1
                 emit(
                     "session.started",
@@ -384,6 +529,7 @@ class Run:
                 inside[0] = False
 
         rule.phrases.pick, rule.phrases.first = _pick, _first
+        slots_of = self.wrap_slots(rule)
         briefed = [False]
         evaluate = rule.evaluate
 
@@ -399,14 +545,136 @@ class Run:
             picked = list(keys)
             keys.clear()
             kind = callout_kind(rule.name, picked, briefed[0])
-            self.raised.append((c, part, self.session(store), self.frame, kind, rule.pit_lane))
+            slots = present(slots_of(kind, picked, state))
+            self.raised.append((c, part, self.session(store), self.frame, kind, rule.pit_lane, slots))
             return c
 
         rule.callout = callout
 
+    def wrap_slots(self, rule):
+        """The function that gives a callout's slots (contracts v0.2.3's names) from
+        its kind, the phrase keys picked and the frame, with what it needs from the
+        rule wrapped on the instance, as each rule's make_golden.py in ecu's
+        internal/rules/*/testdata reads it. final_lap's and telemetry's have none."""
+        name = rule.name
+        if name == "lap_time":
+            from those_who_run.state import posted_lap
+
+            best = [0]  # the best the rule measures against, as LapTimeRule.evaluate takes it
+            evaluate = rule.evaluate
+
+            def _evaluate(prev, state):
+                best[0] = 0
+                if prev is not None:
+                    best[0] = prev.best_lap_ms if prev.best_lap_ms > 0 else rule.own_best_ms
+                return evaluate(prev, state)
+
+            rule.evaluate = _evaluate
+
+            def lap_time(kind, _keys, state):
+                out = {"lap": posted_lap(state), "lap_time_ms": state.last_lap_ms}
+                if kind not in NO_DELTA:
+                    out["delta_ms"] = state.last_lap_ms - best[0]
+                return out
+
+            return lap_time
+        if name == "fuel":
+            import those_who_run.rules.fuel as fuel_module
+
+            said: list[int] = []
+            laps_words = fuel_module.laps_words
+
+            def _laps_words(n):
+                said.append(n)
+                return laps_words(n)
+
+            fuel_module.laps_words = _laps_words  # the module's: put back after the replay
+            self.restore.append(lambda: setattr(fuel_module, "laps_words", laps_words))
+
+            def fuel(kind, _keys, _state):
+                laps = said[-1] if said and kind in ("template", "template_short") else None
+                said.clear()
+                return {"laps": laps}
+
+            return fuel
+        if name == "position":
+            before = [None]
+            evaluate = rule.evaluate
+
+            def _evaluate(prev, state):
+                before[0] = rule.announced
+                return evaluate(prev, state)
+
+            rule.evaluate = _evaluate
+            return lambda _kind, _keys, state: {"position": state.position, "previous_position": before[0]}
+        if name == "start_brief":
+            tracks: list[str] = []
+            track_phrase = rule._track_phrase
+
+            def _track_phrase(track):
+                tracks.append(track)
+                return track_phrase(track)
+
+            rule._track_phrase = _track_phrase
+
+            def brief(_kind, keys, state):
+                out = brief_slots(keys, tracks, state)
+                tracks.clear()
+                return out
+
+            return brief
+        if name == "race_summary":
+            said: dict = {}
+            self.frame_end.append(said.clear)  # a slot said for no callout is not the next's
+            on_finish, on_end, best_words = rule.on_finish, rule.on_end, rule._best_words
+
+            def _on_finish(state):
+                if not rule.announced and rule.has_field(state) and state.position is not None:
+                    said["position"] = state.position
+                return on_finish(state)
+
+            def _on_end(last, state):
+                said["laps"] = max(rule.laps_done, last.current_lap - 1)
+                return on_end(last, state)
+
+            def _best_words(state):
+                best = state.best_lap_ms if state.best_lap_ms > 0 else rule.best_ms or rule.best_any_ms
+                if best > 0:
+                    said["best_lap_ms"] = best
+                return best_words(state)
+
+            rule.on_finish, rule.on_end, rule._best_words = _on_finish, _on_end, _best_words
+
+            def summary(_kind, _keys, _state):
+                out = dict(said)
+                said.clear()
+                return out
+
+            return summary
+        if name == "temps":
+            before: list = []
+            evaluate = rule.evaluate
+
+            def _evaluate(prev, state):
+                # reset() makes new alarms on every start, so they are read on the call.
+                before[:] = [a.fired_at for a in getattr(rule, "tyres", [])]
+                return evaluate(prev, state)
+
+            rule.evaluate = _evaluate
+
+            def temps(kind, _keys, _state):
+                # The tyres whose alarm fired on this frame: the one that fired and
+                # those that joined it, which the rule has set before it says them.
+                if kind != "template_tyre_hot":
+                    return {}
+                return {"corners": [CORNERS[i] for i, a in enumerate(rule.tyres) if a.fired_at != before[i]]}
+
+            return temps
+        return lambda _kind, _keys, _state: {}
+
     def write_callouts(self) -> None:
         """Each callout raised, after the run, when v1's pit lane has had its say."""
-        for c, part, session, at, kind, pit_lane in self.raised:
+        for c, part, session, at, kind, pit_lane, slots in self.raised:
             outcome = self.outcome.get(id(c), "spoken")
             if outcome == "unpublished":
                 continue
@@ -419,7 +687,7 @@ class Run:
                 kind=kind,
                 priority=c.priority,
                 pit_lane=pit_lane,
-                slots=None,
+                slots=slots,
                 text=c.text,
                 outcome=outcome,
             )

@@ -97,7 +97,7 @@ services:
   # /recordings. A replay serves no /healthz and writes nothing, so it has no port and
   # no volume of its own.
   replay:
-    image: ghcr.io/those-who-run/twr-ecu:0.1.6@sha256:c797dd360c6f30a682693e11cddd06f43db6a8159398ce2dc29cf11cf44d0eef
+    image: ghcr.io/those-who-run/twr-ecu:0.1.9@sha256:e8968eba69474a370ebd9b0ca25a7116265b484fc501fa2e095db9f8562376b5
     platform: linux/amd64
     profiles: [replay]
     command: ["replay", "--help"]

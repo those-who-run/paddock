@@ -15,8 +15,9 @@ import (
 )
 
 // testdata/run holds one run of the pit stop recording as each side gave it, made
-// with v1events.py in v1 1.0.0's image and with ecu 0.1.6's replay heard on a NATS
-// of its own: the real items, normalised, so the tests compare what the sides give.
+// with v1events.py on v1 1.0.0 and with ecu 0.1.9's race machine and rules (its
+// rulestest.Replay, every output encoded as ecu's publisher encodes it and read by
+// v2Items): the real items, normalised, so the tests compare what the sides give.
 func runItems(t *testing.T, side string) []Item {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "run", "real-nuc-suzuka-pit-stop-2026-10-15."+side+".jsonl")) //nolint:gosec // the test's own testdata
@@ -42,22 +43,20 @@ func failing(r EventResult) []EventDiff {
 	return out
 }
 
-// The pit stop through v1 and through ecu 0.1.6: every event matches, and what is
-// left is accepted (pit roles and callouts, which ecu does not publish yet).
+// The pit stop through v1 and through ecu 0.1.9: every event and callout matches,
+// slots, pit roles, the final lap, the positions and the pause included, with
+// nothing accepted. Only the bests are left, which v1 has no side for.
 func TestTheRealPitStopRunMatches(t *testing.T) {
 	r := compareItems(pitRun, runItems(t, "v1"), runItems(t, "v2"))
-	if f := failing(r); len(f) > 0 {
-		t.Fatalf("%+v", f)
+	if len(r.Diffs) > 0 {
+		t.Fatalf("%+v", r.Diffs)
 	}
-	if r.Events.V1 != 15 || r.Events.V2 != 15 || r.Callouts.V1 != 15 || r.Callouts.V2 != 0 {
+	if r.Events.V1 != 20 || r.Events.V2 != 20 || r.Events.Matched != 20 ||
+		r.Callouts.V1 != 15 || r.Callouts.V2 != 15 || r.Callouts.Matched != 15 {
 		t.Errorf("events %+v callouts %+v", r.Events, r.Callouts)
 	}
-	ids := map[string]int{}
-	for _, d := range r.Diffs {
-		ids[d.Accepted]++
-	}
-	if ids["pending-pit-role"] != 6 || ids["pending-callouts"] != 15 || len(ids) != 2 {
-		t.Errorf("accepted %v", ids)
+	if len(r.Other) != 1 || r.Other["lap.best"] != 2 {
+		t.Errorf("not compared %v", r.Other)
 	}
 }
 
@@ -197,29 +196,37 @@ func TestALapDeltaOffByATenthFails(t *testing.T) {
 	}
 }
 
-// v1's slots are null until a rule's port adds them: then slots are not compared,
-// and the rest still is.
-func TestNullV1SlotsAreNotCompared(t *testing.T) {
+// Every rule's slots are compared: a v1 side without them is a difference, and a
+// callout with no slots on the bus is the same as one with empty slots.
+func TestSlotsAreAlwaysCompared(t *testing.T) {
 	v2 := lapTimeCallout(t)
 	v1 := cloneItem(v2)
 	v1.Fields["slots"] = nil
-	if r := compareItems(pitRun, []Item{v1}, []Item{v2}); len(r.Diffs) != 0 {
-		t.Fatalf("%+v", r.Diffs)
-	}
-	v1.Fields["priority"] = 11.0
-	if f := failing(compareItems(pitRun, []Item{v1}, []Item{v2})); len(f) != 1 || f[0].Field != "priority" {
+	if f := failing(compareItems(pitRun, []Item{v1}, []Item{v2})); len(f) != 1 || f[0].Field != "slots" {
 		t.Fatalf("%+v", f)
+	}
+	final := []byte(`{"sessionId":"S","rule":"final_lap","kind":"template","priority":10,"at":7,"pitLane":"PIT_LANE_HOLD"}`)
+	it, err := v2Item(busMsg{Subject: "twr.v1.parity.callout.p1", Data: final}, map[string]int{"S": 1})
+	if err != nil || show(it.Fields["slots"]) != "{}" {
+		t.Fatalf("%v %+v", err, it)
 	}
 }
 
-// Once v2 publishes any callout, a callout missing from v2 fails: pending-callouts
-// is only for a run with none.
-func TestPendingCalloutsEndWithTheFirstCallout(t *testing.T) {
+// A callout on one side only fails, whatever the other side published.
+func TestAMissingCalloutFails(t *testing.T) {
 	v1 := runItems(t, "v1")
-	v2 := append(runItems(t, "v2"), lapTimeCallout(t))
-	r := compareItems(pitRun, v1, v2)
-	if f := failing(r); len(f) != 16 { // v1's 15, and the example on v2 only
-		t.Fatalf("%d failing: %+v", len(f), f)
+	r := compareItems(pitRun, v1, append(runItems(t, "v2"), lapTimeCallout(t)))
+	if f := failing(r); len(f) != 1 || f[0].V1 != "missing" || f[0].Label != "callout lap_time" {
+		t.Fatalf("%+v", f)
+	}
+	var v2 []Item
+	for _, it := range runItems(t, "v2") {
+		if it.Type != "callout" || show(it.Fields["rule"]) != "position" {
+			v2 = append(v2, it)
+		}
+	}
+	if f := failing(compareItems(pitRun, v1, v2)); len(f) != 2 || f[0].V2 != "missing" {
+		t.Fatalf("%+v", f)
 	}
 }
 
@@ -251,6 +258,11 @@ func TestEventExamplesNormalise(t *testing.T) {
 		"lap_completed":     `complete=true lap=3 lap_time_ms=98765 pit_role=none at=-`,
 		"race_finished":     `kind=flag lap=6 position=1 at=23410`,
 		"session_ended":     `finished=false reason=finished at=61840`,
+		"race_position":     `position=3 previous_position=11 at=31877`,
+		"race_final_lap":    `lap=6 at=19237`,
+		"session_discarded": `evidence=fuel is draining (98.3 -> 97.6), which only a replay does first_seq=40210 reason=replay at=40291`,
+		"session_paused":    `kind=frozen pause=2 paused_ms=1200 since_t=2412.375 at=9921`,
+		"session_resumed":   `kind=frozen pause=2 pause_ms=45000 paused_ms=46200 since_t=2412.375 at=12601`,
 	} {
 		typ := strings.Replace(name, "_", ".", 1)
 		it, err := v2Item(busMsg{Subject: "twr.v1.parity.evt.S." + typ, Data: example(t, name)}, sessions)
@@ -261,17 +273,17 @@ func TestEventExamplesNormalise(t *testing.T) {
 			t.Errorf("%s\n got %s\nwant %s", name, got, want)
 		}
 	}
-	it, err := v2Item(busMsg{Subject: "twr.v1.parity.evt.S.race.position", Data: example(t, "race_position")}, sessions)
-	if err != nil || it.Type != "race.position" || len(it.Fields) != 0 {
+	it, err := v2Item(busMsg{Subject: "twr.v1.parity.evt.S.lap.best", Data: example(t, "lap_best")}, sessions)
+	if err != nil || it.Type != "lap.best" || len(it.Fields) != 0 {
 		t.Fatalf("%v %+v", err, it)
 	}
-	r := compareItems(pitRun, nil, []Item{{Type: "race.position", Part: 1, Fields: map[string]any{}}})
-	if r.Other["race.position"] != 1 || len(r.Diffs) != 0 {
+	r := compareItems(pitRun, nil, []Item{{Type: "lap.best", Part: 1, Fields: map[string]any{}}})
+	if r.Other["lap.best"] != 1 || len(r.Diffs) != 0 {
 		t.Errorf("%+v", r)
 	}
 	var out bytes.Buffer
 	_ = writeEventResult(&out, r)
-	if !strings.Contains(out.String(), "not compared yet (no v1 side): race.position 1") {
+	if !strings.Contains(out.String(), "not compared yet (no v1 side): lap.best 1") {
 		t.Errorf("%s", out.String())
 	}
 }
@@ -339,9 +351,7 @@ func TestAcceptedDifferences(t *testing.T) {
 		"position in a field":     {[]Item{raceKind, entry(1.0)}, []Item{raceKind, entry(nil)}, ""},
 		"finished with no finish": {[]Item{ended(false)}, []Item{ended(true)}, ""},
 		"joined":                  {[]Item{started(7.0)}, []Item{started(nil)}, "pending-joined"},
-		"start check":             {[]Item{ignoredStart(1)}, []Item{started(nil)}, "pending-start-check"},
-		"another start ignored":   {[]Item{ignoredStart(2)}, []Item{started(nil)}, ""},
-		"no start ignored":        {nil, []Item{started(nil)}, ""},
+		"no start on v1":          {nil, []Item{started(nil)}, ""},
 		"missing on v2":           {[]Item{started(nil)}, nil, ""},
 	} {
 		r := compareItems(pitRun, c.v1, c.v2)
@@ -361,34 +371,35 @@ func TestAcceptedDifferences(t *testing.T) {
 	}
 }
 
-// v1 applies a carried track and the frame's own on one frame; ecu publishes the
-// frame's last. Only the last is compared.
-// ignoredStart is v1events.py's marker: v1 ignored the start on frame start.
-func ignoredStart(start float64) Item {
-	return item1(ignoredType, 0, 30, map[string]any{"start_at": start, "why": "demo"})
-}
-
-// The start check's entry allows only v2's items of a session that started where
-// v1 ignored a start: a v2-only finish in a session v1 opened too, or one in a
-// part where v1 continued its session (the restart pair), is a difference.
-func TestPendingStartCheckIsNarrow(t *testing.T) {
-	started := item1("session.started", 1, 1, map[string]any{"car_code": 1.0, "total_laps": 12.0, "joined_on_lap": nil})
-	finished := item1("race.finished", 1, 864, map[string]any{"kind": "flag", "lap": 12.0, "position": 9.0})
-	r := compareItems(pitRun, []Item{ignoredStart(1)}, []Item{started, finished})
-	if f := failing(r); len(f) != 0 {
-		t.Fatalf("an ignored start's session: %+v", f)
+// A start v1 held and discarded is compared with ecu's session.discarded: its
+// reason and first frame. A session ecu opened where v1 discarded the start, or the
+// other way round, is a difference; so is a continued session against a new one.
+func TestADiscardedStartIsCompared(t *testing.T) {
+	discarded := func(reason string, first float64) Item {
+		return item1("session.discarded", 0, 30, map[string]any{"reason": reason, "first_seq": first, "evidence": "x"})
 	}
-	r = compareItems(pitRun, []Item{ignoredStart(500), started}, []Item{started, finished})
-	if f := failing(r); len(f) != 1 || f[0].Label != "race.finished" || f[0].V1 != "missing" {
-		t.Fatalf("a finish in a session v1 opened: %+v", f)
+	if r := compareItems(pitRun, []Item{discarded("demo", 18)}, []Item{discarded("demo", 18)}); len(r.Diffs) != 0 {
+		t.Fatalf("%+v", r.Diffs)
+	}
+	if f := failing(compareItems(pitRun, []Item{discarded("demo", 18)}, []Item{discarded("replay", 18)})); len(f) != 1 || f[0].Field != "reason" {
+		t.Fatalf("%+v", f)
+	}
+	if f := failing(compareItems(pitRun, []Item{discarded("demo", 18)}, []Item{discarded("demo", 19)})); len(f) != 1 || f[0].Field != "first_seq" {
+		t.Fatalf("%+v", f)
+	}
+	started := item1("session.started", 1, 30, map[string]any{"car_code": 1.0, "total_laps": 12.0, "joined_on_lap": nil})
+	if f := failing(compareItems(pitRun, []Item{discarded("replay", 18)}, []Item{started})); len(f) != 2 {
+		t.Fatalf("a session where v1 discarded the start: %+v", f)
 	}
 	continued := Item{Type: "session.continued", Part: 2, Session: 1, At: at(1), Fields: map[string]any{}}
 	second := Item{Type: "session.started", Part: 2, Session: 2, At: at(1), Fields: started.Fields}
-	r = compareItems(pitRun, []Item{started, continued}, []Item{started, second})
-	if f := failing(r); len(f) != 2 {
+	if f := failing(compareItems(pitRun, []Item{started, continued}, []Item{started, second})); len(f) != 2 {
 		t.Fatalf("the restart pair's part 2: %+v", f)
 	}
 }
+
+// v1 applies a carried track and the frame's own on one frame; ecu publishes the
+// frame's last. Only the last is compared.
 
 // Two of ecu's tracks on one frame are a difference: only v1's are taken as the
 // frame's last.
@@ -612,8 +623,8 @@ func TestTheEventsCommand(t *testing.T) {
 	if code != exitMatch {
 		t.Fatalf("exit %d\n%s%s", code, out, errOut)
 	}
-	if !regexp.MustCompile(`(?m)^real-nuc-suzuka-pit-stop-2026-10-15\s+15\s+15\s+9\s+15\s+0\s+0\s+0\s+21\s*$`).MatchString(out) ||
-		!strings.Contains(out, "parity events: 1 of 1 run match") || !strings.Contains(out, "accepted: pending-callouts") {
+	if !regexp.MustCompile(`(?m)^real-nuc-suzuka-pit-stop-2026-10-15\s+20\s+20\s+20\s+15\s+15\s+15\s+0\s+0\s*$`).MatchString(out) ||
+		!strings.Contains(out, "parity events: 1 of 1 run match") || !strings.Contains(out, "not compared yet (no v1 side): lap.best 2") {
 		t.Errorf("%s", out)
 	}
 	bad := runItems(t, "v2")
