@@ -47,5 +47,5 @@ images:
     newTag: 0.1.5
     digest: sha256:f54dcf151b6419294bc64136074004818d463532506977e4e5d0c82f58047fb4
   - name: ghcr.io/those-who-run/twr-radio
-    newTag: 0.1.3
-    digest: sha256:69da8ab4cf2f23e6b49230a5e8549126fe1b8bb9c71f7b71f108d9f77ae661dd
+    newTag: 0.1.4
+    digest: sha256:166ff02077a59bbc9d426b570ca59a45238714aa85b960f02e935c09d1e67b31
