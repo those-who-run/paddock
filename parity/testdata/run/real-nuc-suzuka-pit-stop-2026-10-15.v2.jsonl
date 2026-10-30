@@ -2,14 +2,36 @@
 {"type":"session.track","part":1,"session":1,"at":42,"fields":{"confidence":"ambiguous","family":"","name":"","track_id":null}}
 {"type":"session.kind","part":1,"session":1,"at":42,"fields":{"cars_on_track":true,"evidence":"6 laps, 2 cars; fuel use not known yet","field":true,"fuel_use":"unknown","kind":"lap_race","start":"unknown","total_laps":6}}
 {"type":"session.kind","part":1,"session":1,"at":44,"fields":{"cars_on_track":true,"evidence":"6 laps, 2 cars; fuel use on; rolling start at 128 km/h","field":true,"fuel_use":"on","kind":"lap_race","start":"rolling","total_laps":6}}
+{"type":"callout","part":1,"session":1,"at":47,"fields":{"kind":"template","pit_lane":"hold","priority":8,"rule":"start_brief","slots":{"laps":6,"position":1,"total_cars":2},"text":""}}
+{"type":"race.position","part":1,"session":1,"at":59,"fields":{"position":2,"previous_position":1}}
+{"type":"callout","part":1,"session":1,"at":80,"fields":{"kind":"template_lost_lead","pit_lane":"drop","priority":12,"rule":"position","slots":{"position":2,"previous_position":1},"text":""}}
+{"type":"race.position","part":1,"session":1,"at":112,"fields":{"position":1,"previous_position":2}}
+{"type":"callout","part":1,"session":1,"at":112,"fields":{"kind":"template_gained_lead","pit_lane":"drop","priority":12,"rule":"position","slots":{"position":1,"previous_position":2},"text":""}}
 {"type":"session.track","part":1,"session":1,"at":160,"fields":{"confidence":"confirmed","family":"","name":"Suzuka Circuit East Course","track_id":442}}
-{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":1,"lap_time_ms":57109,"pit_role":null}}
-{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":2,"lap_time_ms":60538,"pit_role":null}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":1,"lap_time_ms":57109,"pit_role":"none"}}
+{"type":"callout","part":1,"session":1,"at":160,"fields":{"kind":"delta_first","pit_lane":"hold","priority":20,"rule":"lap_time","slots":{"lap":1,"lap_time_ms":57109},"text":""}}
+{"type":"callout","part":1,"session":1,"at":160,"fields":{"kind":"template_pit_next","pit_lane":"speak","priority":5,"rule":"fuel","slots":{},"text":""}}
+{"type":"callout","part":1,"session":1,"at":160,"fields":{"kind":"template","pit_lane":"speak","priority":15,"rule":"fuel","slots":{"laps":2},"text":""}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":2,"lap_time_ms":60538,"pit_role":"none"}}
+{"type":"lap.best","part":1,"session":0,"at":null,"fields":{}}
+{"type":"callout","part":1,"session":1,"at":281,"fields":{"kind":"delta_first","pit_lane":"hold","priority":20,"rule":"lap_time","slots":{"lap":2,"lap_time_ms":60538},"text":""}}
+{"type":"callout","part":1,"session":1,"at":281,"fields":{"kind":"template_pit","pit_lane":"speak","priority":5,"rule":"fuel","slots":{},"text":""}}
+{"type":"callout","part":1,"session":1,"at":281,"fields":{"kind":"template","pit_lane":"speak","priority":15,"rule":"fuel","slots":{"laps":1},"text":""}}
+{"type":"session.paused","part":1,"session":1,"at":316,"fields":{"kind":"flagged","pause":1,"paused_ms":0,"since_t":6683146.909132061}}
+{"type":"session.resumed","part":1,"session":1,"at":323,"fields":{"kind":"flagged","pause":1,"pause_ms":2052,"paused_ms":2052,"since_t":6683146.909132061}}
 {"type":"pit.entered","part":1,"session":1,"at":455,"fields":{"fuel_before":22.899,"in_lap":3,"position_before":1,"stop":1}}
-{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":3,"lap_time_ms":82544,"pit_role":null}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":3,"lap_time_ms":82544,"pit_role":"in_lap"}}
 {"type":"pit.exited","part":1,"session":1,"at":486,"fields":{"fuel_added":77.1,"fuel_after":99.999,"fuel_before":22.899,"in_lap":3,"out_lap":4,"pit_lane_ms":12160,"position_after":1,"position_before":1,"stationary_ms":8390,"stint":2,"stop":1,"tyres_changed":false}}
-{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":4,"lap_time_ms":69892,"pit_role":null}}
-{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":5,"lap_time_ms":59541,"pit_role":null}}
-{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":6,"lap_time_ms":60310,"pit_role":null}}
+{"type":"callout","part":1,"session":1,"at":455,"fields":{"kind":"template_in_lap","pit_lane":"hold","priority":20,"rule":"lap_time","slots":{"lap":3,"lap_time_ms":82544},"text":""}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":4,"lap_time_ms":69892,"pit_role":"out_lap"}}
+{"type":"callout","part":1,"session":1,"at":603,"fields":{"kind":"template_out_lap","pit_lane":"hold","priority":20,"rule":"lap_time","slots":{"lap":4,"lap_time_ms":69892},"text":""}}
+{"type":"race.final_lap","part":1,"session":1,"at":722,"fields":{"lap":6}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":5,"lap_time_ms":59541,"pit_role":"none"}}
+{"type":"lap.best","part":1,"session":0,"at":null,"fields":{}}
+{"type":"callout","part":1,"session":1,"at":722,"fields":{"kind":"template_new_best","pit_lane":"hold","priority":11,"rule":"lap_time","slots":{"delta_ms":-997,"lap":5,"lap_time_ms":59541},"text":""}}
+{"type":"callout","part":1,"session":1,"at":722,"fields":{"kind":"template","pit_lane":"hold","priority":10,"rule":"final_lap","slots":{},"text":""}}
+{"type":"lap.completed","part":1,"session":1,"at":null,"fields":{"complete":true,"lap":6,"lap_time_ms":60310,"pit_role":"none"}}
 {"type":"race.finished","part":1,"session":1,"at":843,"fields":{"kind":"flag","lap":6,"position":1}}
 {"type":"session.ended","part":1,"session":1,"at":843,"fields":{"finished":true,"reason":"finished"}}
+{"type":"callout","part":1,"session":1,"at":843,"fields":{"kind":"delta_slower","pit_lane":"hold","priority":20,"rule":"lap_time","slots":{"delta_ms":769,"lap":6,"lap_time_ms":60310},"text":""}}
+{"type":"callout","part":1,"session":1,"at":843,"fields":{"kind":"template_position_win","pit_lane":"speak","priority":25,"rule":"race_summary","slots":{"best_lap_ms":59541,"position":1},"text":""}}
