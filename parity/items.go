@@ -54,6 +54,7 @@ var compared = map[string][]string{
 		"total_laps", "laps_completed", "best_lap", "best_lap_ms", "fastest_lap_ms", "game_best_lap_ms",
 		"total_time_ms", "kind", "finished", "finishing_position", "final_position", "total_cars",
 		"joined_on_lap", "stints", "pit_stops", "fuel_burned", "fuel_burned_by_stint", "fuel_stints", "fuel_used",
+		"gaps",
 	},
 	"callout": {"rule", "kind", "priority", "pit_lane", "slots"},
 }

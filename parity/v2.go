@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -173,11 +174,54 @@ func (s *v2Side) health(ctx context.Context) (int, error) {
 // under the harness's source.
 var eventSubjects = []string{"twr.v1.parity.evt.>", "twr.v1.parity.callout.>"}
 
+// replayClock is the wall-clock time `ecu replay` gives a recording's first frame
+// when it is passed no --clock (ecu's README, "Replay"), as v1Clock is v1's.
+var replayClock = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// restartGap is how long the engineer was stopped between two recordings of a
+// run, from one's last frame to the next's first, on both sides: the gap ecu's
+// golden for the restart pair has (ecu#56), well inside the continue window.
+const restartGap = 8700 * time.Millisecond
+
+// replayArgs are ecu replay's arguments for each recording of a run (#76, ecu#56's
+// "How paddock should run the restart pair"): every one under the one --src; each
+// but the last with --keep-open, so it stops as an ecu does and keeps its session
+// in the `ecu` bucket; each after the first with --clock at restartGap after the
+// last frame of the one before, which it then continues. A recording on its own
+// gets no --clock (the decision of 2026-10-24).
+func replayArgs(run Run) ([][]string, error) {
+	var out [][]string
+	clock := replayClock
+	for i, rec := range run.Recordings {
+		args := []string{"replay", "replay", "--src", "parity", "--speed", "max"}
+		if i > 0 {
+			args = append(args, "--clock", clock.Format(time.RFC3339Nano))
+		}
+		if i < len(run.Recordings)-1 {
+			args = append(args, "--keep-open")
+			ts, err := frameTimes(rec.Path)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", rec.Name, err)
+			}
+			span := time.Duration(math.Round((ts[len(ts)-1] - ts[0]) * float64(time.Second)))
+			clock = clock.Add(span + restartGap)
+		}
+		out = append(out, append(args, "/recording/"+rec.Name))
+	}
+	return out, nil
+}
+
 // Events replays the run's recordings, in order, through a fresh stack, with the
 // checker listening on the bus from before the first frame (R1, R6): ecu's
 // decisions as it publishes them, not as a store keeps them. Each recording is a
-// part: ecu's frame count starts again with each replay.
+// part: ecu's frame count starts again with each replay. A run of several is one
+// engineer stopped and started again (replayArgs). The stack is the run's own, so
+// no kept session of another run's is in its `ecu` bucket.
 func (s *v2Side) Events(ctx context.Context, run Run) (items []Item, err error) {
+	replays, err := replayArgs(run)
+	if err != nil {
+		return nil, fmt.Errorf("v2: %w", err)
+	}
 	project := "parity-" + safeName(run.Stem())
 	if _, err := s.run(ctx, s.stack(project, "down", "--volumes", "--remove-orphans")...); err != nil {
 		return nil, err
@@ -209,9 +253,8 @@ func (s *v2Side) Events(ctx context.Context, run Run) (items []Item, err error) 
 	heard := 0
 	for i, rec := range run.Recordings {
 		inside := "/recording/" + rec.Name
-		if _, err := s.run(ctx, s.stack(project, "run", "--rm", "--no-deps", "-T",
-			"-v", rec.Path+":"+inside+":ro,z",
-			"replay", "replay", "--src", "parity", "--speed", "max", inside)...); err != nil {
+		if _, err := s.run(ctx, s.stack(project, append([]string{"run", "--rm", "--no-deps", "-T",
+			"-v", rec.Path + ":" + inside + ":ro,z"}, replays[i]...)...)...); err != nil {
 			return nil, fmt.Errorf("v2 replay: %w", err)
 		}
 		msgs, err := s.waitQuiet(ctx, l)

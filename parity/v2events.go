@@ -263,6 +263,13 @@ func summaryFields(s *eventsv1.SessionSummary) map[string]any {
 		}
 		return out
 	}
+	gaps := []any{}
+	for _, g := range s.GetGaps() {
+		gaps = append(gaps, map[string]any{
+			"started_at": millis(g.GetStartedAt()), "ended_at": millis(g.GetEndedAt()),
+			"lap": num(g.GetLap()), "reason": enum(g.GetReason(), "GAP_REASON_"),
+		})
+	}
 	return map[string]any{
 		"started_at": millis(s.GetStartedAt()), "ended_at": millis(s.GetEndedAt()),
 		"driving_ms": num(s.GetDrivingMs()), "paused_ms": num(s.GetPausedMs()), "ended_paused": s.GetEndedPaused(),
@@ -274,7 +281,7 @@ func summaryFields(s *eventsv1.SessionSummary) map[string]any {
 		"final_position": opt(s.FinalPosition), "total_cars": opt(s.TotalCars), "joined_on_lap": opt(s.JoinedOnLap),
 		"stints": num(s.GetStints()), "pit_stops": float64(len(s.GetPitStops())),
 		"fuel_burned": s.GetFuelBurned(), "fuel_burned_by_stint": floats(s.GetFuelBurnedByStint()),
-		"fuel_stints": floats(s.GetFuelStints()), "fuel_used": s.GetFuelUsed(),
+		"fuel_stints": floats(s.GetFuelStints()), "fuel_used": s.GetFuelUsed(), "gaps": gaps,
 	}
 }
 

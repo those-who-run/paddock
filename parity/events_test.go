@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"os"
@@ -12,6 +13,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // testdata/run holds one run of the pit stop recording as each side gave it, made
@@ -259,7 +264,7 @@ func TestEventExamplesNormalise(t *testing.T) {
 		"race_finished":     `kind=flag lap=6 position=1 at=23410`,
 		"session_ended": `best_lap=4 best_lap_ms=97412 car_code=0 car_name=null driving_ms=0 ended_at=null ended_paused=false ` +
 			`fastest_lap_ms=null final_position=1 finished=false finishing_position=1 fuel_burned=0 fuel_burned_by_stint=[] ` +
-			`fuel_stints=[] fuel_used=37.625 game_best_lap_ms=null joined_on_lap=null kind=lap_race laps_completed=10 paused_ms=0 ` +
+			`fuel_stints=[] fuel_used=37.625 game_best_lap_ms=null gaps=[] joined_on_lap=null kind=lap_race laps_completed=10 paused_ms=0 ` +
 			`pit_stops=0 reason=finished started_at=null stints=0 total_cars=null total_laps=0 total_time_ms=null at=61840`,
 		"race_position":     `position=3 previous_position=11 at=31877`,
 		"race_final_lap":    `lap=6 at=19237`,
@@ -549,7 +554,7 @@ func TestV1Events(t *testing.T) {
 	}
 	call := f.calls[0]
 	if !strings.HasPrefix(call, "podman run --rm -v /rec/real-nuc-suzuka-pit-stop-2026-10-15.jsonl.gz:/recording/real-nuc-suzuka-pit-stop-2026-10-15.jsonl.gz:ro,z -v /rec/b.jsonl.gz:/recording/b.jsonl.gz:ro,z --entrypoint python v1:1.0.0 -c ") ||
-		!strings.HasSuffix(call, " /recording/real-nuc-suzuka-pit-stop-2026-10-15.jsonl.gz /recording/b.jsonl.gz") ||
+		!strings.HasSuffix(call, " --gap 8.7 /recording/real-nuc-suzuka-pit-stop-2026-10-15.jsonl.gz /recording/b.jsonl.gz") ||
 		!strings.Contains(call, "def main(") {
 		t.Errorf("%s", call)
 	}
@@ -612,8 +617,12 @@ func TestV2Events(t *testing.T) {
 		}
 		return f.run(ctx, argv...)
 	}
+	// The first recording's frames are read for the second's --clock.
+	first := pitRec
+	first.Path = filepath.Join(t.TempDir(), first.Name)
+	writeGzip(t, first.Path, `{"t":100.25}`+"\n"+`{"t":160.75}`+"\n")
 	second := Recording{Name: "b.jsonl.gz", Path: "/rec/b.jsonl.gz"}
-	items, err := s.Events(context.Background(), Run{Recordings: []Recording{pitRec, second}})
+	items, err := s.Events(context.Background(), Run{Recordings: []Recording{first, second}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,8 +635,72 @@ func TestV2Events(t *testing.T) {
 	project := "parity-real-nuc-suzuka-pit-stop-2026-10-15-b"
 	stack := "-p " + project + " -f /paddock/deploy/compose/compose.yaml "
 	if f.called(stack+"up -d") != 1 || f.called(stack+"down --volumes --remove-orphans") != 2 ||
-		f.called("/rec/b.jsonl.gz:/recording/b.jsonl.gz:ro,z replay replay --src parity --speed max /recording/b.jsonl.gz") != 1 {
+		f.called(":ro,z replay replay --src parity --speed max --keep-open /recording/"+pitRec.Name) != 1 ||
+		f.called("/rec/b.jsonl.gz:/recording/b.jsonl.gz:ro,z replay replay --src parity --speed max "+
+			"--clock 2026-01-01T00:01:09.2Z /recording/b.jsonl.gz") != 1 {
 		t.Errorf("%q", f.calls)
+	}
+	// A recording whose frames can't be read replays nothing.
+	f.calls = nil
+	missing := Recording{Name: "gone.jsonl.gz", Path: filepath.Join(t.TempDir(), "gone.jsonl.gz")}
+	if _, err := s.Events(context.Background(), Run{Recordings: []Recording{missing, second}}); err == nil || len(f.calls) != 0 {
+		t.Errorf("%v %q", err, f.calls)
+	}
+}
+
+func writeGzip(t *testing.T, path, text string) {
+	t.Helper()
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+	_, _ = gz.Write([]byte(text))
+	_ = gz.Close()
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The restart pair, as ecu#56 gives the commands: one --src, the first replay
+// kept open, the second's --clock its last frame plus 8.7 s, from the recording.
+func TestTheRestartPairsReplays(t *testing.T) {
+	recs, err := resolveRecordings(restartPair, filepath.Join("..", "recordings"), readRepoSources(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := replayArgs(Run{Recordings: recs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"replay replay --src parity --speed max --keep-open /recording/real-nuc-suzuka-before-restart-2026-10-18.jsonl.gz",
+		"replay replay --src parity --speed max --clock 2026-01-01T00:24:01.476810287Z /recording/real-nuc-suzuka-joined-mid-race-2026-10-18.jsonl.gz",
+	}
+	if len(got) != 2 || strings.Join(got[0], " ") != want[0] || strings.Join(got[1], " ") != want[1] {
+		t.Errorf("%q", got)
+	}
+	// A recording on its own: no --clock and nothing kept, as before.
+	got, err = replayArgs(pitRun)
+	if err != nil || len(got) != 1 || strings.Join(got[0], " ") != "replay replay --src parity --speed max /recording/"+pitRec.Name {
+		t.Errorf("%v %q", err, got)
+	}
+}
+
+// A continued session's gaps are compared, in v1's names and values.
+func TestTheSummarysGaps(t *testing.T) {
+	g := &eventsv1.SessionGap{
+		StartedAt: timestamppb.New(time.Date(2026, 1, 1, 0, 23, 52, 777e6, time.UTC)),
+		EndedAt:   timestamppb.New(time.Date(2026, 1, 1, 0, 24, 1, 477e6, time.UTC)),
+		Lap:       7, Reason: eventsv1.GapReason_GAP_REASON_ENGINEER_RESTART,
+	}
+	got := summaryFields(&eventsv1.SessionSummary{Gaps: []*eventsv1.SessionGap{g}})["gaps"]
+	if s := show(got); s != `[{"ended_at":1767227041477,"lap":7,"reason":"engineer_restart","started_at":1767227032777}]` {
+		t.Errorf("%s", s)
+	}
+	v1 := []any{map[string]any{"started_at": 1767227032777.0, "ended_at": 1767227041477.0, "lap": 7.0, "reason": "engineer_restart"}}
+	if !valueEqual("gaps", v1, got) {
+		t.Error("v1's gap differs")
+	}
+	if show(summaryFields(&eventsv1.SessionSummary{})["gaps"]) != "[]" {
+		t.Error("no gaps")
 	}
 }
 

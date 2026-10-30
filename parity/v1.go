@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -113,7 +114,9 @@ func (s *v1Side) Events(ctx context.Context, run Run) ([]Item, error) {
 		args = append(args, "-v", rec.Path+":"+path+":ro,z")
 		inside = append(inside, path)
 	}
-	args = append(args, "--entrypoint", "python", s.image, "-c", v1Events)
+	// v1 started again restartGap after each recording but the last, as ecu is.
+	args = append(args, "--entrypoint", "python", s.image, "-c", v1Events,
+		"--gap", strconv.FormatFloat(restartGap.Seconds(), 'f', -1, 64))
 	out, err := s.run(ctx, append(args, inside...)...)
 	if err != nil {
 		return nil, fmt.Errorf("v1 events: %w", err)

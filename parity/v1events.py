@@ -4,13 +4,16 @@ callouts").
 
 The harness runs it in v1's own image, whose Python has v1 installed:
 
-    python -c "$(cat v1events.py)" RECORDING [RECORDING…]
+    python -c "$(cat v1events.py)" [--gap SECS] RECORDING [RECORDING…]
 
 It replays each recording as v1's `replay` does, with every rule on and the
 bundled script off (`script: false`, so every callout has one template and its
 text is the same on every run), into one temporary store, with a new
 engine for each recording: a second recording is v1 started again on the same
-store, so the restart pair can continue its session. Nothing in v1 is changed: the
+store, so the restart pair can continue its session (#76). A recording before the
+last ends as the engineer's shutdown does, its results card held, and the next
+starts GAP seconds (--gap, 0 by default) after its last frame on the store's
+clock, as `ecu replay --clock` dates it. Nothing in v1 is changed: the
 engine's, the store's and the rules' methods are wrapped on their instances
 (#103 R4), as ecu's testdata/*/make_golden.py scripts wrap them.
 
@@ -162,6 +165,17 @@ def summary_fields(summary: dict) -> dict:
         "fuel_burned_by_stint": summary["fuel_burned_by_stint"],
         "fuel_stints": summary["fuel_stints"],
         "fuel_used": summary["fuel_used"],
+        # The engineer restarts the session was continued across (#273), as
+        # SessionGap names them; v1's reason "engineer restart" is engineer_restart.
+        "gaps": [
+            {
+                "started_at": secs_ms(g["from"]),
+                "ended_at": secs_ms(g["to"]),
+                "lap": g["lap"],
+                "reason": g["reason"].replace(" ", "_"),
+            }
+            for g in summary.get("gaps") or []
+        ],
     }
 
 
@@ -183,8 +197,9 @@ class Clock:
 class Run:
     """The recordings of one run, in order, through v1 onto one store."""
 
-    def __init__(self, store_dir: Path) -> None:
+    def __init__(self, store_dir: Path, gap: float = 0.0) -> None:
         self.store_dir = store_dir
+        self.gap = gap  # seconds between a recording's last frame and the next's first
         self.sessions: dict[str, int] = {}  # v1's session id: its place in the run
         self.part = 0
         self.frame = 0
@@ -228,8 +243,11 @@ class Run:
             self.frame_of.setdefault((s.packet_id, s.t), []).append(n)
         self.seen = {}
         self.line, self.held_at = 0, None
-        self.clock.now = EPOCH
-        store = SessionStore(self.store_dir, clock=self.clock)
+        # The first recording from EPOCH; a later one gap seconds after the last
+        # frame of the one before, as the engineer started again (#76).
+        start = EPOCH if part == 1 else self.clock.now + self.gap
+        self.clock.now = start
+        store = SessionStore(self.store_dir, clock=self.clock, on_end=self.released(part))
         cfg = copy.deepcopy(DEFAULT_RULES)
         validate_templates(cfg)
         rules = build_rules(cfg["rules"])
@@ -245,7 +263,7 @@ class Run:
         t0 = states[0].t if states else 0.0
         try:
             for state in states:
-                self.clock.now = EPOCH + (state.t - t0)
+                self.clock.now = start + (state.t - t0)
                 engine.process(state)
                 while engine.queue.pop(state.t) is not None:
                     pass
@@ -322,7 +340,9 @@ class Run:
         def _apply_track(match, **kw):
             before = engine.track
             out = apply_track(match, **kw)
-            if engine.track is not before and kw.get("store", True) and store.session is not None:
+            # store=False is the track a continued session carried (#273), which ecu
+            # publishes as session.track after session.continued (#76).
+            if engine.track is not before and store.session is not None:
                 emit(
                     "session.track",
                     part,
@@ -518,6 +538,20 @@ class Run:
         settled.on_end = lambda last, state: []
         settled.on_finish = lambda state: []
 
+    def released(self, part: int):
+        """The store's on_end: session.ended for a session the engineer's shutdown
+        ended, once v1 lets go of its held card (another session started, or the
+        window passed) rather than continuing it. Every other end is emitted where
+        it ends (end_session). A held card has no frame of this run: at 0, as ecu's
+        end from the record has last_seq 0."""
+
+        def on_end(summary: dict) -> None:
+            if summary.get("engineer_shutdown"):
+                session = self.sessions.get(summary["session_id"], 0)
+                emit("session.ended", part, session, 0, **summary_fields(summary))
+
+        return on_end
+
     def wrap_store(self, engine: Engine, store: SessionStore, part: int) -> None:
         start = store.start_session
 
@@ -572,7 +606,9 @@ class Run:
             engine.finish_check()  # a finish in the step that ends the session comes first
             session = self.session(store)
             out = end(state, **kw)
-            if session and out is not None:
+            # A shutdown's end holds the card (#273): the session may continue, and
+            # ecu publishes no session.ended at a stop (`ecu replay --keep-open`).
+            if session and out is not None and not kw.get("shutdown"):
                 summary = json.loads(Path(out).read_text())
                 emit("session.ended", part, session, self.frame_at(state), **summary_fields(summary))
             return out
@@ -767,13 +803,17 @@ class Run:
             )
 
 
-def main(paths: list[Path]) -> None:
+def main(paths: list[Path], gap: float = 0.0) -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        run = Run(Path(tmp))
+        run = Run(Path(tmp), gap)
         for n, path in enumerate(paths, 1):
             run.replay(path, last=n == len(paths))
     run.write_callouts()
 
 
 if __name__ == "__main__":
-    main([Path(p) for p in sys.argv[1:]])
+    args = sys.argv[1:]
+    gap = 0.0
+    if args[:1] == ["--gap"]:
+        gap, args = float(args[1]), args[2:]
+    main([Path(p) for p in args], gap)
