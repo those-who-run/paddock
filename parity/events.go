@@ -94,7 +94,7 @@ func compareItems(run Run, v1, v2 []Item) EventResult {
 		}
 		r.Diffs = append(r.Diffs, diffs...)
 	}
-	accept(r.Diffs, runView{v1: v1, v2: v2})
+	accept(r.Diffs, runView{v1: v1, v2: v2, stem: run.Stem()})
 	return r
 }
 

@@ -259,7 +259,11 @@ say) are counted and named, not compared.
 reviewed list, each with its reason and the issue that accepted it: a position
 of 1 outside a field (#276), in an event and in the summary, and `ecu`#52's
 other two departures from v1's summary: a best lap where v1 took lap 1 as the only
-timed lap (#83) and a held start's `started_at`, up to 5 s earlier (#74). An entry for something still to do is removed by the PR that does it. The
+timed lap (#83) and a held start's `started_at`, up to 5 s earlier (#74); and
+the maintainer's decision of 2026-10-31, no track at the start (`ecu`#60 and
+`radio`#31, from `ecu` 0.1.12): no start brief that only named the track, no
+track slot in a race's start brief, and a track in the race summary when `ecu`'s
+verdict is CONFIRMED, each on the recordings it lists. An entry for something still to do is removed by the PR that does it. The
 fields left out on purpose (v1's session type, which `kind` replaces, the end
 reason v1 never stored, the callout's text, `lap.best`) are listed there too. Any other difference fails
 the run. After the table, each entry that allowed no difference is named; when
@@ -326,7 +330,9 @@ sides' place and text. Times aren't compared: v1's are the recording's own,
 radio's ecu replay's clock, and both are shown from the first frame.
 
 **Known differences** (R3) are in [`known.go`](known.go), each with its recording,
-rule, both texts, the decision and the issue that took it. A difference no
+rule, both texts, the decision and the issue that took it: the six of the
+decision of 2026-10-31, no track at the start (two start briefs and four race
+summaries). A difference no
 entry matches fails the run, and so does an entry for a recording that was run
 and matched nothing. A real difference in what is said is a bug in radio or
 `ecu`, fixed there, not listed.

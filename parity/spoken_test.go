@@ -393,12 +393,13 @@ func speakers(v1, v2 []Line) (*cannedSpeaker, *cannedSpeaker) {
 }
 
 func TestSpokenMatchesAndPrintsTheTable(t *testing.T) {
-	v1, v2 := speakers(fujiLines(t), fujiLines(t))
+	// Since ecu 0.1.12 the brief that was only the track is not said, a known difference.
+	v1, v2 := speakers(fujiLines(t), fujiLines(t)[1:])
 	code, out, errOut := runSpoken(t, v1, v2, fuji)
 	if code != exitMatch {
 		t.Fatalf("exit %d\n%s%s", code, out, errOut)
 	}
-	for _, want := range []string{"v2 images: ecu, radio", "match: 4 callouts", "parity spoken: 1 of 1 recording match"} {
+	for _, want := range []string{"v2 images: ecu, radio", "known: no-track-brief-fuji-timed", "match: 3 callouts", "parity spoken: 1 of 1 recording match"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in\n%s", want, out)
 		}
