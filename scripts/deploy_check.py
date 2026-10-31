@@ -46,7 +46,13 @@ For ``deploy/base``, what paddock#44 asks of the base:
   an ``emptyDir`` at ``/tmp`` for the speech cache, readiness and liveness on
   ``/healthz``, non-root on a read-only root file system with no service account
   token and the RuntimeDefault seccomp profile, requests and a memory limit; and
-  its Service on 8080.
+  its Service on 8080;
+- paddock#67: ``podium`` a Deployment of exactly one replica, replaced by
+  ``Recreate``, ``TWR_NATS_URL=nats://nats:4222``, ``ADDR=:8080``, source ``live``
+  and the ``discord`` sink with no Secret and no Discord setting, so its cards are
+  off, readiness and liveness on ``/healthz``, non-root on a read-only root file
+  system with no service account token and the RuntimeDefault seccomp profile,
+  requests and a memory limit; and its Service on 8080.
 
 Each component's render over the base carries the label on every object too, its
 own included. For ``deploy/components/network-policy``, rendered over the base: a NetworkPolicy
@@ -63,6 +69,12 @@ For ``deploy/components/radio-discord``, rendered over the base (paddock#63 R3):
 ``TWR_DISCORD_VOICE_CHANNEL_ID`` come from a ``secretKeyRef`` each, of the Secret
 ``radio-discord`` under their own names, and from no value; the render holds no
 Secret of that name.
+
+For ``deploy/components/podium-discord``, rendered over the base (paddock#67):
+``podium``'s ``TWR_DISCORD_BOT_TOKEN`` and ``TWR_DISCORD_RESULTS_CHANNEL_ID`` come
+from a ``secretKeyRef`` each, of the Secret ``radio-discord`` under their own names,
+the channel's ``optional`` so a Secret without it turns cards off, and from no
+value; the render holds no Secret of that name.
 
 With ``--namespace NS``, the render is of a throwaway overlay that sets
 ``namespace: NS`` over the kustomization, and the only check is that every namespaced
@@ -91,6 +103,10 @@ RADIO_DISCORD = "deploy/components/radio-discord"
 # provides.
 RADIO_SECRET = "radio-discord"
 RADIO_SECRET_KEYS = ("TWR_DISCORD_BOT_TOKEN", "TWR_DISCORD_VOICE_CHANNEL_ID")
+PODIUM_DISCORD = "deploy/components/podium-discord"
+# The keys deploy/components/podium-discord reads from radio's Secret: the bot's
+# token, and the results channel, which the overlay adds.
+PODIUM_SECRET_KEYS = ("TWR_DISCORD_BOT_TOKEN", "TWR_DISCORD_RESULTS_CHANNEL_ID")
 COMPOSE = Path(__file__).resolve().parent.parent / "deploy" / "compose" / "compose.yaml"
 # In the cluster beside NATS (deploy/nats/chart, promExporter), with nothing to
 # scrape it on a laptop, so compose does not run it.
@@ -369,7 +385,7 @@ def base(docs: list[Doc], compose: str) -> list[str]:
         problems.append("base: no StatefulSet/nats in the render")
     elif values(nats.lines, "replicas") != ["1"]:
         problems.append(f"replicas: {nats} has replicas {values(nats.lines, 'replicas')}, not 1")
-    return problems + logbook(docs) + radio(docs)
+    return problems + logbook(docs) + radio(docs) + podium(docs)
 
 
 def logbook(docs: list[Doc]) -> list[str]:
@@ -466,6 +482,61 @@ def radio(docs: list[Doc]) -> list[str]:
     svc = find(docs, "Service", "radio")
     if svc is None or values(svc.lines, "port") != ["8080"]:
         problems.append("R2: no Service/radio on 8080")
+    return problems
+
+
+def podium(docs: list[Doc]) -> list[str]:
+    dep = find(docs, "Deployment", "podium")
+    if dep is None:
+        return ["#67: no Deployment/podium in the render"]
+    problems = []
+    lines = dep.lines
+    if values(lines, "replicas") != ["1"]:
+        problems.append(f"replicas: {dep} has replicas {values(lines, 'replicas')}, not exactly 1: one poster")
+    if block(lines, "strategy") != ["type: Recreate"]:
+        problems.append(f"#67: {dep} is not replaced by Recreate, so two pods would post at once")
+    for name, want in (("TWR_NATS_URL", "nats://nats:4222"), ("ADDR", ":8080"),
+                       ("TWR_PODIUM_SRC", "live"), ("TWR_PODIUM_SINK", "discord")):
+        if env_value(lines, name) != want:
+            problems.append(f"#67: {dep}'s {name} is {env_value(lines, name)}, not {want}")
+    if any("secretKeyRef:" in line or "secretRef:" in line or "TWR_DISCORD_" in line for line in lines):
+        problems.append(f"#67: {dep} reads a Secret or a Discord setting, which {PODIUM_DISCORD} adds")
+    for probe in ("readinessProbe", "livenessProbe"):
+        if not any(line.strip() == f"{probe}:" for line in lines):
+            problems.append(f"#67: {dep} has no {probe}")
+    paths = values(lines, "path")
+    if not paths or any(p != "/healthz" for p in paths):
+        problems.append(f"#67: {dep}'s probes are on {paths}, not /healthz")
+    if "8080" not in values(lines, "containerPort"):
+        problems.append(f"#67: {dep} does not name port 8080 for /healthz")
+    problems += pod_hardened(dep)
+
+    svc = find(docs, "Service", "podium")
+    if svc is None or values(svc.lines, "port") != ["8080"]:
+        problems.append("#67: no Service/podium on 8080")
+    return problems
+
+
+def podium_discord(docs: list[Doc]) -> list[str]:
+    dep = find(docs, "Deployment", "podium")
+    if dep is None:
+        return [f"#67: no Deployment/podium through {PODIUM_DISCORD}"]
+    problems = []
+    lines = dep.lines
+    if env_value(lines, "TWR_PODIUM_SINK") != "discord":
+        problems.append(f"#67: {dep}'s TWR_PODIUM_SINK is {env_value(lines, 'TWR_PODIUM_SINK')}, not discord")
+    for key in PODIUM_SECRET_KEYS:
+        i = next((i for i, line in enumerate(lines) if line.strip() == f"- name: {key}"), None)
+        ref = [line.strip() for line in lines[i + 1:i + 6]] if i is not None else []
+        want = [f"key: {key}", f"name: {RADIO_SECRET}"]
+        if key == "TWR_DISCORD_RESULTS_CHANNEL_ID":
+            want.append("optional: true")
+        got = [line for line in ref[2:2 + len(want)]]
+        if ref[:2] != ["valueFrom:", "secretKeyRef:"] or sorted(got) != sorted(want):
+            problems.append(f"#67: {dep}'s {key} is not read from Secret {RADIO_SECRET}, key {key}: {ref}")
+    secret = find(docs, "Secret", RADIO_SECRET)
+    if secret is not None:
+        problems.append(f"#67: {secret} is in the render; the overlay provides it")
     return problems
 
 
@@ -591,6 +662,8 @@ def check(kustomization: str, text: str, compose: str | None = None) -> list[str
         problems += labelled(docs) + network_policy(docs)
     if k == RADIO_DISCORD:
         problems += labelled(docs) + radio_discord(docs)
+    if k == PODIUM_DISCORD:
+        problems += labelled(docs) + podium_discord(docs)
     return problems
 
 

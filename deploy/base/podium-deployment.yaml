@@ -1,0 +1,94 @@
+# podium (paddock#67): posts each session's results card to Discord's results
+# channel once, from session.ended on the EVENTS stream (ADR 0010). It runs as
+# compose runs it (deploy/compose/compose.yaml): the same image and environment,
+# user 65532 on a read-only root file system.
+#
+# The base posts nothing: its sink is `discord` with no results channel, which
+# turns cards off (podium's R7): no consumer, no Discord, no Secret, so it starts on
+# any cluster and only serves /healthz and /metrics. An overlay that posts includes
+# deploy/components/podium-discord, which reads the bot's token and the results
+# channel from a Secret the overlay provides.
+#
+# One replica, replaced by Recreate, as podium's README says: the cards bucket keeps
+# two posters from both sending, but a rate limit or a slow Discord can hold a card
+# past the consumer's ack wait, and a second pod would then take the same
+# session.ended and wait on the first one's record.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podium
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: podium
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: podium
+    spec:
+      # It needs no Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # On SIGTERM podium stops its server and waits up to 5 s for a card in flight
+      # to be recorded; one it had not sent is delivered again to the next pod.
+      terminationGracePeriodSeconds: 30
+      # The image's user, by number.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # The image is amd64 only (ADR 0006). The base pins no node, so a cluster with
+      # other architectures selects amd64 nodes in its overlay.
+      containers:
+        - name: podium
+          image: ghcr.io/those-who-run/twr-podium
+          env:
+            # The chart's `nats` Service (deploy/nats/chart) in the same namespace.
+            - name: TWR_NATS_URL
+              value: nats://nats:4222
+            - name: ADDR
+              value: ":8080"
+            - name: LOG_LEVEL
+              value: info
+            # The source whose sessions it posts. `live` on a cluster: replays run
+            # on a laptop only (paddock#63, decided 2026-10-25).
+            - name: TWR_PODIUM_SRC
+              value: live
+            # Discord, with no results channel here: cards off until
+            # deploy/components/podium-discord gives it one.
+            - name: TWR_PODIUM_SINK
+              value: discord
+          ports:
+            - name: http
+              containerPort: 8080
+          # /healthz answers 200 while the process serves. A poster that cannot
+          # consume stops the process, so liveness needs nothing more.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          # A card a session: an HTTP client and a NATS connection.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

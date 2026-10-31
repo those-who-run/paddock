@@ -1,5 +1,6 @@
 # The kustomize base for v2 (paddock#44): NATS from its chart, the stream and KV
-# bootstrap Job, logbook, and radio speaking to the console (paddock#63). It names nothing that belongs to one cluster (ADR 0004,
+# bootstrap Job, logbook, radio speaking to the console (paddock#63), and podium
+# with its cards off (paddock#67). It names nothing that belongs to one cluster (ADR 0004,
 # point 8): no namespace, host, storage class, node or host port. An overlay sets
 # those, and switches on what it wants of deploy/components/:
 #
@@ -9,7 +10,9 @@
 #   ingress controller's namespace reaches the WebSocket; for a cluster that enforces
 #   NetworkPolicy;
 # - radio-discord: radio speaks in Discord, with the bot's token and voice channel
-#   from a Secret the overlay provides.
+#   from a Secret the overlay provides;
+# - podium-discord: podium posts the results cards, with the bot's token and the
+#   results channel from the same Secret.
 #
 # NATS's chart needs `kustomize build --enable-helm`, with kustomize 5.7.x, not 5.8
 # (kubernetes-sigs/kustomize#6058). `kubectl apply -k` cannot inflate it, so apply
@@ -25,6 +28,8 @@ resources:
   - logbook-service.yaml
   - radio-deployment.yaml
   - radio-service.yaml
+  - podium-deployment.yaml
+  - podium-service.yaml
 
 # On every object and pod, so `kubectl get all -l app.kubernetes.io/part-of=twr`
 # lists the stack. Not on selectors: the chart's own selectors stay as it renders
@@ -35,7 +40,7 @@ labels:
     includeSelectors: false
     includeTemplates: true
 
-# logbook's and radio's images, by tag and by the digest of its index, the same string as
+# logbook's, radio's and podium's images, by tag and by the digest of its index, the same string as
 # deploy/compose/compose.yaml. NATS, nats-box and the exporter are pinned where they
 # are used, in deploy/nats/chart/values.yaml and deploy/nats/bootstrap-job.yaml, and
 # not again here, so there is one place to bump each. scripts/deploy_check.py fails
@@ -49,3 +54,6 @@ images:
   - name: ghcr.io/those-who-run/twr-radio
     newTag: 0.1.5
     digest: sha256:d6e1e78ee3eca3116dba6a2907b917433c93208fd3652322491ce399c1ccc70b
+  - name: ghcr.io/those-who-run/twr-podium
+    newTag: 0.1.2
+    digest: sha256:4aab44c1432e4f3269b099279dea7afec44f9ff59bbb3a2cb6e3a20ebe0cc1ea

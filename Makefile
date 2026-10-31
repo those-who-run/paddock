@@ -6,7 +6,7 @@
 # podman, and compose-it docker with compose v2 and curl.
 #
 # The walking skeleton (deploy/compose, paddock#39) has its own targets: up, replay,
-# radio, sub, export, down and reset. `make parity` runs the parity harness (parity/,
+# radio, podium, sub, export, down and reset. `make parity` runs the parity harness (parity/,
 # paddock#40) on its default recordings; it is not part of `check`, since CI runs it
 # in a workflow of its own (parity-laps.yml).
 
@@ -51,6 +51,7 @@ help:
 	@echo "up     - start nats, run the stream and KV bootstrap, start logbook and wait for its /healthz"
 	@echo "replay - FILE=<name in recordings/> [SPEED=1|N|max] [RUN=compose]: ecu replay onto the bus, as source replay-RUN"
 	@echo "radio  - [SINK=console|wav] [RUN=compose]: start radio on replay-RUN's callouts, before make replay; WAVs in WAV"
+	@echo "podium - [RUN=compose]: start podium on replay-RUN's sessions, before make replay; cards in its log"
 	@echo "sub    - print everything on twr.> through nats-box (Ctrl-C to stop)"
 	@echo "export - [SRC=live]: stop logbook, print the source's stored laps (logbook export --laps), start it again"
 	@echo "down   - stop and remove the containers; the volumes and logbook's data stay"
@@ -158,6 +159,13 @@ radio:
 		uid=0 gid=0; else uid=$$(id -u) gid=$$(id -g); fi; \
 	TWR_UID=$$uid TWR_GID=$$gid TWR_RADIO_SINK=$(SINK) TWR_RADIO_SRC=replay-$(RUN) \
 		TWR_RADIO_WAV=$(abspath $(WAV)) $(STACK) --profile replay up -d radio
+
+# podium in the background, posting the results card of each session `make replay
+# RUN=...` publishes to its log (`$(STACK) logs -f podium`). Start it before the
+# replay: it posts only the sessions that end after its consumer is first made.
+.PHONY: podium
+podium:
+	TWR_PODIUM_SRC=replay-$(RUN) $(STACK) --profile replay up -d podium
 
 .PHONY: sub
 sub:

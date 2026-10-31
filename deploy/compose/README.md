@@ -3,8 +3,8 @@
 [`compose.yaml`](compose.yaml) runs v2's walking skeleton on one machine, with
 no PS5 and no cluster (#39): NATS with JetStream, the stream and KV bootstrap
 from [`deploy/nats/`](../nats/README.md), `logbook`, `ecu replay` for
-replaying a v1 recording onto the bus, `radio` for hearing it, and `nats-box`
-for looking at it.
+replaying a v1 recording onto the bus, `radio` for hearing it, `podium` for
+its results cards, and `nats-box` for looking at it.
 
 ## What you need
 
@@ -28,6 +28,7 @@ change it.
 | `make up` | Starts `nats`, runs the bootstrap once it is healthy, starts `logbook` once the bootstrap has exited 0, then waits up to 60 s for `logbook`'s `/healthz` to answer 200. `nats-box` is not started |
 | `make replay FILE=… [SPEED=1] [RUN=compose]` | Runs `ecu replay --speed SPEED --run RUN /recordings/FILE` once in the `replay` service, onto the bus as source `replay-RUN`, and exits with `ecu`'s exit code: 0 once everything is published. `FILE` is a file in `recordings/`; `SPEED` is `1` (the recording's own pacing), any factor (`10`) or `max`. It starts NATS and the bootstrap first if they are not running; `logbook` stores the replay once it runs |
 | `make radio [SINK=console] [RUN=compose] [WAV=.cache/radio-wav]` | Starts `radio` in the background on source `replay-RUN`'s callouts, as your own user (under rootless podman as the container's root, which is you on the host). `SINK=console` prints a line a callout in its log (`docker compose -p twr -f deploy/compose/compose.yaml logs -f radio`); `SINK=wav` also writes a numbered WAV file a callout to `WAV`. Start it before `make replay`: `CALLOUTS` keeps a callout 30 s. `make down` stops it |
+| `make podium [RUN=compose]` | Starts `podium` in the background on source `replay-RUN`'s sessions: each session's results card in its log (`docker compose -p twr -f deploy/compose/compose.yaml logs -f podium`), once, as `podium card` prints it. Start it before `make replay`: it posts only the sessions that end after its consumer is first made. `make down` stops it |
 | `make sub` | Prints every message on `twr.>` through `nats-box`, until Ctrl-C: frames on `twr.v1.<src>.frame.gt7` and `.frame.gt7.lo`, events on `twr.v1.<src>.evt.<session>.<type>` |
 | `make export [SRC=live]` | Stops `logbook`, prints the stored laps of source `SRC` (`logbook export --data /data --laps --src SRC`) as JSON lines, and starts it again, without rerunning the bootstrap |
 | `make down` | Stops and removes the containers; the volumes, and with them the streams and `logbook`'s data, stay |
@@ -51,6 +52,14 @@ make replay FILE=real-race-2laps-2026-10-14.jsonl.gz
 ls .cache/radio-wav    # 001-<rule>.wav, ...
 ```
 
+To see the results cards, start `podium` first too:
+
+```sh
+make podium
+make replay FILE=real-race-2laps-2026-10-14.jsonl.gz SPEED=max
+docker compose -p twr -f deploy/compose/compose.yaml logs podium
+```
+
 `radio` uses `simulated` timing, on the replay's own clock, so it says what a
 driver would have heard at any `SPEED`; `TWR_RADIO_TIMING=instant` says
 every callout. It speaks to no Discord here.
@@ -72,6 +81,7 @@ sessions again beside the first; pass another `RUN`, or `make reset` first.
 | `logbook` | `ghcr.io/those-who-run/twr-logbook:0.1.4` | `logbook run` as user 65532 on a read-only root file system, its store on the `logbook-data` volume at `/data`; `linux/amd64` |
 | `replay` | `ghcr.io/those-who-run/twr-ecu:0.1.12` | Profile `replay`: only `make replay` or `docker compose run replay replay …` starts it. `ecu`'s own entrypoint, so its command is `ecu`'s arguments; `TWR_NATS_URL` names the server. As user 65532 on a read-only root file system, the recordings (`TWR_RECORDINGS`, `recordings/` by default) read-only at `/recordings`; `linux/amd64`. The parity harness ([`parity/`](../../parity/README.md)) runs it with `--no-deps` and its own recording mounted at `/recording/` |
 | `radio` | `ghcr.io/those-who-run/twr-radio` | Profile `replay`: only `make radio` or `docker compose up radio` starts it. The callouts of `TWR_RADIO_SRC` (`replay-compose` by default) to `TWR_RADIO_SINK` (`console` by default, or `wav` into `TWR_RADIO_WAV` at `/wav`), with `simulated` timing. As `TWR_UID:TWR_GID` (65532 by default; `make radio` passes yours under Docker, and 0:0 under rootless podman, whose root is you) on a read-only root file system, its speech cache on a tmpfs at `/tmp`; `linux/amd64` |
+| `podium` | `ghcr.io/those-who-run/twr-podium` | Profile `replay`: only `make podium` or `docker compose up podium` starts it. The results card of each session of `TWR_PODIUM_SRC` (`replay-compose` by default), once, to the `console` sink in its log, linked to `TWR_PITWALL_URL` when set; no Discord. As user 65532 on a read-only root file system; `linux/amd64` |
 | `nats-box` | `natsio/nats-box:0.20.0` | Profile `tools`: only `make sub` or `docker compose run` starts it |
 
 Every service drops all Linux capabilities and runs with `no-new-privileges`,
@@ -124,9 +134,9 @@ environment variable names (`NATS_URL`, `TWR_NATS_URL`, `TWR_DATA_DIR`,
   127.0.0.1 only, no service sets `network_mode`, `privileged`, `cap_add`,
   `pid` or `ipc`, every service has an `image:` and no `build:`, drops all
   capabilities and sets `no-new-privileges`, the bootstrap, `logbook`,
-  `replay` and `radio` have read-only root file systems, `replay` keeps `ecu`'s entrypoint
+  `replay`, `radio` and `podium` have read-only root file systems, `replay` keeps `ecu`'s entrypoint
   and mounts the recordings read-only, `radio` speaks to the console by default
-  with no Discord setting, and the NATS images match
+  with no Discord setting, `podium` posts to the console with no Discord setting, and the NATS images match
   `scripts/nats_it.sh`'s.
 - `make compose-it` ([`scripts/compose_it.sh`](../../scripts/compose_it.sh),
   in `make check` and CI's `test` job) starts from `make reset`, runs
