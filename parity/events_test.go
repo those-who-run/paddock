@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -557,6 +558,81 @@ func TestAGridBehindTheLine(t *testing.T) {
 	}
 }
 
+// The ranked kind (paddock#146, ecu#70 and ecu#72): in a session v2 reads as
+// ranked and v1 as a timed field, on one of rankedRuns, the kind, the leap's own
+// session.kind, the start brief, the rank calls and the quit summary are accepted,
+// each by its own entry; the same differences elsewhere are not.
+func TestTheRankedKind(t *testing.T) {
+	const (
+		spa  = "real-nuc-spa-pit-cut-quit-2026-10-18"
+		race = "real-nuc-suzuka-timed-race-2026-10-16"
+		pair = "real-nuc-suzuka-before-restart-2026-10-18+real-nuc-suzuka-joined-mid-race-2026-10-18"
+	)
+	run := func(stem string) Run {
+		var recs []Recording
+		for _, s := range strings.Split(stem, "+") {
+			recs = append(recs, Recording{Name: s + ".jsonl.gz"})
+		}
+		return Run{Recordings: recs}
+	}
+	kind := func(frame uint32, k string) Item {
+		return item1("session.kind", 1, frame, map[string]any{"kind": k, "total_laps": nil, "field": true,
+			"fuel_use": "on", "cars_on_track": true, "start": "flying"})
+	}
+	call := func(rule string, frame uint32, k string, slots map[string]any) Item {
+		return item1("callout", 1, frame, map[string]any{"rule": rule, "kind": k, "priority": 12.0, "pit_lane": "drop",
+			"slots": slots, "text": ""})
+	}
+	v1Base := []Item{kind(73, "timed_field")}
+	v2Base := []Item{kind(73, "timed_field"), kind(74, "ranked")}
+	for name, c := range map[string]struct {
+		stem   string
+		v1, v2 []Item
+		want   []string // the accepted entry of each difference, in order
+	}{
+		"the leap and the kind": {spa,
+			append(v1Base[:1:1], kind(76, "timed_field")), append(v2Base[:2:2], kind(76, "ranked")),
+			[]string{"ranked-kind", "ranked-kind"}},
+		"the brief": {spa,
+			append(v1Base[:1:1], call("start_brief", 79, "template", map[string]any{"timed": true, "position": 1.0, "total_cars": 18.0})),
+			append(v2Base[:2:2], call("start_brief", 79, "template_ranked", map[string]any{"total_cars": 18.0})),
+			[]string{"ranked-kind", "ranked-brief", "ranked-brief"}},
+		"v1's rank calls and v2's": {spa,
+			append(v1Base[:1:1], call("position", 216, "template_lost_lead", map[string]any{"position": 2.0, "previous_position": 1.0})),
+			append(v2Base[:2:2], call("position", 623, "template_rank", map[string]any{"position": 4.0})),
+			[]string{"ranked-kind", "ranked-position", "ranked-position"}},
+		"a call on the same frame": {pair,
+			append(v1Base[:1:1], call("position", 378, "template_gained_podium", map[string]any{"position": 3.0, "previous_position": 11.0})),
+			append(v2Base[:2:2], call("position", 378, "template_rank", map[string]any{"position": 3.0})),
+			[]string{"ranked-kind", "ranked-position", "ranked-position"}},
+		"the quit summary": {spa, v1Base,
+			append(v2Base[:2:2], call("race_summary", 1192, "template_quit", map[string]any{"laps": 4.0, "best_lap_ms": 129918.0})),
+			[]string{"ranked-kind", "ranked-quit"}},
+		"a timed race": {race, append(v1Base[:1:1], kind(76, "timed_field")), append(v2Base[:2:2], kind(76, "ranked")),
+			[]string{"", ""}},
+		"a rank call on another place": {spa,
+			append(v1Base[:1:1], call("position", 378, "template_gained", map[string]any{"position": 3.0, "previous_position": 5.0})),
+			append(v2Base[:2:2], call("position", 378, "template_rank", map[string]any{"position": 4.0})),
+			[]string{"ranked-kind", "ranked-position", ""}},
+		"a brief that keeps its place": {spa,
+			append(v1Base[:1:1], call("start_brief", 79, "template", map[string]any{"timed": true, "position": 1.0, "total_cars": 18.0})),
+			append(v2Base[:2:2], call("start_brief", 79, "template_ranked", map[string]any{"position": 1.0, "total_cars": 18.0})),
+			[]string{"ranked-kind", "ranked-brief", ""}},
+		"another summary": {spa, v1Base,
+			append(v2Base[:2:2], call("race_summary", 1192, "template_position", map[string]any{"position": 4.0})),
+			[]string{"ranked-kind", ""}},
+	} {
+		r := compareItems(run(c.stem), c.v1, c.v2)
+		var got []string
+		for _, d := range r.Diffs {
+			got = append(got, d.Accepted)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: accepted %q, want %q: %+v", name, got, c.want, r.Diffs)
+		}
+	}
+}
+
 // A start v1 held and discarded is compared with ecu's session.discarded: its
 // reason and first frame. A session ecu opened where v1 discarded the start, or the
 // other way round, is a difference; so is a continued session against a new one.
@@ -607,7 +683,7 @@ func TestUnusedEntries(t *testing.T) {
 	}
 	out.Reset()
 	code = compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{everyRecording: true}, &out, &bytes.Buffer{})
-	if code != exitDiffer || !strings.Contains(out.String(), "8 accepted entries unused over every recording: remove them") {
+	if code != exitDiffer || !strings.Contains(out.String(), "12 accepted entries unused over every recording: remove them") {
 		t.Fatalf("%d\n%s", code, out.String())
 	}
 	sums := map[string]string{pitRec.Name: "x"}

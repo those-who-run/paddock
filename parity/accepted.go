@@ -171,6 +171,30 @@ var gridBehindTheLine = map[string]string{
 	"real-nuc-sugo-two-stops-2026-10-18": "47",
 }
 
+// rankedRuns are the runs with a session ecu reads as ranked and v1 as a timed
+// field (ecu#70, ecu 0.1.15, the maintainer's decision of 2026-10-31): qualifying
+// on 2026-10-14 (both sessions, the second a restart), and the Spa and Suzuka
+// sessions of 2026-10-18, the Suzuka one alone and continued in the restart pair.
+var rankedRuns = map[string]bool{
+	"real-quali-restart-quit-2026-10-14":                                                   true,
+	"real-nuc-spa-pit-cut-quit-2026-10-18":                                                 true,
+	"real-nuc-suzuka-before-restart-2026-10-18":                                            true,
+	"real-nuc-suzuka-before-restart-2026-10-18+real-nuc-suzuka-joined-mid-race-2026-10-18": true,
+}
+
+// rankedSession says the difference's session is one v2 reads as ranked and v1
+// as a timed field, in one of rankedRuns.
+func rankedSession(d EventDiff, run runView) bool {
+	return rankedRuns[run.stem] && kindOf(run.v2, d.Part, d.Session) == "ranked" &&
+		kindOf(run.v1, d.Part, d.Session) == "timed_field"
+}
+
+// rankedDecision is the maintainer's decision of 2026-10-31 (paddock#146): a
+// session ranked by lap time, qualifying or practice with the field out, is its
+// own kind (contracts v0.2.7's SESSION_TYPE_RANKED), told from a timed race by
+// its place leaping from the grid slot as it opens, and said as one.
+const rankedDecision = "The maintainer's decision of 2026-10-31, the ranked kind (ecu#70 and ecu#72, ecu 0.1.15): "
+
 // maxHeldMs bounds how much later v1 dated a held start than ecu: the start
 // check's hold, 3 s in the one recording with one (real-race-2laps-2026-10-14),
 // as ecu's summary test bounds it (maxHeldSecs).
@@ -290,6 +314,81 @@ var accepted = []acceptance{
 			frame, ok := gridBehindTheLine[run.stem]
 			return ok && d.Type == "session.kind" && d.Field == "start" && d.At == frame &&
 				d.V1 == "rolling" && d.V2 == "grid"
+		},
+	},
+	{
+		ID:    "ranked-kind",
+		Issue: "those-who-run/paddock#146",
+		Reason: rankedDecision + "a timed field whose place rises 2 or more above its slot in the start window is " +
+			"ranked. On real-quali-restart-quit (slot 20 to P1, and its restart), spa-pit-cut-quit (18 to P1) and " +
+			"suzuka-before-restart (16 to P3, alone and continued in the restart pair) v2 publishes a session.kind of " +
+			"its own on the leap's frame, and each later session.kind and the summary say ranked where v1's say " +
+			"timed_field.",
+		Match: func(d EventDiff, run runView) bool {
+			if !rankedSession(d, run) || (d.Type != "session.kind" && d.Type != "session.ended") {
+				return false
+			}
+			if d.Field == "kind" {
+				return d.V1 == "timed_field" && d.V2 == "ranked"
+			}
+			return d.Type == "session.kind" && d.Field == "item" && d.V1 == "missing" && strings.HasPrefix(d.V2, "kind=ranked ")
+		},
+	},
+	{
+		ID:    "ranked-brief",
+		Issue: "those-who-run/paddock#146",
+		Reason: rankedDecision + "a ranked session's start brief is template_ranked with the field's size alone " +
+			"(\"Ranked on lap time, twenty cars on the timesheet.\"), where v1's was the timed brief with the place " +
+			"(\"Timed race. P one of twenty.\"): its kind, and its slots v1's total_cars only.",
+		Match: func(d EventDiff, run runView) bool {
+			if d.Label != "callout start_brief" || !rankedSession(d, run) {
+				return false
+			}
+			switch d.Field {
+			case "kind":
+				return d.V1 == "template" && d.V2 == "template_ranked"
+			case "slots":
+				v1, v2 := slotsOf(run.v1, d, "start_brief"), slotsOf(run.v2, d, "start_brief")
+				return v1 != nil && v1["timed"] == true &&
+					reflect.DeepEqual(v2, map[string]any{"total_cars": v1["total_cars"]})
+			}
+			return false
+		},
+	},
+	{
+		ID:    "ranked-position",
+		Issue: "those-who-run/paddock#146",
+		Reason: rankedDecision + "a ranked session's rank is called only where the driver's own lap put it, 3 s " +
+			"after a crossing that closes a lap counting for best, out of the pit lane: the first as it is " +
+			"(template_rank, \"That puts you P four on the timesheet.\"), then template_rank_gained or " +
+			"template_rank_lost. v1 called every move as the AI posted times (12 calls in Spa's session, 9 in " +
+			"Suzuka's). v1's other calls there are v1's alone, v2's on other frames v2's alone, and one on the " +
+			"same frame differs in its kind, and in its slots only by the first call's missing previous place.",
+		Match: func(d EventDiff, run runView) bool {
+			if d.Label != "callout position" || !rankedSession(d, run) {
+				return false
+			}
+			switch d.Field {
+			case "item":
+				return d.V2 == "missing" || (d.V1 == "missing" && strings.HasPrefix(d.V2, "kind=template_rank"))
+			case "kind":
+				return strings.HasPrefix(d.V1, "template_") && !strings.HasPrefix(d.V1, "template_rank") &&
+					strings.HasPrefix(d.V2, "template_rank")
+			case "slots":
+				v1, v2 := slotsOf(run.v1, d, "position"), slotsOf(run.v2, d, "position")
+				return v1 != nil && len(v2) == 1 && v2["position"] != nil && v2["position"] == v1["position"]
+			}
+			return false
+		},
+	},
+	{
+		ID:    "ranked-quit",
+		Issue: "those-who-run/paddock#146",
+		Reason: rankedDecision + "ranked is in race_summary's quit_kinds, so leaving a ranked session after a lap " +
+			"says the laps and the best lap (template_quit), where v1, reading a timed field, said nothing.",
+		Match: func(d EventDiff, run runView) bool {
+			return d.Label == "callout race_summary" && d.Field == "item" && d.V1 == "missing" &&
+				strings.HasPrefix(d.V2, "kind=template_quit ") && rankedSession(d, run)
 		},
 	},
 }
