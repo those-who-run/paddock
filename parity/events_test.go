@@ -450,6 +450,75 @@ func TestAcceptedDifferences(t *testing.T) {
 	}
 }
 
+// The decision of 2026-10-31, no track at the start: each entry allows only the
+// track, only on its callout, and only on the recordings it lists.
+func TestNoTrackAtTheStart(t *testing.T) {
+	run := func(stem string) Run { return Run{Recordings: []Recording{{Name: stem + ".jsonl.gz"}}} }
+	callout := func(rule string, slots map[string]any) Item {
+		return item1("callout", 1, 48, map[string]any{"rule": rule, "kind": "template", "priority": 8.0, "pit_lane": "hold", "slots": slots})
+	}
+	brief := func(track any) Item {
+		slots := map[string]any{"laps": 12.0, "position": 10.0, "total_cars": 20.0}
+		if track != nil {
+			slots["track"] = track
+		}
+		return callout("start_brief", slots)
+	}
+	summary := func(track any) Item {
+		slots := map[string]any{"best_lap_ms": 82190.0, "position": 9.0}
+		if track != nil {
+			slots["track"] = track
+		}
+		return callout("race_summary", slots)
+	}
+	trackOnly := callout("start_brief", map[string]any{"track": "Fuji International Speedway"})
+	// ecu's verdict on the session's track, before the summary's frame (48).
+	verdict := func(confidence, name string) Item {
+		return item1("session.track", 1, 40, map[string]any{"track_id": 1.0, "confidence": confidence, "family": "sugo", "name": name})
+	}
+	confirmed := verdict("confirmed", "Sportsland SUGO")
+	const (
+		fuji = "real-nuc-fuji-timed-2026-10-15"
+		sugo = "real-nuc-sugo-two-stops-2026-10-18"
+		spa  = "real-nuc-spa-pit-cut-quit-2026-10-18"
+	)
+	for name, c := range map[string]struct {
+		stem   string
+		v1, v2 []Item
+		want   string
+	}{
+		"a track-only brief":                      {fuji, []Item{trackOnly}, nil, "no-track-brief"},
+		"a track-only brief elsewhere":            {spa, []Item{trackOnly}, nil, ""},
+		"a brief with more, missing":              {fuji, []Item{brief("Fuji International Speedway")}, nil, ""},
+		"a track-only brief only on v2":           {fuji, nil, []Item{trackOnly}, ""},
+		"the brief's track":                       {sugo, []Item{brief("Sportsland SUGO")}, []Item{brief(nil)}, "no-track-brief-slot"},
+		"the brief's track elsewhere":             {spa, []Item{brief("Sportsland SUGO")}, []Item{brief(nil)}, ""},
+		"the brief's track on v2":                 {sugo, []Item{brief(nil)}, []Item{brief("Sportsland SUGO")}, ""},
+		"the brief's track and more":              {sugo, []Item{brief("Sportsland SUGO")}, []Item{callout("start_brief", map[string]any{"laps": 12.0})}, ""},
+		"the summary's track":                     {sugo, []Item{summary(nil)}, []Item{confirmed, summary("Sportsland SUGO")}, "summary-confirmed-track"},
+		"the summary's track, probable":           {sugo, []Item{summary(nil)}, []Item{verdict("probable", "Sportsland SUGO"), summary("Sportsland SUGO")}, ""},
+		"the summary's track, another":            {sugo, []Item{summary(nil)}, []Item{verdict("confirmed", "Fuji International Speedway"), summary("Sportsland SUGO")}, ""},
+		"the summary's track, no verdict":         {sugo, []Item{summary(nil)}, []Item{summary("Sportsland SUGO")}, ""},
+		"the summary's track, a verdict after it": {sugo, []Item{summary(nil)}, []Item{item1("session.track", 1, 60, confirmed.Fields), summary("Sportsland SUGO")}, ""},
+		"the summary's track elsewhere":           {spa, []Item{summary(nil)}, []Item{confirmed, summary("Sportsland SUGO")}, ""},
+		"the summary's track on v1":               {sugo, []Item{summary("Sportsland SUGO")}, []Item{confirmed, summary(nil)}, ""},
+		"the summary's track, empty":              {sugo, []Item{summary(nil)}, []Item{confirmed, summary("")}, ""},
+		"the summary's track and more":            {sugo, []Item{callout("race_summary", map[string]any{"position": 9.0})}, []Item{confirmed, summary("Sportsland SUGO")}, ""},
+	} {
+		// v1 gives the same verdict (its name isn't compared), so the callout is the one difference.
+		v1 := c.v1
+		for _, it := range c.v2 {
+			if it.Type == "session.track" {
+				v1 = append([]Item{it}, v1...)
+			}
+		}
+		r := compareItems(run(c.stem), v1, c.v2)
+		if len(r.Diffs) != 1 || r.Diffs[0].Accepted != c.want {
+			t.Errorf("%s: %+v", name, r.Diffs)
+		}
+	}
+}
+
 // A start v1 held and discarded is compared with ecu's session.discarded: its
 // reason and first frame. A session ecu opened where v1 discarded the start, or the
 // other way round, is a difference; so is a continued session against a new one.
@@ -500,7 +569,7 @@ func TestUnusedEntries(t *testing.T) {
 	}
 	out.Reset()
 	code = compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{everyRecording: true}, &out, &bytes.Buffer{})
-	if code != exitDiffer || !strings.Contains(out.String(), "4 accepted entries unused over every recording: remove them") {
+	if code != exitDiffer || !strings.Contains(out.String(), "7 accepted entries unused over every recording: remove them") {
 		t.Fatalf("%d\n%s", code, out.String())
 	}
 	sums := map[string]string{pitRec.Name: "x"}

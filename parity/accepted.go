@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -19,8 +20,12 @@ type acceptance struct {
 	Match  func(d EventDiff, run runView) bool
 }
 
-// runView is what an entry may look at besides the difference: both sides' items.
-type runView struct{ v1, v2 []Item }
+// runView is what an entry may look at besides the difference: both sides' items,
+// and the run's stem (Run.Stem) for an entry only some recordings may use.
+type runView struct {
+	v1, v2 []Item
+	stem   string
+}
 
 // kindOf is the last kind a side gave a session.
 func kindOf(items []Item, part, session int) string {
@@ -78,6 +83,86 @@ func heldStart(items []Item, part, session int) bool {
 		}
 	}
 	return false
+}
+
+// slotsOf is a callout's slots on a side: the one of rule at the difference's
+// part, session and frame, nil when there is none.
+func slotsOf(items []Item, d EventDiff, rule string) map[string]any {
+	for _, it := range items {
+		if it.Type == "callout" && show(it.Fields["rule"]) == rule && it.Part == d.Part && it.Session == d.Session && it.at() == d.At {
+			slots, _ := it.Fields["slots"].(map[string]any)
+			return slots
+		}
+	}
+	return nil
+}
+
+// trackBy is a side's last session.track of the difference's part and session at
+// or before its frame, nil when there is none.
+func trackBy(items []Item, d EventDiff) *Item {
+	frame, err := strconv.ParseUint(d.At, 10, 32)
+	if err != nil {
+		return nil
+	}
+	var last *Item
+	for i, it := range items {
+		if it.Type == "session.track" && it.Part == d.Part && it.Session == d.Session && it.At != nil && uint64(*it.At) <= frame {
+			last = &items[i]
+		}
+	}
+	return last
+}
+
+// onlyTrackApart says whether with names a track and without is with less that
+// track, every other slot the same.
+func onlyTrackApart(with, without map[string]any) bool {
+	track, ok := with["track"].(string)
+	if !ok || track == "" || without == nil || without["track"] != nil {
+		return false
+	}
+	rest := map[string]any{}
+	for k, v := range with {
+		if k != "track" {
+			rest[k] = v
+		}
+	}
+	return reflect.DeepEqual(rest, without)
+}
+
+// noTrackAtTheStart is the maintainer's decision of 2026-10-31, in ecu 0.1.12
+// (ecu#60) and radio 0.1.5 (radio#31): the start brief names no track, and the
+// race summary names the track only when ecu's verdict is CONFIRMED. No paddock
+// issue holds it. Each entry below lists the recordings it was seen on.
+const noTrackAtTheStart = "The maintainer's decision of 2026-10-31, no track at the start: "
+
+// startBriefTrackOnly are the recordings where v1 raised a start_brief that
+// named only the track: a time trial's or practice's brief (template), or the
+// track on its own after the brief (template_track, real-quali-restart-quit's two).
+var startBriefTrackOnly = map[string]bool{
+	"real-nuc-fuji-timed-2026-10-15":     true,
+	"real-nuc-spa-time-trial-2026-10-18": true,
+	"real-nuc-sugo-timed-2026-10-15":     true,
+	"real-nuc-unknown-track-2026-10-15":  true,
+	"real-quali-restart-quit-2026-10-14": true,
+}
+
+// startBriefTrack are the recordings whose race start_brief v1 gave a track slot.
+var startBriefTrack = map[string]bool{
+	"real-n24h-race-lap1-positions-2026-10-14":   true,
+	"real-nuc-gilles-villeneuve-race-2026-10-17": true,
+	"real-nuc-sugo-restarts-2026-10-18":          true,
+	"real-nuc-sugo-two-stops-2026-10-18":         true,
+}
+
+// summaryConfirmedTrack are the recordings whose race_summary names a track
+// ecu confirmed: Sportsland SUGO and Suzuka Circuit East Course.
+var summaryConfirmedTrack = map[string]bool{
+	"real-nuc-sugo-restarts-2026-10-18":     true,
+	"real-nuc-sugo-timed-2026-10-15":        true,
+	"real-nuc-sugo-two-stops-2026-10-18":    true,
+	"real-nuc-suzuka-no-stop-2026-10-15":    true,
+	"real-nuc-suzuka-pit-stop-2026-10-15":   true,
+	"real-nuc-suzuka-timed-race-2026-10-16": true,
 }
 
 // maxHeldMs bounds how much later v1 dated a held start than ecu: the start
@@ -140,6 +225,51 @@ var accepted = []acceptance{
 			v1, err1 := strconv.ParseFloat(d.V1, 64)
 			v2, err2 := strconv.ParseFloat(d.V2, 64)
 			return err1 == nil && err2 == nil && v1 > v2 && v1-v2 <= maxHeldMs
+		},
+	},
+	{
+		ID:    "no-track-brief",
+		Issue: "those-who-run/ecu#60",
+		Reason: noTrackAtTheStart + "a start_brief that only named the track is no longer raised. On fuji-timed, " +
+			"spa-time-trial, sugo-timed and unknown-track v1's time trial or practice brief was the track alone " +
+			"(\"Fuji International Speedway.\"); on real-quali-restart-quit its two template_track callouts. v2 has none.",
+		Match: func(d EventDiff, run runView) bool {
+			if !startBriefTrackOnly[run.stem] || d.Label != "callout start_brief" || d.Field != "item" || d.V2 != "missing" {
+				return false
+			}
+			slots := slotsOf(run.v1, d, "start_brief")
+			return len(slots) == 1 && onlyTrackApart(slots, map[string]any{})
+		},
+	},
+	{
+		ID:    "no-track-brief-slot",
+		Issue: "those-who-run/ecu#60",
+		Reason: noTrackAtTheStart + "a race's start_brief has no track slot. On gilles-villeneuve-race, " +
+			"sugo-two-stops, sugo-restarts (sessions 1 to 3) and n24h-race-lap1-positions v1's slots name the " +
+			"track and v2's are the same without it.",
+		Match: func(d EventDiff, run runView) bool {
+			return startBriefTrack[run.stem] && d.Label == "callout start_brief" && d.Field == "slots" &&
+				onlyTrackApart(slotsOf(run.v1, d, "start_brief"), slotsOf(run.v2, d, "start_brief"))
+		},
+	},
+	{
+		ID:    "summary-confirmed-track",
+		Issue: "those-who-run/ecu#60",
+		Reason: noTrackAtTheStart + "the race_summary names the track when ecu's verdict is CONFIRMED (radio#31 " +
+			"says it, \"Chequered flag at Sportsland SUGO.\"), where v1's never did. On sugo-restarts (session 3), " +
+			"sugo-timed, sugo-two-stops, suzuka-no-stop, suzuka-pit-stop and suzuka-timed-race v2's slots are v1's " +
+			"and the track.",
+		Match: func(d EventDiff, run runView) bool {
+			if !summaryConfirmedTrack[run.stem] || d.Label != "callout race_summary" || d.Field != "slots" {
+				return false
+			}
+			slots := slotsOf(run.v2, d, "race_summary")
+			if !onlyTrackApart(slots, slotsOf(run.v1, d, "race_summary")) {
+				return false
+			}
+			// The track is the session's, and ecu's verdict on it CONFIRMED.
+			track := trackBy(run.v2, d)
+			return track != nil && track.Fields["confidence"] == "confirmed" && track.Fields["name"] == slots["track"]
 		},
 	},
 }
