@@ -148,7 +148,11 @@ unset TOKEN
 ```
 
 The channel's key is `optional`: without it `podium` starts with its cards
-off rather than failing. The bot needs View Channel, Send Messages, Embed
+off rather than failing. The token's is not, so including the component
+without the Secret `radio-discord` leaves `podium` unable to start
+(`CreateContainerConfigError`); only a missing channel key starts it with its
+cards off. A key added to an existing Secret reaches `podium` only once it
+restarts: `kubectl -n <namespace> rollout restart deployment/podium`. The bot needs View Channel, Send Messages, Embed
 Links and **Read Message History** on the results channel; the last lets
 podium look for a card a stopped pod may already have posted. The base sets
 `TWR_PODIUM_SRC=live` and `TWR_PODIUM_SINK=discord`; the overlay may add

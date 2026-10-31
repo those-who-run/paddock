@@ -1048,6 +1048,10 @@ class PodiumDiscordComponent(unittest.TestCase):
                           "              name: other\n        - name: TWR_DISCORD_RESULTS"),
                          ("              key: TWR_DISCORD_RESULTS_CHANNEL_ID\n", "              key: CHANNEL\n"),
                          ("              optional: true\n", ""),
+                         # The token is not optional: without it podium could not post.
+                         ("              key: TWR_DISCORD_BOT_TOKEN\n              name: radio-discord\n",
+                          "              key: TWR_DISCORD_BOT_TOKEN\n              name: radio-discord\n"
+                          "              optional: true\n"),
                          ("          valueFrom:\n            secretKeyRef:\n              key: TWR_DISCORD_BOT_TOKEN\n"
                           "              name: radio-discord\n", "          value: x\n")):
             with self.subTest(old=old):

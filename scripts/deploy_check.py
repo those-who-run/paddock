@@ -527,13 +527,21 @@ def podium_discord(docs: list[Doc]) -> list[str]:
         problems.append(f"#67: {dep}'s TWR_PODIUM_SINK is {env_value(lines, 'TWR_PODIUM_SINK')}, not discord")
     for key in PODIUM_SECRET_KEYS:
         i = next((i for i, line in enumerate(lines) if line.strip() == f"- name: {key}"), None)
-        ref = [line.strip() for line in lines[i + 1:i + 6]] if i is not None else []
+        head = [line.strip() for line in lines[i + 1:i + 3]] if i is not None else []
+        # The whole secretKeyRef, every line indented under it, so a key it gains
+        # (an `optional: true` on the token) is seen.
+        got: list[str] = []
+        if i is not None and head == ["valueFrom:", "secretKeyRef:"]:
+            depth = len(lines[i + 2]) - len(lines[i + 2].lstrip())
+            for line in lines[i + 3:]:
+                if len(line) - len(line.lstrip()) <= depth:
+                    break
+                got.append(line.strip())
         want = [f"key: {key}", f"name: {RADIO_SECRET}"]
         if key == "TWR_DISCORD_RESULTS_CHANNEL_ID":
             want.append("optional: true")
-        got = [line for line in ref[2:2 + len(want)]]
-        if ref[:2] != ["valueFrom:", "secretKeyRef:"] or sorted(got) != sorted(want):
-            problems.append(f"#67: {dep}'s {key} is not read from Secret {RADIO_SECRET}, key {key}: {ref}")
+        if head != ["valueFrom:", "secretKeyRef:"] or sorted(got) != sorted(want):
+            problems.append(f"#67: {dep}'s {key} is not read from Secret {RADIO_SECRET}, key {key}: {head + got}")
     secret = find(docs, "Secret", RADIO_SECRET)
     if secret is not None:
         problems.append(f"#67: {secret} is in the render; the overlay provides it")
