@@ -573,5 +573,9 @@ func acceptWall(diffs []WallDiff, entries []wallAcceptance) []wallAcceptance {
 	return stale
 }
 
-// wallAccepted is the list.
+// wallAccepted is the list. It is empty: on #133's three recordings v2's pit wall
+// answers what v1's does once v1Shape has mapped contracts' names, Timestamps and
+// an absent total_laps (README.md, "The pit wall"). The maintainer's other decided
+// departures (a track known only by its family, sessions with no full lap, the
+// ranked kind) don't arise on them.
 var wallAccepted = []wallAcceptance{}

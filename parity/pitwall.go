@@ -86,11 +86,11 @@ type WallDiff struct {
 type WallResult struct {
 	Recs  []Recording
 	Diffs []WallDiff
-	// Counts per recording: sessions and laps on each side, traces compared.
+	// Counts per recording: sessions, laps and traces on each side.
 	Counts map[string]*wallCount
 }
 
-type wallCount struct{ Sessions, Laps [2]int }
+type wallCount struct{ Sessions, Laps, Traces [2]int }
 
 // Failing is the number of differences no accepted entry allows.
 func (r WallResult) Failing() int {
@@ -369,7 +369,7 @@ func compareWall(recs []Recording, v1, v2 []wallAnswer) WallResult {
 		}
 		return ordered[i].N < ordered[j].N
 	})
-	listed := func(side *wallSide, list []any, id string) map[string]any {
+	listed := func(list []any, id string) map[string]any {
 		for _, x := range list {
 			if m, _ := x.(map[string]any); m["session_id"] == id {
 				return m
@@ -388,10 +388,12 @@ func compareWall(recs []Recording, v1, v2 []wallAnswer) WallResult {
 		if id1 != "" {
 			c.Sessions[0]++
 			c.Laps[0] += len(a.laps[id1])
+			c.Traces[0] += len(a.traces[id1])
 		}
 		if id2 != "" {
 			c.Sessions[1]++
 			c.Laps[1] += len(b.laps[id2])
+			c.Traces[1] += len(b.traces[id2])
 		}
 		at := WallDiff{Rec: rec, Session: k.N}
 		if id1 == "" || id2 == "" {
@@ -401,7 +403,7 @@ func compareWall(recs []Recording, v1, v2 []wallAnswer) WallResult {
 			continue
 		}
 		for _, call := range []string{"sessions", "session"} {
-			x, y := listed(a, l1, id1), listed(b, l2, id2)
+			x, y := listed(l1, id1), listed(l2, id2)
 			if call == "session" {
 				x, y = a.sessions[id1], b.sessions[id2]
 			}
@@ -688,7 +690,7 @@ func writeWallResult(w io.Writer, r WallResult) error {
 	}
 	b.WriteString("\n")
 	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "recording\tsessions v1\tv2\tlaps v1\tv2\tdifferences\taccepted\t\n")
+	_, _ = fmt.Fprintf(tw, "recording\tsessions v1\tv2\tlaps v1\tv2\ttraces v1\tv2\tdifferences\taccepted\t\n")
 	per := map[string][2]int{}
 	for _, d := range r.Diffs {
 		n := per[d.Rec]
@@ -702,10 +704,10 @@ func writeWallResult(w io.Writer, r WallResult) error {
 	for _, rec := range r.Recs {
 		c := r.Counts[rec.Stem()]
 		n := per[rec.Stem()]
-		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t\n", rec.Stem(), c.Sessions[0], c.Sessions[1], c.Laps[0], c.Laps[1], n[0], n[1])
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t\n", rec.Stem(), c.Sessions[0], c.Sessions[1], c.Laps[0], c.Laps[1], c.Traces[0], c.Traces[1], n[0], n[1])
 	}
 	if n := per[""]; n != [2]int{} {
-		_, _ = fmt.Fprintf(tw, "the list\t\t\t\t\t%d\t%d\t\n", n[0], n[1])
+		_, _ = fmt.Fprintf(tw, "the list\t\t\t\t\t\t\t%d\t%d\t\n", n[0], n[1])
 	}
 	_ = tw.Flush()
 	if n := r.Failing(); n > 0 {

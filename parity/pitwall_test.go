@@ -151,7 +151,7 @@ func TestPitwallsAnswersInV1sShapeMatchV1s(t *testing.T) {
 		t.Fatalf("%+v", r.Diffs)
 	}
 	c := r.Counts["real-nuc-gilles-villeneuve-pit-stop-2026-10-17"]
-	if c.Sessions != [2]int{1, 1} || c.Laps != [2]int{5, 5} {
+	if c.Sessions != [2]int{1, 1} || c.Laps != [2]int{5, 5} || c.Traces != [2]int{4, 4} {
 		t.Errorf("counts %+v", c)
 	}
 }
@@ -339,7 +339,7 @@ func TestTraces(t *testing.T) {
 	}
 	var kept []wallAnswer
 	for _, a := range v2 {
-		if !(a.Call == "trace" && a.Lap == 8 && strings.HasSuffix(a.SessionID, pitStopID)) {
+		if a.Call != "trace" || a.Lap != 8 || !strings.HasSuffix(a.SessionID, pitStopID) {
 			kept = append(kept, a)
 		}
 	}
@@ -440,7 +440,7 @@ func TestKeepWritesBothSidesAnswers(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	b, err := os.ReadFile(filepath.Join(dir, "pitwall.v2.jsonl"))
+	b, err := os.ReadFile(filepath.Join(dir, "pitwall.v2.jsonl")) //nolint:gosec // the directory the run just printed
 	if err != nil || bytes.Count(b, []byte("\n")) != len(v1) {
 		t.Errorf("%v %d lines", err, bytes.Count(b, []byte("\n")))
 	}
@@ -649,7 +649,7 @@ func TestV2sPitWallFails(t *testing.T) {
 	defer srv.Close()
 	s, _, _ = newWallV2(t, &fakeRunner{}, false)
 	s.pitwall, s.wait = srv.URL, 200*time.Millisecond
-	if _, err := s.PitWall(context.Background(), wallRecs(), wallClocks(3), 10); err == nil || !strings.Contains(err.Error(), "logbook false") {
+	if _, err := s.PitWall(context.Background(), wallRecs(), wallClocks(3), 10); err == nil || !strings.Contains(err.Error(), "doesn't see logbook") {
 		t.Errorf("%v", err)
 	}
 	if _, err := s.askPitwall(context.Background()); err == nil || !strings.Contains(err.Error(), "503") {
