@@ -526,3 +526,52 @@ func unused(results []EventResult) []acceptance {
 	}
 	return out
 }
+
+// The pit wall's accepted differences (paddock#133 R5): what v2's pit wall
+// answers otherwise than v1's, on purpose. Each entry is pinned to a recording, a
+// session's place in it (0 for any), the routes (none for any), a lap (0 for
+// any), a field, and both values as the output prints them, so a value that moves
+// again is a difference. An entry that allowed nothing fails the run: `parity
+// pitwall` always runs every recording its entries name.
+type wallAcceptance struct {
+	ID     string
+	Issue  string
+	Reason string
+	// Rec is the recording's stem; "" is the list's own fields (order, options).
+	Rec     string
+	Session int
+	Calls   []string
+	Lap     int
+	Field   string
+	V1, V2  string
+}
+
+func (e wallAcceptance) allows(d WallDiff) bool {
+	return e.Rec == d.Rec && (e.Session == 0 || e.Session == d.Session) &&
+		(len(e.Calls) == 0 || slices.Contains(e.Calls, d.Call)) &&
+		(e.Lap == 0 || e.Lap == d.Lap) && e.Field == d.Field && e.V1 == d.V1 && e.V2 == d.V2
+}
+
+// acceptWall marks the differences an entry allows and returns the entries that
+// allowed none.
+func acceptWall(diffs []WallDiff, entries []wallAcceptance) []wallAcceptance {
+	used := make([]bool, len(entries))
+	for i := range diffs {
+		for j, e := range entries {
+			if e.allows(diffs[i]) {
+				diffs[i].Accepted, used[j] = e.ID, true
+				break
+			}
+		}
+	}
+	var stale []wallAcceptance
+	for j, e := range entries {
+		if !used[j] {
+			stale = append(stale, e)
+		}
+	}
+	return stale
+}
+
+// wallAccepted is the list.
+var wallAccepted = []wallAcceptance{}
