@@ -146,6 +146,10 @@ func pitwall(ctx context.Context, args []string, stdout, stderr io.Writer, mk si
 // compareWallAll runs the recordings through both sides, compares the answers and
 // prints the differences and the table.
 func compareWallAll(ctx context.Context, recs []Recording, v1, v2 PitWall, o options, stdout, stderr io.Writer) int {
+	if bad := unpinned(wallAccepted); len(bad) > 0 {
+		_, _ = fmt.Fprintln(stderr, "parity: accepted.go: entries not pinned:", strings.Join(bad, "; "))
+		return exitRefused
+	}
 	for i, side := range []PitWall{v1, v2} {
 		images, err := side.WallImages(ctx)
 		if err != nil {
@@ -452,11 +456,16 @@ type fieldDiff struct{ field, v1, v2 string }
 // layout, which contracts left out (contracts' pitwall_v1_test.go).
 var wallNotCompared = map[string]bool{"session_id": true, "file": true}
 
-// wallTolerance is each field's tolerance (R3): times to 1 s, v1's Unix seconds
-// against ecu's milliseconds, and fuel to 0.001 L as `parity laps` compares it.
-// Every other value is compared exactly, a trace's values among them (R4).
+// wallTolerance is each field's tolerance (R3). started_at and ended_at are to
+// 1 ms: v1 keeps the frame's time as a float of Unix seconds, where ecu's time is
+// whole milliseconds (`parity events` compares the same instants as epoch
+// milliseconds, exactly), so a millisecond's rounding is the only gap the
+// conversion makes; a float64 of today's Unix seconds holds them to under 1 µs.
+// A start that moves further (a held start, #74) is a difference to accept by
+// name. Fuel is to 0.001 L as `parity laps` compares it. Every other value is
+// compared exactly, a trace's values among them (R4).
 var wallTolerance = map[string]float64{
-	"started_at": 1, "ended_at": 1,
+	"started_at": 0.001, "ended_at": 0.001,
 	"fuel_start": 0.001, "fuel_end": 0.001, "fuel_used": 0.001, "fuel_capacity": 0.001, "fuel_by_stint": 0.001,
 }
 

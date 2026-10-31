@@ -528,16 +528,20 @@ func unused(results []EventResult) []acceptance {
 }
 
 // The pit wall's accepted differences (paddock#133 R5): what v2's pit wall
-// answers otherwise than v1's, on purpose. Each entry is pinned to a recording, a
-// session's place in it (0 for any), the routes (none for any), a lap (0 for
-// any), a field, and both values as the output prints them, so a value that moves
-// again is a difference. An entry that allowed nothing fails the run: `parity
-// pitwall` always runs every recording its entries name.
+// answers otherwise than v1's, on purpose. Each entry is pinned, with no
+// wildcard: a recording, a session's place in it (from 1), the routes it may
+// match, the lap where the routes are per lap (laps, trace), the field, and both
+// values as the output prints them, so a value that moves again is a difference.
+// The list's own fields (its order, total, matched and options) have no
+// recording, session or lap, and only the sessions route. An entry pinned
+// otherwise is refused before anything runs (pinned), and one that allowed
+// nothing fails the run: `parity pitwall` always runs every recording its entries
+// name.
 type wallAcceptance struct {
 	ID     string
 	Issue  string
 	Reason string
-	// Rec is the recording's stem; "" is the list's own fields (order, options).
+	// Rec is the recording's stem; "" is the list's own fields.
 	Rec     string
 	Session int
 	Calls   []string
@@ -546,10 +550,59 @@ type wallAcceptance struct {
 	V1, V2  string
 }
 
+// wallCalls are the routes a difference names, and which of them are per lap.
+var wallCalls = map[string]bool{"sessions": false, "session": false, "same_track": false, "laps": true, "trace": true}
+
+// pinned says why an entry isn't pinned as the type says it must be, or "".
+func (e wallAcceptance) pinned() string {
+	switch {
+	case e.ID == "" || e.Issue == "" || e.Reason == "":
+		return "no id, issue or reason"
+	case e.Field == "":
+		return "no field"
+	case len(e.Calls) == 0:
+		return "no route"
+	case e.Rec == "" && (e.Session != 0 || e.Lap != 0 || !slices.Equal(e.Calls, []string{"sessions"})):
+		return "a field of the list's own with a session, a lap or a route other than sessions"
+	case e.Rec != "" && e.Session < 1:
+		return "no session"
+	}
+	if e.Rec == "" {
+		return ""
+	}
+	perLap := wallCalls[e.Calls[0]]
+	for _, c := range e.Calls {
+		lap, ok := wallCalls[c]
+		switch {
+		case !ok:
+			return "an unknown route " + c
+		case lap != perLap:
+			return "routes per lap and per session together"
+		}
+	}
+	switch {
+	case perLap && e.Lap < 1:
+		return "no lap"
+	case !perLap && e.Lap != 0:
+		return "a lap on a route that has none"
+	}
+	return ""
+}
+
 func (e wallAcceptance) allows(d WallDiff) bool {
-	return e.Rec == d.Rec && (e.Session == 0 || e.Session == d.Session) &&
-		(len(e.Calls) == 0 || slices.Contains(e.Calls, d.Call)) &&
-		(e.Lap == 0 || e.Lap == d.Lap) && e.Field == d.Field && e.V1 == d.V1 && e.V2 == d.V2
+	return e.Rec == d.Rec && e.Session == d.Session && slices.Contains(e.Calls, d.Call) &&
+		e.Lap == d.Lap && e.Field == d.Field && e.V1 == d.V1 && e.V2 == d.V2
+}
+
+// unpinned are the entries that aren't pinned, each with why.
+func unpinned(entries []wallAcceptance) []string {
+	var out []string
+	for _, e := range entries {
+		if why := e.pinned(); why != "" {
+			out = append(out, e.ID+": "+why)
+		}
+	}
+	return out
 }
 
 // acceptWall marks the differences an entry allows and returns the entries that

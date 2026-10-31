@@ -256,7 +256,7 @@ func TestAnAcceptedDifferenceAndAStaleEntry(t *testing.T) {
 	v2 := v2Answers(t, v1)
 	find(v2, "session", pitStopID, 0).Body["title"] = "Circuit Gilles Villeneuve · 12-lap race!"
 	entry := wallAcceptance{
-		ID: "a-title", Issue: "#133", Rec: "real-nuc-gilles-villeneuve-pit-stop-2026-10-17", Session: 1,
+		ID: "a-title", Issue: "#133", Reason: "a test", Rec: "real-nuc-gilles-villeneuve-pit-stop-2026-10-17", Session: 1,
 		Calls: []string{"session"}, Field: "title",
 		V1: "Circuit Gilles Villeneuve · 12-lap race", V2: "Circuit Gilles Villeneuve · 12-lap race!",
 	}
@@ -276,12 +276,13 @@ func TestSessionsPairByTheirStart(t *testing.T) {
 	v1 := v1Answers(t)
 	v2 := v2Answers(t, v1)
 	s := find(v2, "session", pitStopID, 0).Body
-	s["started_at"] = s["started_at"].(float64) + 0.9 // within R3's 1 s
+	start := s["started_at"].(float64)
+	s["started_at"] = start + 0.0009 // within a millisecond's rounding
 	r := compareWall(wallRecs(), v1, v2)
 	if len(r.Diffs) != 0 {
 		t.Fatalf("%+v", r.Diffs)
 	}
-	s["started_at"] = s["started_at"].(float64) + 3
+	s["started_at"] = start + 0.002
 	r = compareWall(wallRecs(), v1, v2)
 	if len(r.Diffs) != 1 || r.Diffs[0].Call != "session" || r.Diffs[0].Field != "started_at" {
 		t.Errorf("%+v", r.Diffs)
@@ -667,6 +668,56 @@ func TestTheWallOverrideIsHardenedAndPinned(t *testing.T) {
 	} {
 		if !strings.Contains(wallOverride, want) {
 			t.Errorf("no %q", want)
+		}
+	}
+}
+
+// Every entry is pinned: no wildcard for a session, a route or a lap, and a list
+// field only on the list. One that isn't is refused before anything runs.
+func TestAcceptedEntriesArePinned(t *testing.T) {
+	if bad := unpinned(wallAccepted); len(bad) > 0 {
+		t.Errorf("accepted.go: %v", bad)
+	}
+	ok := wallAcceptance{ID: "x", Issue: "#1", Reason: "r", Rec: "rec", Session: 1, Calls: []string{"laps"}, Lap: 6, Field: "pit"}
+	list := wallAcceptance{ID: "x", Issue: "#1", Reason: "r", Calls: []string{"sessions"}, Field: "options.track"}
+	for _, e := range []wallAcceptance{ok, list, {ID: "x", Issue: "#1", Reason: "r", Rec: "rec", Session: 2, Calls: []string{"sessions", "session"}, Field: "title"}} {
+		if why := e.pinned(); why != "" {
+			t.Errorf("%+v: %s", e, why)
+		}
+	}
+	for want, change := range map[string]func(*wallAcceptance){
+		"no id":                func(e *wallAcceptance) { e.Reason = "" },
+		"no field":             func(e *wallAcceptance) { e.Field = "" },
+		"no route":             func(e *wallAcceptance) { e.Calls = nil },
+		"no session":           func(e *wallAcceptance) { e.Session = 0 },
+		"no lap":               func(e *wallAcceptance) { e.Lap = 0 },
+		"unknown route":        func(e *wallAcceptance) { e.Calls = []string{"nope"} },
+		"per session together": func(e *wallAcceptance) { e.Calls = []string{"laps", "session"} },
+		"a lap on a route":     func(e *wallAcceptance) { e.Calls = []string{"session"} },
+		"list's own":           func(e *wallAcceptance) { e.Rec = "" },
+	} {
+		e := ok
+		change(&e)
+		if why := e.pinned(); !strings.Contains(why, want) {
+			t.Errorf("%s: %q", want, why)
+		}
+	}
+	// The run refuses an entry that isn't pinned.
+	v1 := v1Answers(t)
+	loose := ok
+	loose.Lap = 0
+	code, _, errOut := runWall(t, v1, v2Answers(t, v1), []wallAcceptance{loose})
+	if code != exitRefused || !strings.Contains(errOut, "entries not pinned: x: no lap") {
+		t.Errorf("exit %d %s", code, errOut)
+	}
+	// A pinned entry matches only its own session and lap.
+	d := WallDiff{Call: "laps", Rec: "rec", Session: 1, Lap: 6, Field: "pit"}
+	if !ok.allows(d) {
+		t.Error("its own difference not allowed")
+	}
+	for _, other := range []WallDiff{{Call: "laps", Rec: "rec", Session: 2, Lap: 6, Field: "pit"}, {Call: "laps", Rec: "rec", Session: 1, Lap: 7, Field: "pit"}, {Call: "trace", Rec: "rec", Session: 1, Lap: 6, Field: "pit"}} {
+		if ok.allows(other) {
+			t.Errorf("%+v allowed", other)
 		}
 	}
 }
