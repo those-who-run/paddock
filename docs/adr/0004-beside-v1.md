@@ -1,6 +1,7 @@
 # 0004: v2 runs beside v1
 
-**Status:** Accepted, 2026-10-22. Asked for by #10.
+**Status:** Accepted, 2026-10-22. Asked for by #10. Superseded in part by
+[0009](0009-v1-history-import.md) (point 7).
 
 ## Context
 
