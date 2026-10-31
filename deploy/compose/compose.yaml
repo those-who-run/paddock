@@ -97,7 +97,7 @@ services:
   # /recordings. A replay serves no /healthz and writes no files, so it has no port and
   # no volume of its own.
   replay:
-    image: ghcr.io/those-who-run/twr-ecu:0.1.11@sha256:360fe184e97c52887e31cecea4c77d18b9ace0c940a02fbd02ebcee2522c9bc8
+    image: ghcr.io/those-who-run/twr-ecu:0.1.12@sha256:29541c62225fb640be97bfe09f556b92525120f50049f236d4ada6c6c57ebba3
     platform: linux/amd64
     profiles: [replay]
     command: ["replay", "--help"]
@@ -132,7 +132,7 @@ services:
   # passes your own under Docker, and 0:0 under rootless podman, where the
   # container's root is you, so the WAVs land in a directory you own either way.
   radio:
-    image: ghcr.io/those-who-run/twr-radio:0.1.4@sha256:166ff02077a59bbc9d426b570ca59a45238714aa85b960f02e935c09d1e67b31
+    image: ghcr.io/those-who-run/twr-radio:0.1.5@sha256:d6e1e78ee3eca3116dba6a2907b917433c93208fd3652322491ce399c1ccc70b
     platform: linux/amd64
     profiles: [replay]
     user: "${TWR_UID:-65532}:${TWR_GID:-65532}"
