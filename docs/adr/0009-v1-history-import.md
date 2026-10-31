@@ -35,10 +35,11 @@ Settles: #263 (R1.1), ADR 0004 point 7's open question.
   frames and runs them through `ecu`'s own race state, the same code as live,
   with nothing reimplemented for the import. There is no NATS and no running
   stack.
-- **`ecu`'s race packages become public** (race, track, kind, pit, lap and
-  fuel, under `github.com/those-who-run/ecu/...`). Only its adapters (NATS,
-  HTTP, UDP) stay `internal/`, because Go forbids importing another module's
-  `internal/`.
+- **`ecu`'s race state becomes public** (`race`, with its kinds and laps,
+  plus `track`, `pit` and `fuel`, under `github.com/those-who-run/ecu/...`),
+  because Go forbids importing another module's `internal/`. Everything
+  else, adapters and rules included, stays `internal/`. #264 settles the
+  exact list, on the principle "only what the importer needs".
 - **v1's rows are used only** to find the sessions, to report differences,
   and for the sessions in point 5.
 
@@ -56,6 +57,7 @@ Settles: #263 (R1.3), #264 (R3).
 ### 4. Their ids are v1's ids, as they are
 
 An imported session keeps v1's id unchanged (for example `20261017-143142`).
+One v1 session gives at most one imported session, under v1's id.
 
 - **Old links keep working.** v1's results cards in Discord link to
   `/?session=<v1id>`, and once the v2 pit wall takes v1's address
@@ -64,20 +66,28 @@ An imported session keeps v1's id unchanged (for example `20261017-143142`).
 - **No clash.** v1's ids are a timestamp; `ecu`'s are ULIDs, a different
   length and alphabet, so one can never be taken for the other.
 - **A second run finds them** by source and id, so the import can be
-  repeated and changes nothing for a session already imported (#264's
+  repeated and changes nothing for a session already imported (#37's
   upserts).
+- **When `ecu` ends, splits or discards it differently** from v1 (a restart,
+  a next session started, telemetry lost, the pause limit, or a session it
+  throws away), that session is imported from v1's rows, flagged as in
+  point 5, and listed in the import's summary.
 
-The importer sets the id itself; it does not keep the one `ecu`'s machine
-would mint.
+The importer sets the id itself. `ecu`'s machine mints ULIDs (`race.IDs` is
+a `func() ulid.ULID`), so the importer rewrites the session id on every
+event it stores.
 
 Settles: #263 (R1.4), #264 (R3, "derived from v1's session id" read as v1's
-id unchanged).
+id unchanged). The one-to-one rule is the maintainer's decision
+(2026-10-31).
 
 ### 5. What is lost or approximate
 
 - **Sessions stored before v1's frames carried every field v2 needs** are
   imported from v1's rows, as v1 judged them, and flagged (for example
   `derived: false`), so the whole history comes over.
+- **Sessions `ecu` ends, splits or discards differently from v1** are
+  imported from v1's rows, flagged (point 4).
 - **Sessions with no lap files, or files that can't be read,** are left out.
 - **Every session that differs** from v1's rows beyond the parity
   tolerances, and every one flagged or left out, is listed with its reason in
@@ -89,8 +99,13 @@ Settles: #263 (R3, and its open question).
 
 - **Once in Rosberg,** when #264 lands, on a copy of v1's data with
   `logbook` stopped, before the Rosberg demo (#136).
+- **Again after any use of v1** once the v2 pit wall has taken v1's address
+  ([ADR 0011](0011-pit-wall-access.md), point 3): until then, v1's new
+  sessions are not found on v2's pit wall, and their cards' links 404.
 - **A final run at Hamilton,** before v1's volume is archived (#114), to take
-  the sessions raced on v1 since.
+  whatever v1 raced since.
+
+The rerun rule is the maintainer's decision (2026-10-31).
 
 Settles: #263 (R1.5).
 
@@ -112,6 +127,14 @@ part" line on ADR 0004 are #263's R1 and R2. #264 builds the importer to it.
   changed). The summary lists them; v2's answer stands.
 - **Two kinds of id in one store,** v1's timestamps and `ecu`'s ULIDs. The
   pit wall treats both as opaque.
+- **Imported ids can never change.** Cards in Discord carry them, so a
+  session's id is permanent once it is imported.
+- **The pit wall answers `/?session=<id>` for good,** on every address cards
+  have used ([ADR 0011](0011-pit-wall-access.md), point 3), whatever its
+  routes become.
+- **It relies on the bare session id.** The pit wall's API takes the session
+  id alone, with `src` kept out of URLs (#121, #124); a change there would
+  break old cards.
 
 Changing any point here needs a new record that supersedes this one.
 

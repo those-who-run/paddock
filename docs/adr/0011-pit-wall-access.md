@@ -55,6 +55,11 @@ Settles: #134 (R1, D named for later).
    (`/?session=<v1id>`) reach v2's pit wall and find the imported session.
 4. **Then v1's pit wall retires.**
 
+**Both addresses keep serving v2's pit wall for good.** Each card links to
+the address that was current when it was posted, so neither may go away,
+and both answer `/?session=<id>` whatever the pit wall's routes become. This
+is the maintainer's decision (2026-10-31).
+
 The hosts are the overlay's; the base names none.
 
 Settles: where the pit wall lives while v1's history moves over, for #132
@@ -81,7 +86,10 @@ is done when Hamilton closes v1's issues (#116).
 - **No login to build or run** for Rosberg, and no identity provider.
 - **Outside access waits for a VPN,** which is the maintainer's setup, not
   the base's.
-- **Two pit wall hosts for a while,** until v1's address moves over (point 3).
+- **Two pit wall addresses, for good** (point 3). Both stay in the overlay
+  and serve the same pit wall, because cards link to each.
+- **`/?session=<id>` is permanent** on both, with the bare session id and
+  `src` kept out of URLs (#121, #124).
 
 Changing any point here needs a new record that supersedes this one.
 

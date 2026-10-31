@@ -51,7 +51,7 @@ Signs it is time:
 | [0008](0008-contracts-tooling-and-tags.md) | Contracts' tooling and tags: `buf` and `protoc-gen-go` pinned in `tools/go.mod` and run with `go tool`, `protoc-gen-go` as a local plugin; the Go module at the repository root, `github.com/those-who-run/contracts`, with plain `vX.Y.Z` tags. Supersedes in part ADR 0002: how `buf generate` gets its plugin (point 1) and the Go module's place and tag scheme (point 6). |
 | [0009](0009-v1-history-import.md) | v1's history is imported into `logbook`, re-derived from v1's stored frames by `logbook import-v1` through `ecu`'s race packages, made public, as a library; imported sessions are `src=v1-import` and keep v1's ids, so old card links work; sessions without the frames v2 needs come from v1's rows, flagged. Supersedes ADR 0004, point 7. |
 | [0010](0010-results-cards.md) | Results cards are posted by `podium`, their own subscriber in Go (`ghcr.io/those-who-run/twr-podium`, `component: podium`), over Discord's REST API with the second bot's token and no gateway session; `podium` is the home for everything posted after a session. |
-| [0011](0011-pit-wall-access.md) | Who can reach the pit wall: the home network only, with no login, as v1; from outside through a VPN, later; the v2 pit wall gets a new host, then takes v1's address once the import is checked, and v1's pit wall retires; Schumacher's setup pages revisit it. |
+| [0011](0011-pit-wall-access.md) | Who can reach the pit wall: the home network only, with no login, as v1; from outside through a VPN, later; the v2 pit wall gets a new host, then takes v1's address once the import is checked, and v1's pit wall retires; both addresses serve it for good, as cards link to each; Schumacher's setup pages revisit it. |
 
 ## v1's records
 
