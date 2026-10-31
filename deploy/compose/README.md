@@ -132,7 +132,7 @@ environment variable names (`NATS_URL`, `TWR_NATS_URL`, `TWR_DATA_DIR`,
   in `make check` and CI's `test` job) starts from `make reset`, runs
   `make up`, checks that only `nats` and `logbook` run and the bootstrap exited
   0, checks NATS's `/healthz` with JetStream, that the bootstrap made
-  `CALLOUTS`, `TELEMETRY`, `EVENTS` and the `live` and `ecu` buckets, and that `logbook` reports
+  `CALLOUTS`, `TELEMETRY`, `EVENTS` and the `live`, `ecu` and `cards` buckets, and that `logbook` reports
   connected, and runs `make export` against the running stack. Then it runs
   `make replay FILE=real-race-2laps-2026-10-14.jsonl.gz SPEED=max`, waits
   until `logbook`'s `/healthz` counts the 4 laps v1 stored for it written and
