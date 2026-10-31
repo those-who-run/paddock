@@ -23,6 +23,7 @@ configMapGenerator:
       - streams/telemetry.json
   - name: twr-nats-kv
     files:
+      - kv/cards.json
       - kv/ecu.json
       - kv/live.json
   - name: twr-nats-bootstrap-script
@@ -41,6 +42,7 @@ configMapGenerator:
       - streams.callouts.json=streams/callouts.json
       - streams.events.json=streams/events.json
       - streams.telemetry.json=streams/telemetry.json
+      - kv.cards.json=kv/cards.json
       - kv.ecu.json=kv/ecu.json
       - kv.live.json=kv/live.json
 
