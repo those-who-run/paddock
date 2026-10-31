@@ -97,6 +97,22 @@ func slotsOf(items []Item, d EventDiff, rule string) map[string]any {
 	return nil
 }
 
+// trackBy is a side's last session.track of the difference's part and session at
+// or before its frame, nil when there is none.
+func trackBy(items []Item, d EventDiff) *Item {
+	frame, err := strconv.ParseUint(d.At, 10, 32)
+	if err != nil {
+		return nil
+	}
+	var last *Item
+	for i, it := range items {
+		if it.Type == "session.track" && it.Part == d.Part && it.Session == d.Session && it.At != nil && uint64(*it.At) <= frame {
+			last = &items[i]
+		}
+	}
+	return last
+}
+
 // onlyTrackApart says whether with names a track and without is with less that
 // track, every other slot the same.
 func onlyTrackApart(with, without map[string]any) bool {
@@ -244,8 +260,16 @@ var accepted = []acceptance{
 			"sugo-timed, sugo-two-stops, suzuka-no-stop, suzuka-pit-stop and suzuka-timed-race v2's slots are v1's " +
 			"and the track.",
 		Match: func(d EventDiff, run runView) bool {
-			return summaryConfirmedTrack[run.stem] && d.Label == "callout race_summary" && d.Field == "slots" &&
-				onlyTrackApart(slotsOf(run.v2, d, "race_summary"), slotsOf(run.v1, d, "race_summary"))
+			if !summaryConfirmedTrack[run.stem] || d.Label != "callout race_summary" || d.Field != "slots" {
+				return false
+			}
+			slots := slotsOf(run.v2, d, "race_summary")
+			if !onlyTrackApart(slots, slotsOf(run.v1, d, "race_summary")) {
+				return false
+			}
+			// The track is the session's, and ecu's verdict on it CONFIRMED.
+			track := trackBy(run.v2, d)
+			return track != nil && track.Fields["confidence"] == "confirmed" && track.Fields["name"] == slots["track"]
 		},
 	},
 }

@@ -472,6 +472,11 @@ func TestNoTrackAtTheStart(t *testing.T) {
 		return callout("race_summary", slots)
 	}
 	trackOnly := callout("start_brief", map[string]any{"track": "Fuji International Speedway"})
+	// ecu's verdict on the session's track, before the summary's frame (48).
+	verdict := func(confidence, name string) Item {
+		return item1("session.track", 1, 40, map[string]any{"track_id": 1.0, "confidence": confidence, "family": "sugo", "name": name})
+	}
+	confirmed := verdict("confirmed", "Sportsland SUGO")
 	const (
 		fuji = "real-nuc-fuji-timed-2026-10-15"
 		sugo = "real-nuc-sugo-two-stops-2026-10-18"
@@ -482,21 +487,32 @@ func TestNoTrackAtTheStart(t *testing.T) {
 		v1, v2 []Item
 		want   string
 	}{
-		"a track-only brief":            {fuji, []Item{trackOnly}, nil, "no-track-brief"},
-		"a track-only brief elsewhere":  {spa, []Item{trackOnly}, nil, ""},
-		"a brief with more, missing":    {fuji, []Item{brief("Fuji International Speedway")}, nil, ""},
-		"a track-only brief only on v2": {fuji, nil, []Item{trackOnly}, ""},
-		"the brief's track":             {sugo, []Item{brief("Sportsland SUGO")}, []Item{brief(nil)}, "no-track-brief-slot"},
-		"the brief's track elsewhere":   {spa, []Item{brief("Sportsland SUGO")}, []Item{brief(nil)}, ""},
-		"the brief's track on v2":       {sugo, []Item{brief(nil)}, []Item{brief("Sportsland SUGO")}, ""},
-		"the brief's track and more":    {sugo, []Item{brief("Sportsland SUGO")}, []Item{callout("start_brief", map[string]any{"laps": 12.0})}, ""},
-		"the summary's track":           {sugo, []Item{summary(nil)}, []Item{summary("Sportsland SUGO")}, "summary-confirmed-track"},
-		"the summary's track elsewhere": {spa, []Item{summary(nil)}, []Item{summary("Sportsland SUGO")}, ""},
-		"the summary's track on v1":     {sugo, []Item{summary("Sportsland SUGO")}, []Item{summary(nil)}, ""},
-		"the summary's track, empty":    {sugo, []Item{summary(nil)}, []Item{summary("")}, ""},
-		"the summary's track and more":  {sugo, []Item{callout("race_summary", map[string]any{"position": 9.0})}, []Item{summary("Sportsland SUGO")}, ""},
+		"a track-only brief":                      {fuji, []Item{trackOnly}, nil, "no-track-brief"},
+		"a track-only brief elsewhere":            {spa, []Item{trackOnly}, nil, ""},
+		"a brief with more, missing":              {fuji, []Item{brief("Fuji International Speedway")}, nil, ""},
+		"a track-only brief only on v2":           {fuji, nil, []Item{trackOnly}, ""},
+		"the brief's track":                       {sugo, []Item{brief("Sportsland SUGO")}, []Item{brief(nil)}, "no-track-brief-slot"},
+		"the brief's track elsewhere":             {spa, []Item{brief("Sportsland SUGO")}, []Item{brief(nil)}, ""},
+		"the brief's track on v2":                 {sugo, []Item{brief(nil)}, []Item{brief("Sportsland SUGO")}, ""},
+		"the brief's track and more":              {sugo, []Item{brief("Sportsland SUGO")}, []Item{callout("start_brief", map[string]any{"laps": 12.0})}, ""},
+		"the summary's track":                     {sugo, []Item{summary(nil)}, []Item{confirmed, summary("Sportsland SUGO")}, "summary-confirmed-track"},
+		"the summary's track, probable":           {sugo, []Item{summary(nil)}, []Item{verdict("probable", "Sportsland SUGO"), summary("Sportsland SUGO")}, ""},
+		"the summary's track, another":            {sugo, []Item{summary(nil)}, []Item{verdict("confirmed", "Fuji International Speedway"), summary("Sportsland SUGO")}, ""},
+		"the summary's track, no verdict":         {sugo, []Item{summary(nil)}, []Item{summary("Sportsland SUGO")}, ""},
+		"the summary's track, a verdict after it": {sugo, []Item{summary(nil)}, []Item{item1("session.track", 1, 60, confirmed.Fields), summary("Sportsland SUGO")}, ""},
+		"the summary's track elsewhere":           {spa, []Item{summary(nil)}, []Item{confirmed, summary("Sportsland SUGO")}, ""},
+		"the summary's track on v1":               {sugo, []Item{summary("Sportsland SUGO")}, []Item{confirmed, summary(nil)}, ""},
+		"the summary's track, empty":              {sugo, []Item{summary(nil)}, []Item{confirmed, summary("")}, ""},
+		"the summary's track and more":            {sugo, []Item{callout("race_summary", map[string]any{"position": 9.0})}, []Item{confirmed, summary("Sportsland SUGO")}, ""},
 	} {
-		r := compareItems(run(c.stem), c.v1, c.v2)
+		// v1 gives the same verdict (its name isn't compared), so the callout is the one difference.
+		v1 := c.v1
+		for _, it := range c.v2 {
+			if it.Type == "session.track" {
+				v1 = append([]Item{it}, v1...)
+			}
+		}
+		r := compareItems(run(c.stem), v1, c.v2)
 		if len(r.Diffs) != 1 || r.Diffs[0].Accepted != c.want {
 			t.Errorf("%s: %+v", name, r.Diffs)
 		}
