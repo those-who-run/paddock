@@ -519,6 +519,44 @@ func TestNoTrackAtTheStart(t *testing.T) {
 	}
 }
 
+// paddock#148: on sugo-two-stops, session.kind's start at frame 47 is v1's rolling
+// and v2's grid (ecu#69). Nothing else is: another recording, another frame,
+// another field, the other way round or another start.
+func TestAGridBehindTheLine(t *testing.T) {
+	run := func(stem string) Run { return Run{Recordings: []Recording{{Name: stem + ".jsonl.gz"}}} }
+	kind := func(frame uint32, start string) Item {
+		return item1("session.kind", 1, frame, map[string]any{"kind": "lap_race", "total_laps": 12.0, "field": true,
+			"fuel_use": "on", "cars_on_track": true, "start": start})
+	}
+	const (
+		sugo   = "real-nuc-sugo-two-stops-2026-10-18"
+		suzuka = "real-nuc-suzuka-no-stop-2026-10-15"
+	)
+	withLaps := func(laps float64) Item {
+		k := kind(47, "grid")
+		k.Fields["total_laps"] = laps
+		return k
+	}
+	for name, c := range map[string]struct {
+		stem   string
+		v1, v2 Item
+		want   string
+	}{
+		"rolling to grid":       {sugo, kind(47, "rolling"), kind(47, "grid"), "grid-behind-the-line"},
+		"another recording":     {suzuka, kind(47, "rolling"), kind(47, "grid"), ""},
+		"another frame":         {sugo, kind(48, "rolling"), kind(48, "grid"), ""},
+		"grid to rolling":       {sugo, kind(47, "grid"), kind(47, "rolling"), ""},
+		"rolling to flying":     {sugo, kind(47, "rolling"), kind(47, "flying"), ""},
+		"unknown to grid":       {sugo, kind(47, "unknown"), kind(47, "grid"), ""},
+		"another field differs": {sugo, kind(47, "grid"), withLaps(5), ""},
+	} {
+		r := compareItems(run(c.stem), []Item{c.v1}, []Item{c.v2})
+		if len(r.Diffs) != 1 || r.Diffs[0].Accepted != c.want {
+			t.Errorf("%s: %+v", name, r.Diffs)
+		}
+	}
+}
+
 // A start v1 held and discarded is compared with ecu's session.discarded: its
 // reason and first frame. A session ecu opened where v1 discarded the start, or the
 // other way round, is a difference; so is a continued session against a new one.
