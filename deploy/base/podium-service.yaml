@@ -1,0 +1,14 @@
+# podium's /healthz and /metrics (gt7_results_posts_total), for the namespace's pods
+# and a scrape (paddock#67); the kubelet probes the pod itself. podium takes no
+# other requests.
+apiVersion: v1
+kind: Service
+metadata:
+  name: podium
+spec:
+  selector:
+    app.kubernetes.io/name: podium
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

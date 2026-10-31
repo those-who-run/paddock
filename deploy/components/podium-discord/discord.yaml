@@ -1,0 +1,24 @@
+# Merged into deploy/base/podium-deployment.yaml's container by its env names.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podium
+spec:
+  template:
+    spec:
+      containers:
+        - name: podium
+          env:
+            - name: TWR_DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: radio-discord
+                  key: TWR_DISCORD_BOT_TOKEN
+            # Optional: a Secret without the key leaves the channel unset, which
+            # turns cards off (podium's R7) rather than stopping the pod.
+            - name: TWR_DISCORD_RESULTS_CHANNEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: radio-discord
+                  key: TWR_DISCORD_RESULTS_CHANNEL_ID
+                  optional: true

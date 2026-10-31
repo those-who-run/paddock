@@ -8,11 +8,12 @@ repository sets those. The runbook, from nothing to running, comes with #51.
 
 | Directory | What |
 |---|---|
-| [`base/`](base/kustomization.yaml) | The base (#44): NATS, the stream and KV bootstrap Job, `logbook`, and `radio` on the console (#63) |
+| [`base/`](base/kustomization.yaml) | The base (#44): NATS, the stream and KV bootstrap Job, `logbook`, `radio` on the console (#63), and `podium` with its cards off (#67) |
 | [`nats/`](nats/README.md) | NATS from its Helm chart (`nats/chart`, #42), the streams and buckets, and the bootstrap Job (#43) |
 | [`components/nats-websocket/`](components/nats-websocket/kustomization.yaml) | The Ingress to NATS's WebSocket, with the overlay's host, class and TLS secret |
 | [`components/network-policy/`](components/network-policy/kustomization.yaml) | NetworkPolicies: only the namespace's pods reach NATS and `logbook`, and the ingress controller's namespace reaches the WebSocket |
 | [`components/radio-discord/`](components/radio-discord/kustomization.yaml) | `radio` speaks in Discord, the bot's token and voice channel from the overlay's Secret ([below](#radio-in-discord)) |
+| [`components/podium-discord/`](components/podium-discord/kustomization.yaml) | `podium` posts the results cards in Discord, the bot's token and the results channel from the same Secret ([below](#podium-in-discord)) |
 | [`compose/`](compose/README.md) | The same stack on a laptop, with no cluster |
 
 ## The base
@@ -21,7 +22,8 @@ repository sets those. The runbook, from nothing to running, comes with #51.
 `nats`, `logbook`:
 [`base/logbook-statefulset.yaml`](base/logbook-statefulset.yaml) and its
 headless Service, and `radio`:
-[`base/radio-deployment.yaml`](base/radio-deployment.yaml) and its Service. Every object carries `app.kubernetes.io/part-of: twr`.
+[`base/radio-deployment.yaml`](base/radio-deployment.yaml) and its Service, and `podium`:
+[`base/podium-deployment.yaml`](base/podium-deployment.yaml) and its Service. Every object carries `app.kubernetes.io/part-of: twr`.
 
 - **`logbook`** is a StatefulSet of exactly one replica, `OrderedReady`: its
   store is one file that one process writes. Its volume, `data`, is mounted at
@@ -47,8 +49,18 @@ headless Service, and `radio`:
   as user 65532 on a read-only root file system with no service account
   token. It has no CPU limit: Piper is CPU bound, and v1 found a 1-CPU limit
   made its callouts go stale. The image is amd64 only (ADR 0006).
+- **`podium`** is a Deployment of one replica, replaced by `Recreate`: podium
+  runs as a single replica (its README says why). It posts the results card of
+  each session of source `live` once (#67), with the `discord` sink and no
+  results channel, which turns its cards off: no consumer, nothing posted, no
+  Discord and no Secret, so it starts on any cluster.
+  [`components/podium-discord`](#podium-in-discord) turns them on. It reaches
+  NATS at `nats://nats:4222`, its readiness and liveness are on `/healthz`,
+  port 8080, which also serves `/metrics` (`gt7_results_posts_total`), and it
+  runs as user 65532 on a read-only root file system with no service account
+  token. The image is amd64 only (ADR 0006).
 - **Images** are pinned by tag and digest, the same strings as compose:
-  `logbook` and `radio` in the base's `images:` block, NATS, `nats-box` and the
+  `logbook`, `radio` and `podium` in the base's `images:` block, NATS, `nats-box` and the
   exporter in `nats/chart/values.yaml` and `nats/bootstrap-job.yaml`. Each is
   pinned in one place. `make deploy-render` fails when an image in the base's
   render is not compose's, or compose runs one the base does not. `ecu`'s
@@ -111,6 +123,45 @@ One token is one voice connection. A cluster where another engineer already
 speaks with the same bot sets `radio` to 0 replicas in its overlay and scales
 it up, with `ecu`, only once the other is down.
 
+### podium in Discord
+
+[`components/podium-discord`](components/podium-discord/kustomization.yaml)
+gives `podium` the bot's token and the results channel, from radio's Secret
+`radio-discord` by name and key only, so it posts each session's results card
+there (#67, [ADR 0010](../docs/adr/0010-results-cards.md)). podium posts as
+radio's bot, over REST, which doesn't fight radio's voice connection. The
+overlay includes the component and **adds one key to the Secret**:
+
+| Secret `radio-discord`, key | What |
+|---|---|
+| `TWR_DISCORD_BOT_TOKEN` | The bot's token, radio's key |
+| `TWR_DISCORD_RESULTS_CHANNEL_ID` | The results channel the cards go to, by id: the key the overlay adds |
+
+```sh
+read -rs TOKEN
+kubectl -n <namespace> create secret generic radio-discord \
+  --from-literal=TWR_DISCORD_BOT_TOKEN="$TOKEN" \
+  --from-literal=TWR_DISCORD_VOICE_CHANNEL_ID=<voice-channel-id> \
+  --from-literal=TWR_DISCORD_RESULTS_CHANNEL_ID=<results-channel-id> \
+  --dry-run=client -o yaml | kubectl apply -f -
+unset TOKEN
+```
+
+The channel's key is `optional`: without it `podium` starts with its cards
+off rather than failing. The token's is not, so including the component
+without the Secret `radio-discord` leaves `podium` unable to start
+(`CreateContainerConfigError`); only a missing channel key starts it with its
+cards off. A key added to an existing Secret reaches `podium` only once it
+restarts: `kubectl -n <namespace> rollout restart deployment/podium`. The bot needs View Channel, Send Messages, Embed
+Links and **Read Message History** on the results channel; the last lets
+podium look for a card a stopped pod may already have posted. The base sets
+`TWR_PODIUM_SRC=live` and `TWR_PODIUM_SINK=discord`; the overlay may add
+`TWR_PITWALL_URL`, the pit wall's base URL each card's title links to, with a
+patch on the Deployment's environment. podium's README has the rest.
+
+On its first start podium's consumer posts only the sessions that end after
+it, none of the 30 days of sessions `EVENTS` already keeps.
+
 Render and apply with kustomize 5.7.x, not 5.8
 ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)),
 and `helm` on the `PATH`. `kubectl apply -k` cannot inflate NATS's chart:
@@ -136,10 +187,15 @@ StatefulSet: exactly one replica, the retention policy, no storage class, its
 volume, environment, probes, security settings and resources; and `radio`'s
 Deployment: exactly one replica, `Recreate`, source `live` on the console with
 no Secret or Discord setting, its `emptyDir` at `/tmp`, environment, probes,
-security settings, resources and Service. Each component's render carries the
-label too. For `radio-discord`, the sink is `discord`, both settings come
-from Secret `radio-discord` under their own key, and the render holds no
-Secret of that name. For `network-policy`, both policies are Ingress
+security settings, resources and Service; and `podium`'s Deployment: exactly
+one replica, `Recreate`, source `live` and the `discord` sink with no Secret or
+Discord setting, environment, probes, security settings, resources and
+Service. Each component's render carries the label too. For `radio-discord`,
+the sink is `discord`, both settings come from Secret `radio-discord` under
+their own key, and the render holds no Secret of that name. For
+`podium-discord`, the token and the results channel come from Secret
+`radio-discord` under their own key, the channel's `optional`, and the render
+holds no Secret of that name. For `network-policy`, both policies are Ingress
 only and select NATS's server and `logbook`, each lets in the namespace's own
 pods, and NATS's lets in the ingress controller's namespace, and no other, on
 8080 only.
@@ -173,7 +229,8 @@ In what the base and each component render to
 | NATS at exactly one replica | NATS runs as one server with no clustering, and the stream definitions ask for one replica. |
 | `logbook` at exactly one replica | Its store is one file that one process writes. |
 | `radio` at exactly one replica, replaced by `Recreate` | A source's callouts go to one speaker; an overlay may set 0. |
-| No Secret value, Discord setting or Secret reference in the base | The base runs on any cluster; the token and channel are the overlay's, through `radio-discord`. |
+| `podium` at exactly one replica, replaced by `Recreate` | podium runs as a single replica: a second would wait on the first's cards. |
+| No Secret value, Discord setting or Secret reference in the base | The base runs on any cluster; the token and channels are the overlay's, through `radio-discord` and `podium-discord`. |
 | Every object labelled `app.kubernetes.io/part-of: twr`, and resource requests on every container | An overlay and a cluster's tools can find the stack's objects, and the scheduler can place its pods. |
 
 A Namespace object, `hostPath` volumes, node affinity and Secret objects are

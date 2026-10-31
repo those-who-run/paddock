@@ -1,0 +1,24 @@
+# podium posts the results cards in Discord (paddock#67, ADR 0010): the bot's token
+# and the results channel read from a Secret by name and key only. Nothing here
+# holds a value: the overlay provides the Secret, created outside git, in the
+# stack's namespace. A component, so the base starts on any cluster without one. An
+# overlay includes it:
+#
+#   components:
+#     - <path to paddock>/deploy/components/podium-discord
+#
+# The Secret is radio's, `radio-discord` (deploy/components/radio-discord): podium
+# posts as the same bot, over REST, which does not fight radio's voice connection
+# (ADR 0010, point 2). It reads TWR_DISCORD_BOT_TOKEN, as radio does, and its own
+# key TWR_DISCORD_RESULTS_CHANNEL_ID, which the overlay adds to the Secret
+# (deploy/README.md says how). Without that key podium starts with its cards off.
+# A Secret of another name or keys is a patch on the Deployment's two
+# secretKeyRefs.
+#
+# podium posts only the sessions that end after its consumer is first made, so its
+# first start posts none of the sessions EVENTS already keeps.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: discord.yaml

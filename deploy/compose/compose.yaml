@@ -1,6 +1,6 @@
 # The walking skeleton on a laptop (paddock#39): NATS with JetStream, the stream and
-# KV bootstrap, logbook, radio for hearing a replay, and nats-box for looking at the
-# bus. No PS5, no cluster.
+# KV bootstrap, logbook, radio for hearing a replay, podium for its results cards,
+# and nats-box for looking at the bus. No PS5, no cluster.
 # The make targets in paddock's Makefile run it (`make up`, `make replay`, `make sub`,
 # `make export`, `make down`, `make reset`); deploy/compose/README.md says how.
 #
@@ -11,7 +11,7 @@
 #
 # What the cluster also needs is kept the same here, so the kustomize base copies it
 # rather than reinventing it: the definitions in deploy/nats, the bootstrap run as
-# user 1000 and logbook, radio and ecu as 65532, each on a read-only root file system, every
+# user 1000 and logbook, radio, podium and ecu as 65532, each on a read-only root file system, every
 # capability dropped and no new privileges, the environment variable names, and
 # logbook's data at /data. tests/test_compose.py fails a service without cap_drop ALL
 # and no-new-privileges, and one with network_mode, privileged, cap_add, or build
@@ -157,6 +157,32 @@ services:
         bind:
           selinux: z
           create_host_path: true
+    depends_on:
+      nats-bootstrap:
+        condition: service_completed_successfully
+
+  # podium (paddock#67): posts the results card of each session of a source,
+  # `replay-compose` by default (what `make replay` publishes), once, to the console:
+  # the card in its log, as `podium card` prints it, with no Discord. `make podium`
+  # starts it; start it before the replay, since it posts only the sessions that end
+  # after its consumer is first made (TWR_PODIUM_SRC's durable consumer, cards-<src>).
+  # Profile `replay`: `make up` does not start it. TWR_PITWALL_URL, when set, links
+  # each card to the pit wall. No Discord: deploy/components/podium-discord is the
+  # cluster's.
+  podium:
+    image: ghcr.io/those-who-run/twr-podium:0.1.2@sha256:4aab44c1432e4f3269b099279dea7afec44f9ff59bbb3a2cb6e3a20ebe0cc1ea
+    platform: linux/amd64
+    profiles: [replay]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TWR_NATS_URL: nats://nats:4222
+      ADDR: ":8080"
+      LOG_LEVEL: info
+      TWR_PODIUM_SRC: ${TWR_PODIUM_SRC:-replay-compose}
+      TWR_PODIUM_SINK: console
+      TWR_PITWALL_URL: ${TWR_PITWALL_URL:-}
     depends_on:
       nats-bootstrap:
         condition: service_completed_successfully
