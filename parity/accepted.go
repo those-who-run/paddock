@@ -165,6 +165,12 @@ var summaryConfirmedTrack = map[string]bool{
 	"real-nuc-suzuka-timed-race-2026-10-16": true,
 }
 
+// gridBehindTheLine is where ecu reads a grid start that v1 read as rolling
+// (ecu#69, 2026-10-31): the recording, and the frame of its session.kind.
+var gridBehindTheLine = map[string]string{
+	"real-nuc-sugo-two-stops-2026-10-18": "47",
+}
+
 // maxHeldMs bounds how much later v1 dated a held start than ecu: the start
 // check's hold, 3 s in the one recording with one (real-race-2laps-2026-10-14),
 // as ecu's summary test bounds it (maxHeldSecs).
@@ -270,6 +276,20 @@ var accepted = []acceptance{
 			// The track is the session's, and ecu's verdict on it CONFIRMED.
 			track := trackBy(run.v2, d)
 			return track != nil && track.Fields["confidence"] == "confirmed" && track.Fields["name"] == slots["track"]
+		},
+	},
+	{
+		ID:    "grid-behind-the-line",
+		Issue: "those-who-run/paddock#148",
+		Reason: "A grid behind the line is a grid start (ecu#69, ecu 0.1.14, 2026-10-31): the car stands on the grid " +
+			"on the track screen, then launches and starts lap 1 at speed, so v1's 18-packet start window read it as " +
+			"rolling. On sugo-two-stops the car stands in slot 10 for 6 s and starts lap 1 at 113 km/h 4.3 s after " +
+			"moving off, as the live grid start of 2026-10-31 does: session.kind's start at frame 47 is v1's rolling " +
+			"and v2's grid.",
+		Match: func(d EventDiff, run runView) bool {
+			frame, ok := gridBehindTheLine[run.stem]
+			return ok && d.Type == "session.kind" && d.Field == "start" && d.At == frame &&
+				d.V1 == "rolling" && d.V2 == "grid"
 		},
 	},
 }

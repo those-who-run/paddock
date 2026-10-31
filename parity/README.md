@@ -263,7 +263,9 @@ timed lap (#83) and a held start's `started_at`, up to 5 s earlier (#74); and
 the maintainer's decision of 2026-10-31, no track at the start (`ecu`#60 and
 `radio`#31, from `ecu` 0.1.12): no start brief that only named the track, no
 track slot in a race's start brief, and a track in the race summary when `ecu`'s
-verdict is CONFIRMED, each on the recordings it lists. An entry for something still to do is removed by the PR that does it. The
+verdict is CONFIRMED, each on the recordings it lists; and a grid start where v1
+read rolling, on `real-nuc-sugo-two-stops-2026-10-18`'s `session.kind` at frame
+47 (#148, `ecu`#69, from `ecu` 0.1.14). An entry for something still to do is removed by the PR that does it. The
 fields left out on purpose (v1's session type, which `kind` replaces, the end
 reason v1 never stored, the callout's text, `lap.best`) are listed there too. Any other difference fails
 the run. After the table, each entry that allowed no difference is named; when
