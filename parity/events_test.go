@@ -607,7 +607,7 @@ func TestUnusedEntries(t *testing.T) {
 	}
 	out.Reset()
 	code = compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{everyRecording: true}, &out, &bytes.Buffer{})
-	if code != exitDiffer || !strings.Contains(out.String(), "7 accepted entries unused over every recording: remove them") {
+	if code != exitDiffer || !strings.Contains(out.String(), "8 accepted entries unused over every recording: remove them") {
 		t.Fatalf("%d\n%s", code, out.String())
 	}
 	sums := map[string]string{pitRec.Name: "x"}
