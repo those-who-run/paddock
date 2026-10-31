@@ -64,7 +64,7 @@ echo "== AC1: the first run creates the streams and the buckets"
 out=$("$dir/bootstrap.sh" "$dir")
 echo "$out"
 for want in "stream CALLOUTS created" "stream TELEMETRY created" "stream EVENTS created" \
-	"bucket ecu created" "bucket live created"; do
+	"bucket cards created" "bucket ecu created" "bucket live created"; do
 	printf '%s\n' "$out" | grep -qxF "bootstrap: $want" || fail "first run did not say: $want"
 done
 
@@ -115,9 +115,17 @@ expect KV_ecu num_replicas 1
 expect KV_ecu max_msg_size 1048576
 expect KV_ecu max_bytes 67108864
 
+# paddock#67.
+n kv info cards
+expect KV_cards max_msgs_per_subject 1
+expect KV_cards storage '"file"'
+expect KV_cards num_replicas 1
+expect KV_cards max_msg_size 65536
+expect KV_cards max_bytes 67108864
+
 echo "== AC2: a second run changes nothing and exits 0"
 snapshot() {
-	for s in CALLOUTS TELEMETRY EVENTS KV_ecu KV_live; do
+	for s in CALLOUTS TELEMETRY EVENTS KV_cards KV_ecu KV_live; do
 		n stream info "$s" --json | jq -c '{name: .config.name, config: .config, created: .created}'
 	done
 }
@@ -125,7 +133,7 @@ before=$(snapshot)
 out=$("$dir/bootstrap.sh" "$dir")
 echo "$out"
 printf '%s\n' "$out" | grep -v ' unchanged$' && fail "second run changed something"
-[ "$(printf '%s\n' "$out" | wc -l)" -eq 5 ] || fail "second run did not report five definitions"
+[ "$(printf '%s\n' "$out" | wc -l)" -eq 6 ] || fail "second run did not report six definitions"
 [ "$(snapshot)" = "$before" ] || fail "the configs differ after the second run"
 
 echo "== AC4: core publishes are captured by the right stream"
@@ -138,7 +146,7 @@ n stream get TELEMETRY --last-for twr.v1.parity.frame.gt7 >/dev/null ||
 	fail "TELEMETRY does not hold twr.v1.parity.frame.gt7"
 n stream get EVENTS --last-for twr.v1.parity.evt.x.lap.completed >/dev/null ||
 	fail "EVENTS does not hold twr.v1.parity.evt.x.lap.completed"
-for s in CALLOUTS TELEMETRY EVENTS KV_ecu KV_live; do
+for s in CALLOUTS TELEMETRY EVENTS KV_cards KV_ecu KV_live; do
 	n stream get "$s" --last-for twr.v1.parity.frame.gt7.lo >/dev/null 2>&1 &&
 		fail "$s holds twr.v1.parity.frame.gt7.lo"
 done
@@ -177,13 +185,15 @@ jq '.max_bytes = 1073741824' "$dir/streams/telemetry.json" >"$changed/streams/te
 jq '.duplicate_window = 60000000000' "$dir/streams/events.json" >"$changed/streams/events.json"
 jq '.max_bucket_size = 33554432 | .max_value_size = 32768' "$dir/kv/live.json" >"$changed/kv/live.json"
 jq '.max_value_size = 524288' "$dir/kv/ecu.json" >"$changed/kv/ecu.json"
+jq '.max_value_size = 32768' "$dir/kv/cards.json" >"$changed/kv/cards.json"
 if out=$("$dir/bootstrap.sh" "$changed"); then
 	echo "$out"
 	for want in "stream TELEMETRY differs in: max_bytes" "stream TELEMETRY updated" \
 		"stream EVENTS differs in: duplicate_window" "stream EVENTS updated" \
 		"bucket live differs in: max_msg_size max_bytes" "bucket live updated" \
 		"stream CALLOUTS differs in: max_bytes" "stream CALLOUTS updated" \
-		"bucket ecu differs in: max_msg_size" "bucket ecu updated"; do
+		"bucket ecu differs in: max_msg_size" "bucket ecu updated" \
+		"bucket cards differs in: max_msg_size" "bucket cards updated"; do
 		printf '%s\n' "$out" | grep -qxF "bootstrap: $want" || fail "the changed run did not say: $want"
 	done
 else
@@ -195,6 +205,7 @@ expect KV_live max_bytes 33554432
 expect KV_live max_msg_size 32768
 expect CALLOUTS max_bytes 33554432
 expect KV_ecu max_msg_size 524288
+expect KV_cards max_msg_size 32768
 expect_count TELEMETRY 1
 expect_count EVENTS 2
 out=$("$dir/bootstrap.sh" "$changed")
@@ -204,13 +215,14 @@ printf '%s\n' "$out" | grep -v ' unchanged$' && fail "the run after the change c
 echo "== R4: the real definitions put the old limits back"
 out=$("$dir/bootstrap.sh" "$dir")
 echo "$out"
-[ "$(printf '%s\n' "$out" | grep -c ' updated$')" -eq 5 ] || fail "the real definitions were not applied again"
+[ "$(printf '%s\n' "$out" | grep -c ' updated$')" -eq 6 ] || fail "the real definitions were not applied again"
 expect TELEMETRY max_bytes 2147483648
 expect EVENTS duplicate_window 120000000000
 expect KV_live max_bytes 67108864
 expect KV_live max_msg_size 65536
 expect CALLOUTS max_bytes 67108864
 expect KV_ecu max_msg_size 1048576
+expect KV_cards max_msg_size 65536
 
 echo "== R4: a bucket's storage cannot change in place, and the bucket stays as it was"
 memory=$WORK/memory

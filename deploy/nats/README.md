@@ -13,6 +13,7 @@ between the laptop and the cluster. The streams and buckets are
 | [`streams/callouts.json`](streams/callouts.json) | `CALLOUTS`: what `ecu`'s rules decide to say, `twr.v1.*.callout.>` (`p0`, `p1`, `p2`), for `radio` to speak once (#73) | file, work queue, 30 s, 64 MiB, discard old, 30 s duplicate window on the callout's id, 1 replica |
 | [`kv/live.json`](kv/live.json) | `live`: the current state, every key carrying its source: `ecu.status`, `ecu.session`, `ecu.pit` and `ecu.fuel` of each source | file, history 1, 64 KiB a value, 64 MiB, 1 replica |
 | [`kv/ecu.json`](kv/ecu.json) | `ecu`: `ecu`'s own state, which no reader of `live` sees: `sessions.open.<src>`, the open session a restarted `ecu` continues or ends (#73, #76) | file, history 1, 1 MiB a value, 64 MiB, 1 replica |
+| [`kv/cards.json`](kv/cards.json) | `cards`: `podium`'s record of each session's results card, `<src>.<sid>`, so a redelivered `session.ended` posts nothing (#67) | file, history 1, 64 KiB a value, 64 MiB, 1 replica |
 | [`subjects.yaml`](subjects.yaml) | A copy of `contracts`' `subjects.yaml` at `v0.2.3`, for the check below | |
 | [`bootstrap.sh`](bootstrap.sh) | Creates what is missing, updates what differs | |
 
@@ -20,7 +21,8 @@ Each file's `$comment` says why each value is what it is. The limits are a
 buffer for subscribers, not how long results are kept: `logbook`'s store keeps
 sessions, laps and frames after the streams have aged them out. The keys in
 each bucket, and what each value is, are `contracts`' (its `subjects.yaml`).
-`ecu` alone writes them; the bootstrap only creates the buckets. The `config`
+`ecu` alone writes `live`'s ecu keys and `ecu`, `radio` its status, and `podium`
+alone writes `cards`; the bootstrap only creates the buckets. The `config`
 bucket is added by the milestone that first uses it.
 
 `CALLOUTS` keeps a callout 30 s, not ADR 0001's 15 s, as decided on #73: the

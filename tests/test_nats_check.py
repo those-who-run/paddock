@@ -87,7 +87,7 @@ class Definitions(unittest.TestCase):
     def test_the_repository_passes(self) -> None:
         problems, summary = nats_check.check(ROOT)
         self.assertEqual(problems, [])
-        self.assertIn("3 streams, 2 buckets", summary)
+        self.assertIn("3 streams, 3 buckets", summary)
 
     def test_a_third_stream_on_the_events_subject_fails(self) -> None:
         # AC3: caught here, before the bootstrap reaches a server.

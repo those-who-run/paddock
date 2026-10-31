@@ -24,8 +24,8 @@ config:
       maxSize: $NATS_JS_MAX_FILE_STORE
       pvc:
         enabled: true
-        # TELEMETRY 2 GiB + EVENTS 1 GiB + CALLOUTS 64 MiB + the `live` and `ecu`
-        # buckets' 64 MiB each, about 3.19 GiB, with room for the file store's own
+        # TELEMETRY 2 GiB + EVENTS 1 GiB + CALLOUTS 64 MiB + the `live`, `ecu` and
+        # `cards` buckets' 64 MiB each, about 3.25 GiB, with room for the file store's own
         # overhead (deploy/nats/README.md). The overlay sets its
         # own size and the storage class; the base names no class, so the cluster's
         # default is used. paddock#256 measures the real figure.

@@ -91,7 +91,7 @@ echo
 echo "== the bootstrap made the streams and the buckets"
 streams=$(compose run --rm -T nats-box nats --no-context stream ls --names) || fail "nats stream ls failed"
 echo "$streams"
-for want in CALLOUTS TELEMETRY EVENTS KV_ecu KV_live; do
+for want in CALLOUTS TELEMETRY EVENTS KV_cards KV_ecu KV_live; do
 	printf '%s\n' "$streams" | grep -qx "$want" || fail "no $want after the bootstrap"
 done
 
