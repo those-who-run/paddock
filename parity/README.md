@@ -270,7 +270,8 @@ read rolling, on `real-nuc-sugo-two-stops-2026-10-18`'s `session.kind` at frame
 and `ecu` reads as ranked (the 2026-10-14 qualifying, Spa and Suzuka of
 2026-10-18, and the restart pair): the kind and the leap's own `session.kind`,
 the start brief (`template_ranked`), the rank calls at the driver's own line
-crossings, and the quit summary v1 never raised. An entry for something still to do is removed by the PR that does it. The
+crossings, and the quit summary v1 never raised, `ecu`'s own items each pinned to
+the frames `rankedRuns` names and a rank call's kind to its direction. An entry for something still to do is removed by the PR that does it. The
 fields left out on purpose (v1's session type, which `kind` replaces, the end
 reason v1 never stored, the callout's text, `lap.best`) are listed there too. Any other difference fails
 the run. After the table, each entry that allowed no difference is named; when
