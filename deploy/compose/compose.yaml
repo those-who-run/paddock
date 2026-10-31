@@ -209,9 +209,14 @@ services:
       TWR_PITWALL_SRC: ${TWR_PITWALL_SRC:-replay-compose}
     ports:
       - "127.0.0.1:9852:8080"
+    # NATS and logbook (#132 R1): its data is logbook's services. logbook has no
+    # healthcheck here (distroless), so started is as much as compose can wait for;
+    # until logbook answers, the pages say so.
     depends_on:
       nats-bootstrap:
         condition: service_completed_successfully
+      logbook:
+        condition: service_started
 
   # For looking at the bus: `make sub`, or
   # `docker compose -p twr -f deploy/compose/compose.yaml run --rm nats-box`

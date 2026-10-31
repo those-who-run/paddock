@@ -227,6 +227,8 @@ class Services(unittest.TestCase):
         self.assertIn("      TWR_NATS_URL: nats://nats:4222", lines)
         self.assertIn("      TWR_PITWALL_SRC: ${TWR_PITWALL_SRC:-replay-compose}", lines)
         self.assertIn('      - "127.0.0.1:9852:8080"', lines)
+        # R1: NATS and logbook as dependencies.
+        self.assertRegex("\n".join(lines), r"depends_on:\n(.*\n)*\s+logbook:\n\s+condition: service_started")
 
     def test_parser(self) -> None:
         text = (
