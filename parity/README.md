@@ -390,7 +390,10 @@ keeps v2's stack and both sides' answers. The exit codes are `laps`' own.
 
 **The questions** (R1), on each side: the session list with no filter, then for
 each session in it `GetSession`, `ListLaps`, `ListSameTrack`, and `GetTrace` at
-1500 points for each complete lap (R4: every complete lap of the three).
+1500 points for each complete lap (R4: every complete lap of the three). Every
+lap of these recordings has fewer than 1500 frames, so no trace is thinned here:
+logbook's `TestTracesEqualV1s` and `TestThinningKeepsThePeaks` check thinning
+against v1's own `lap_trace`.
 
 **The comparison.** v2's answers are put in v1's names and shapes first
 (`v1Shape`), by contracts' own map of v1's schema (`pitwall_v1_test.go`): every
@@ -406,8 +409,11 @@ for (`card_posted_at`, `from_v1_rows`) left out. v1's lap `file` is left out
   fields, so a session that starts or sits elsewhere is a difference, not a
   missing pair.
 - **Values compare** field by field, nested ones by path (`track.name`), lists
-  value for value; `started_at` and `ended_at` within 1 s, fuel within
-  0.001 L, everything else exactly (R3). A trace compares value for value in
+  value for value; `started_at` and `ended_at` within 1 ms, fuel within
+  0.001 L, everything else exactly (R3). v1 keeps a time as a float of Unix
+  seconds and ecu as whole milliseconds, so a millisecond's rounding is all the
+  conversion makes; a start that moves further, such as a held start (#74), is a
+  difference. A trace compares value for value in
   every channel; a difference says how many values differ and the first. The
   list compares its order, `total`, `matched` and each filter's options with
   their counts; same-track compares which sessions, by pair.
@@ -416,14 +422,19 @@ for (`card_posted_at`, `from_v1_rows`) left out. v1's lap `file` is left out
 
 **Accepted differences** (R5) are the `wallAccepted` entries in
 [`accepted.go`](accepted.go), each with its reason and the decision or issue
-behind it, pinned to a recording, a session's place in it, the routes, a lap, a
-field and both values. Any other difference fails the run, and so does an entry
-that allowed none. On the three recordings there are none: the maintainer's
+behind it. Each is pinned, with no wildcard: a recording, a session's place in
+it (from 1), the routes it may match, the lap where those routes are per lap
+(`laps`, `trace`) and none where they aren't, the field, and both values as the
+output prints them. A field of the list's own (its order, `total`, `matched`,
+options) has no recording, session or lap, and only the `sessions` route. An
+entry pinned otherwise is refused before anything runs (exit 2). Any difference
+no entry allows fails the run, and so does an entry that allowed none. On the three recordings there are none: the maintainer's
 decided departures either don't arise there (the track label for a circuit known
 only by its family, a session with no full lap, the ranked kind) or are the
 mapping above (Timestamps, contracts' renames, an absent `total_laps`), and the
-card's words, from contracts' `format`, are v1's for these sessions. A held
-start (#74) starts within R3's 1 s of v1's here.
+card's words, from contracts' `format`, are v1's for these sessions. Every
+session's start and end are v1's to the millisecond, the race's, 19.5 s into its
+recording, among them.
 
 **The output** is a line per difference (recording, session, route, lap, field,
 both values and any accepted entry), then a line per recording with the
