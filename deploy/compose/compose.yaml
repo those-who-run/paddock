@@ -132,7 +132,7 @@ services:
   # passes your own under Docker, and 0:0 under rootless podman, where the
   # container's root is you, so the WAVs land in a directory you own either way.
   radio:
-    image: ghcr.io/those-who-run/twr-radio:0.1.5@sha256:d6e1e78ee3eca3116dba6a2907b917433c93208fd3652322491ce399c1ccc70b
+    image: ghcr.io/those-who-run/twr-radio:0.1.6@sha256:eb07708b11652ece6b9218b38c8621d6914a07abaedb5a25f5b828047745110a
     platform: linux/amd64
     profiles: [replay]
     user: "${TWR_UID:-65532}:${TWR_GID:-65532}"
@@ -170,7 +170,7 @@ services:
   # each card to the pit wall. No Discord: deploy/components/podium-discord is the
   # cluster's.
   podium:
-    image: ghcr.io/those-who-run/twr-podium:0.1.2@sha256:4aab44c1432e4f3269b099279dea7afec44f9ff59bbb3a2cb6e3a20ebe0cc1ea
+    image: ghcr.io/those-who-run/twr-podium:0.1.3@sha256:41beffd7bdfbdd67a7b7d98be3a03afbab8aef08b08708261590d1e7fbfef0de
     platform: linux/amd64
     profiles: [replay]
     read_only: true
