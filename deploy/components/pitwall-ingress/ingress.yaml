@@ -1,0 +1,21 @@
+# The pit wall from outside the cluster (paddock#132 R2, R4): the one way in, since
+# the pit wall has no host network or host port. TLS ends here; the pit wall behind
+# it speaks plain HTTP. paddock names no host (ADR 0004, point 8), so this has no
+# host, class or TLS: the overlay that includes the component adds them with a
+# patch, as deploy/README.md shows. The pit wall has no login, so the host belongs
+# on the LAN (ADR 0011).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pitwall
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pitwall
+                port:
+                  name: http

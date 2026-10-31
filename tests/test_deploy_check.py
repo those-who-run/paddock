@@ -8,7 +8,8 @@ Secret only through deploy/components/radio-discord. BASE is GOOD with logbook,
 radio and the base's label, POLICIES what deploy/components/network-policy adds to
 it, and DISCORD radio as deploy/components/radio-discord changes it. podium (#67)
 is in the base with its cards off, and PODIUM_DISCORD is podium as
-deploy/components/podium-discord changes it.
+deploy/components/podium-discord changes it. The pit wall (#132) is in the base
+with no Ingress, and PITWALL_INGRESS is what deploy/components/pitwall-ingress adds.
 
 GOOD is a cut-down `kustomize build --enable-helm deploy/nats/chart`, in the style
 kustomize writes, and INGRESS what deploy/components/nats-websocket adds to it; each
@@ -583,6 +584,97 @@ spec:
 """
 
 
+# The pit wall, as deploy/base/pitwall-deployment.yaml and pitwall-service.yaml
+# render (paddock#132).
+PITWALL_IMAGE = "ghcr.io/those-who-run/twr-pitwall:0.1.0@sha256:" + "e" * 64
+
+PITWALL = f"""\
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pitwall
+spec:
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+  selector:
+    app.kubernetes.io/name: pitwall
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pitwall
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pitwall
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: TWR_NATS_URL
+          value: nats://nats:4222
+        - name: ADDR
+          value: :8080
+        - name: TWR_PITWALL_SRC
+          value: live,v1-import
+        image: {PITWALL_IMAGE}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        name: pitwall
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+"""
+
+# What deploy/components/pitwall-ingress adds to the base.
+PITWALL_INGRESS = """\
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pitwall
+spec:
+  rules:
+  - http:
+      paths:
+      - backend:
+          service:
+            name: pitwall
+            port:
+              name: http
+        path: /
+        pathType: Prefix
+"""
+
+
 def labelled(text: str) -> str:
     """Each object with the base's common label, as kustomize writes it."""
     text = text.replace("metadata:\n  labels:\n", "metadata:\n  labels:\n    app.kubernetes.io/part-of: twr\n")
@@ -592,7 +684,8 @@ def labelled(text: str) -> str:
 LOGBOOK_PART = labelled(LOGBOOK)
 RADIO_PART = labelled(RADIO)
 PODIUM_PART = labelled(PODIUM)
-BASE = labelled(GOOD) + LOGBOOK_PART + RADIO_PART + PODIUM_PART
+PITWALL_PART = labelled(PITWALL)
+BASE = labelled(GOOD) + LOGBOOK_PART + RADIO_PART + PODIUM_PART + PITWALL_PART
 COMPOSE = f"""\
 services:
   nats:
@@ -605,6 +698,8 @@ services:
     image: {RADIO_IMAGE}
   podium:
     image: {PODIUM_IMAGE}
+  pitwall:
+    image: {PITWALL_IMAGE}
 """
 
 
@@ -627,7 +722,7 @@ class Base(unittest.TestCase):
 
     def test_good(self) -> None:
         self.assertEqual(self.check(BASE), [])
-        self.assertEqual(BASE.count("app.kubernetes.io/part-of: twr"), 11)
+        self.assertEqual(BASE.count("app.kubernetes.io/part-of: twr"), 13)
 
     def test_label(self) -> None:
         text = BASE.replace("  labels:\n    app.kubernetes.io/part-of: twr\n  name: logbook\n", "  name: logbook\n", 1)
@@ -812,6 +907,34 @@ class Base(unittest.TestCase):
     def test_podium_image_is_composes(self) -> None:
         self.assertFails(BASE, "R1", COMPOSE.replace(PODIUM_IMAGE, PODIUM_IMAGE.replace("0.1.2", "0.1.3")))
 
+    def test_missing_pitwall(self) -> None:
+        self.assertFails(labelled(GOOD) + LOGBOOK_PART + RADIO_PART + PODIUM_PART, "#132")
+        self.assertFails(labelled(GOOD) + LOGBOOK_PART + RADIO_PART + PODIUM_PART, "R1")  # compose runs it
+
+    def test_pitwall(self) -> None:
+        for old, new, rule in (("  replicas: 1\n", "  replicas: 2\n", "replicas"),
+                               ("value: nats://nats:4222", "value: nats://localhost:4222", "#132"),
+                               ("value: :8080", "value: :9090", "#132"),
+                               ("value: live,v1-import", "value: live", "#132"),
+                               ("        readinessProbe:\n", "        otherProbe:\n", "#132"),
+                               ("        livenessProbe:\n", "        otherProbe:\n", "#132"),
+                               ("- containerPort: 8080", "- containerPort: 9090", "#132"),
+                               ("    port: 8080\n", "    port: 9090\n", "#132"),
+                               ("        securityContext:\n          readOnlyRootFilesystem: true\n",
+                                "        securityContext:\n          readOnlyRootFilesystem: true\n"
+                                "        volumeMounts:\n        - mountPath: /data\n          name: data\n", "#132"),
+                               ("automountServiceAccountToken: false", "automountServiceAccountToken: true", "pod"),
+                               ("readOnlyRootFilesystem: true", "readOnlyRootFilesystem: false", "pod"),
+                               ("          limits:\n            memory: 256Mi\n", "", "R5")):
+            with self.subTest(old=old):
+                self.assertFails(self.broken(old, new, PITWALL_PART), rule)
+
+    def test_pitwall_not_exposed_in_the_base(self) -> None:
+        self.assertFails(BASE + labelled(PITWALL_INGRESS), "R3")
+
+    def test_pitwall_image_is_composes(self) -> None:
+        self.assertFails(BASE, "R1", COMPOSE.replace(PITWALL_IMAGE, PITWALL_IMAGE.replace("0.1.0", "0.1.1")))
+
     def test_the_base_pins_composes_images(self) -> None:
         """deploy/base/kustomization.yaml's images: block is compose's logbook and
         radio, by tag and digest, offline (make deploy-render checks the render)."""
@@ -819,7 +942,7 @@ class Base(unittest.TestCase):
         pinned = re.findall(r"^  - name: (\S+)\n    newTag: (\S+)\n    digest: (sha256:[a-f0-9]{64})$", text, re.M)
         self.assertEqual([name for name, _, _ in pinned],
                          ["ghcr.io/those-who-run/twr-logbook", "ghcr.io/those-who-run/twr-radio",
-                          "ghcr.io/those-who-run/twr-podium"])
+                          "ghcr.io/those-who-run/twr-podium", "ghcr.io/those-who-run/twr-pitwall"])
         compose = (ROOT / "deploy" / "compose" / "compose.yaml").read_text()
         for name, tag, digest in pinned:
             with self.subTest(image=name):
@@ -1070,6 +1193,42 @@ class PodiumDiscordComponent(unittest.TestCase):
         self.assertIn("\nkind: Component\n", text)
         base = (ROOT / deploy_check.BASE / "kustomization.yaml").read_text()
         self.assertNotIn("podium-discord", base.split("resources:", 1)[1].split("labels:", 1)[0])
+
+
+class PitwallIngressComponent(unittest.TestCase):
+    """deploy/components/pitwall-ingress, rendered over the base (paddock#132)."""
+
+    def check(self, text: str) -> list[str]:
+        return deploy_check.check(deploy_check.PITWALL_INGRESS, text)
+
+    def assertFails(self, text: str, rule: str = "#132") -> None:
+        found = self.check(text)
+        self.assertTrue(any(p.startswith(rule + ":") for p in found), found)
+
+    def test_good(self) -> None:
+        self.assertEqual(self.check(BASE + labelled(PITWALL_INGRESS)), [])
+
+    def test_label(self) -> None:
+        self.assertFails(BASE + PITWALL_INGRESS, "R1")
+
+    def test_no_ingress(self) -> None:
+        self.assertFails(BASE)
+
+    def test_nothing_the_overlay_sets(self) -> None:
+        for old, new in (("  - http:\n", "  - host: pitwall.example.com\n    http:\n"),
+                         ("  rules:\n", "  ingressClassName: my-ingress-class\n  rules:\n"),
+                         ("  rules:\n", "  tls:\n  - secretName: pitwall-tls\n  rules:\n")):
+            with self.subTest(new=new):
+                self.assertFails(BASE + labelled(PITWALL_INGRESS.replace(old, new)))
+
+    def test_backend(self) -> None:
+        self.assertFails(BASE + labelled(PITWALL_INGRESS.replace("            name: pitwall\n", "            name: podium\n")))
+
+    def test_the_component_is_a_component(self) -> None:
+        text = (ROOT / deploy_check.PITWALL_INGRESS / "kustomization.yaml").read_text()
+        self.assertIn("\nkind: Component\n", text)
+        base = (ROOT / deploy_check.BASE / "kustomization.yaml").read_text()
+        self.assertNotIn("pitwall-ingress", base.split("resources:", 1)[1].split("labels:", 1)[0])
 
 
 if __name__ == "__main__":

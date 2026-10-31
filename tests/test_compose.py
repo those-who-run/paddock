@@ -131,12 +131,14 @@ class Services(unittest.TestCase):
     def test_the_services(self) -> None:
         # R1.
         self.assertEqual(
-            sorted(self.services), ["logbook", "nats", "nats-bootstrap", "nats-box", "podium", "radio", "replay"]
+            sorted(self.services),
+            ["logbook", "nats", "nats-bootstrap", "nats-box", "pitwall", "podium", "radio", "replay"],
         )
         self.assertEqual(keys(self.services["nats-box"]).get("profiles"), "[tools]")
         self.assertEqual(keys(self.services["replay"]).get("profiles"), "[replay]")
         self.assertEqual(keys(self.services["radio"]).get("profiles"), "[replay]")
         self.assertEqual(keys(self.services["podium"]).get("profiles"), "[replay]")
+        self.assertEqual(keys(self.services["pitwall"]).get("profiles"), "[replay]")
 
     def test_no_host_network_or_privilege(self) -> None:
         # network_mode: host publishes every port with no ports: entry, past R3's check.
@@ -159,13 +161,13 @@ class Services(unittest.TestCase):
                 own = keys(lines)
                 self.assertEqual(own.get("cap_drop"), "[ALL]")
                 self.assertEqual(own.get("security_opt"), '["no-new-privileges:true"]')
-        for name in ("nats-bootstrap", "logbook", "replay", "radio", "podium"):
+        for name in ("nats-bootstrap", "logbook", "replay", "radio", "podium", "pitwall"):
             with self.subTest(service=name):
                 self.assertEqual(keys(self.services[name]).get("read_only"), "true")
 
     def test_v2_images_amd64(self) -> None:
         # ADR 0006: amd64 only, so an arm64 laptop runs them under emulation.
-        for name in ("logbook", "replay", "radio", "podium"):
+        for name in ("logbook", "replay", "radio", "podium", "pitwall"):
             with self.subTest(service=name):
                 self.assertEqual(keys(self.services[name]).get("platform"), "linux/amd64")
 
@@ -214,6 +216,18 @@ class Services(unittest.TestCase):
         self.assertIn("      TWR_PODIUM_SRC: ${TWR_PODIUM_SRC:-replay-compose}", lines)
         self.assertFalse(any("DISCORD" in line for line in lines))
 
+    def test_pitwall(self) -> None:
+        # paddock#132 R1: the replays' sessions by default, from logbook over NATS, at
+        # v1's port 9852 on loopback; no volume, since it holds no data.
+        lines = self.services["pitwall"]
+        own = keys(lines)
+        self.assertNotIn("entrypoint", own)
+        self.assertNotIn("volumes", own)
+        self.assertIn("ghcr.io/those-who-run/twr-pitwall:", own["image"])
+        self.assertIn("      TWR_NATS_URL: nats://nats:4222", lines)
+        self.assertIn("      TWR_PITWALL_SRC: ${TWR_PITWALL_SRC:-replay-compose}", lines)
+        self.assertIn('      - "127.0.0.1:9852:8080"', lines)
+
     def test_parser(self) -> None:
         text = (
             "name: x\nservices:\n  a:\n    image: i\n    network_mode: host\n"
@@ -230,7 +244,7 @@ class Ports(unittest.TestCase):
         found = ports(COMPOSE.read_text(encoding="utf-8"))
         self.assertEqual(
             sorted(found),
-            sorted(["127.0.0.1:4222:4222", "127.0.0.1:8222:8222", "127.0.0.1:8080:8080"]),
+            sorted(["127.0.0.1:4222:4222", "127.0.0.1:8222:8222", "127.0.0.1:8080:8080", "127.0.0.1:9852:8080"]),
         )
         for port in found:
             with self.subTest(port=port):
@@ -245,7 +259,7 @@ class Targets(unittest.TestCase):
     def test_make_targets(self) -> None:
         # R4.
         text = MAKEFILE.read_text(encoding="utf-8")
-        for target in ("up", "replay", "radio", "podium", "sub", "export", "down", "reset", "compose-it"):
+        for target in ("up", "replay", "radio", "podium", "pitwall", "sub", "export", "down", "reset", "compose-it"):
             with self.subTest(target=target):
                 self.assertRegex(text, rf"(?m)^{re.escape(target)}:")
 
