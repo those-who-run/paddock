@@ -6,7 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/nats-io/nats.go v1.54.0
-	github.com/those-who-run/contracts v0.2.3
+	github.com/those-who-run/contracts v0.2.9
 	google.golang.org/protobuf v1.36.12
 )
 

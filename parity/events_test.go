@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -557,6 +558,120 @@ func TestAGridBehindTheLine(t *testing.T) {
 	}
 }
 
+// The ranked kind (paddock#146, ecu#70 and ecu#72): in a session v2 reads as
+// ranked and v1 as a timed field, on one of rankedRuns, the kind, the leap's own
+// session.kind, the start brief, the rank calls and the quit summary are accepted,
+// each by its own entry, ecu's own items only on the frames rankedRuns pins and a
+// rank call's kind only in its direction. The same differences on another run,
+// another frame, a session one side doesn't read so, or the wrong direction, are not.
+func TestTheRankedKind(t *testing.T) {
+	const (
+		spa    = "real-nuc-spa-pit-cut-quit-2026-10-18"
+		suzuka = "real-nuc-suzuka-before-restart-2026-10-18"
+		race   = "real-nuc-suzuka-timed-race-2026-10-16"
+		pair   = "real-nuc-suzuka-before-restart-2026-10-18+real-nuc-suzuka-joined-mid-race-2026-10-18"
+	)
+	run := func(stem string) Run {
+		var recs []Recording
+		for _, s := range strings.Split(stem, "+") {
+			recs = append(recs, Recording{Name: s + ".jsonl.gz"})
+		}
+		return Run{Recordings: recs}
+	}
+	in := func(part int, it Item) Item { it.Part = part; return it }
+	kind := func(frame uint32, k string) Item {
+		return item1("session.kind", 1, frame, map[string]any{"kind": k, "total_laps": nil, "field": true,
+			"fuel_use": "on", "cars_on_track": true, "start": "flying"})
+	}
+	call := func(rule string, frame uint32, k string, slots map[string]any) Item {
+		return item1("callout", 1, frame, map[string]any{"rule": rule, "kind": k, "priority": 12.0, "pit_lane": "drop",
+			"slots": slots, "text": ""})
+	}
+	pos := func(frame uint32, k string, p, was float64) Item {
+		slots := map[string]any{"position": p}
+		if was > 0 {
+			slots["previous_position"] = was
+		}
+		return call("position", frame, k, slots)
+	}
+	brief := func(frame uint32, k string, slots map[string]any) Item { return call("start_brief", frame, k, slots) }
+	quit := func(frame uint32) Item {
+		return call("race_summary", frame, "template_quit", map[string]any{"laps": 4.0, "best_lap_ms": 129918.0})
+	}
+	timedBrief := map[string]any{"timed": true, "position": 1.0, "total_cars": 18.0}
+	// The sessions' kinds on a run with its leap at leap: v1 timed, v2 ranked.
+	sides := func(leap uint32, v1, v2 []Item) ([]Item, []Item) {
+		return append([]Item{kind(leap-1, "timed_field")}, v1...),
+			append([]Item{kind(leap-1, "timed_field"), kind(leap, "ranked")}, v2...)
+	}
+	type tc struct {
+		stem   string
+		v1, v2 []Item
+		want   []string // the accepted entry of each difference, in order
+	}
+	cases := map[string]tc{}
+	add := func(name, stem string, leap uint32, v1, v2 []Item, want ...string) {
+		a, b := sides(leap, v1, v2)
+		cases[name] = tc{stem, a, b, want}
+	}
+	// Accepted.
+	add("the leap and the kind", spa, 74, []Item{kind(76, "timed_field")}, []Item{kind(76, "ranked")}, "ranked-kind", "ranked-kind")
+	add("the brief", spa, 74, []Item{brief(79, "template", timedBrief)},
+		[]Item{brief(79, "template_ranked", map[string]any{"total_cars": 18.0})}, "ranked-kind", "ranked-brief", "ranked-brief")
+	add("v1's calls and v2's rank", spa, 74, []Item{pos(216, "template_lost_lead", 2, 1)},
+		[]Item{pos(623, "template_rank", 4, 0)}, "ranked-kind", "ranked-position", "ranked-position")
+	add("the first rank on v1's frame", pair, 49, []Item{pos(378, "template_gained_podium", 3, 11)},
+		[]Item{pos(378, "template_rank", 3, 0)}, "ranked-kind", "ranked-position", "ranked-position")
+	add("gained as a rank", suzuka, 49, []Item{pos(1480, "template_gained_lead", 1, 3)},
+		[]Item{pos(1480, "template_rank_gained", 1, 3)}, "ranked-kind", "ranked-position")
+	add("the quit summary", spa, 74, nil, []Item{quit(1192)}, "ranked-kind", "ranked-quit")
+	cases["the restart pair's second part"] = tc{pair,
+		[]Item{kind(48, "timed_field"), in(2, kind(1, "timed_field"))},
+		[]Item{kind(48, "timed_field"), kind(49, "ranked"), in(2, kind(1, "ranked")), in(2, pos(249, "template_rank", 1, 0))},
+		[]string{"ranked-kind", "ranked-kind", "ranked-position"}}
+	// Another run.
+	add("the kind on a timed race", race, 74, []Item{kind(76, "timed_field")}, []Item{kind(76, "ranked")}, "", "")
+	add("the brief on a timed race", race, 74, []Item{brief(79, "template", timedBrief)},
+		[]Item{brief(79, "template_ranked", map[string]any{"total_cars": 18.0})}, "", "", "")
+	add("a rank on a timed race", race, 74, nil, []Item{pos(623, "template_rank", 4, 0)}, "", "")
+	add("a quit on a timed race", race, 74, nil, []Item{quit(1192)}, "", "")
+	// Another frame.
+	add("a leap on another frame", spa, 75, nil, nil, "")
+	add("a rank on another frame", spa, 74, nil, []Item{pos(624, "template_rank", 4, 0)}, "ranked-kind", "")
+	add("a quit on another frame", spa, 74, nil, []Item{quit(1193)}, "ranked-kind", "")
+	add("a call's kind on another frame", suzuka, 49, []Item{pos(1481, "template_gained_lead", 1, 3)},
+		[]Item{pos(1481, "template_rank_gained", 1, 3)}, "ranked-kind", "")
+	// The wrong direction.
+	add("lost as rank_gained", suzuka, 49, []Item{pos(1480, "template_lost", 4, 3)},
+		[]Item{pos(1480, "template_rank_gained", 4, 3)}, "ranked-kind", "")
+	add("gained as rank_lost", suzuka, 49, []Item{pos(1480, "template_gained_lead", 1, 3)},
+		[]Item{pos(1480, "template_rank_lost", 1, 3)}, "ranked-kind", "")
+	add("a first rank where v1's slots match", suzuka, 49, []Item{pos(378, "template_gained", 3, 0)},
+		[]Item{pos(378, "template_rank", 3, 0)}, "ranked-kind", "")
+	add("a first rank at another place", pair, 49, []Item{pos(378, "template_gained", 3, 11)},
+		[]Item{pos(378, "template_rank", 4, 0)}, "ranked-kind", "ranked-position", "")
+	add("a brief that keeps its place", spa, 74, []Item{brief(79, "template", timedBrief)},
+		[]Item{brief(79, "template_ranked", map[string]any{"position": 1.0, "total_cars": 18.0})}, "ranked-kind", "ranked-brief", "")
+	add("another summary", spa, 74, nil,
+		[]Item{call("race_summary", 1192, "template_position", map[string]any{"position": 4.0})}, "ranked-kind", "")
+	// A session one side doesn't read so: no leap on v2's, or v1's not a timed field.
+	cases["v2's session not ranked"] = tc{spa,
+		[]Item{kind(73, "timed_field")}, []Item{kind(73, "timed_field"), pos(623, "template_rank", 4, 0)}, []string{""}}
+	cases["v1's session not a timed field"] = tc{spa,
+		[]Item{kind(73, "lap_race")}, []Item{kind(73, "lap_race"), kind(74, "ranked"), pos(623, "template_rank", 4, 0)},
+		[]string{"", ""}}
+	for name, c := range cases {
+		r := compareItems(run(c.stem), c.v1, c.v2)
+		var got []string
+		for _, d := range r.Diffs {
+			got = append(got, d.Accepted)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: accepted %q, want %q: %+v", name, got, c.want, r.Diffs)
+		}
+	}
+}
+
 // A start v1 held and discarded is compared with ecu's session.discarded: its
 // reason and first frame. A session ecu opened where v1 discarded the start, or the
 // other way round, is a difference; so is a continued session against a new one.
@@ -607,7 +722,7 @@ func TestUnusedEntries(t *testing.T) {
 	}
 	out.Reset()
 	code = compareEvents(context.Background(), []Run{pitRun}, v1, v2, options{everyRecording: true}, &out, &bytes.Buffer{})
-	if code != exitDiffer || !strings.Contains(out.String(), "8 accepted entries unused over every recording: remove them") {
+	if code != exitDiffer || !strings.Contains(out.String(), "12 accepted entries unused over every recording: remove them") {
 		t.Fatalf("%d\n%s", code, out.String())
 	}
 	sums := map[string]string{pitRec.Name: "x"}

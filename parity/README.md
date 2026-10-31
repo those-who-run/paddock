@@ -265,7 +265,13 @@ the maintainer's decision of 2026-10-31, no track at the start (`ecu`#60 and
 track slot in a race's start brief, and a track in the race summary when `ecu`'s
 verdict is CONFIRMED, each on the recordings it lists; and a grid start where v1
 read rolling, on `real-nuc-sugo-two-stops-2026-10-18`'s `session.kind` at frame
-47 (#148, `ecu`#69, from `ecu` 0.1.14). An entry for something still to do is removed by the PR that does it. The
+47 (#148, `ecu`#69, from `ecu` 0.1.14); and the ranked kind (#146, `ecu`#70 and
+`ecu`#72, from `ecu` 0.1.15), on the runs with a session v1 read as a timed field
+and `ecu` reads as ranked (the 2026-10-14 qualifying, Spa and Suzuka of
+2026-10-18, and the restart pair): the kind and the leap's own `session.kind`,
+the start brief (`template_ranked`), the rank calls at the driver's own line
+crossings, and the quit summary v1 never raised, `ecu`'s own items each pinned to
+the frames `rankedRuns` names and a rank call's kind to its direction. An entry for something still to do is removed by the PR that does it. The
 fields left out on purpose (v1's session type, which `kind` replaces, the end
 reason v1 never stored, the callout's text, `lap.best`) are listed there too. Any other difference fails
 the run. After the table, each entry that allowed no difference is named; when
