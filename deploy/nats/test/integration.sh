@@ -133,7 +133,7 @@ before=$(snapshot)
 out=$("$dir/bootstrap.sh" "$dir")
 echo "$out"
 printf '%s\n' "$out" | grep -v ' unchanged$' && fail "second run changed something"
-[ "$(printf '%s\n' "$out" | wc -l)" -eq 5 ] || fail "second run did not report five definitions"
+[ "$(printf '%s\n' "$out" | wc -l)" -eq 6 ] || fail "second run did not report six definitions"
 [ "$(snapshot)" = "$before" ] || fail "the configs differ after the second run"
 
 echo "== AC4: core publishes are captured by the right stream"
