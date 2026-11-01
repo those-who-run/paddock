@@ -117,6 +117,15 @@ holds for this write too:
   endpoints off GET. `pitwall`'s tests for the two endpoints check that a
   request with another content type is refused, and that a preflight gets no
   CORS answer.
+- **DNS rebinding gets around that, and is an accepted risk.** A page on a
+  rebinding domain is the same origin as the pit wall once its name points
+  at it, so its JSON POST needs no preflight, and the pit wall does not
+  check `Host`. It is accepted because a delete can be restored, nothing
+  leaves the disk (point 1), and the pit wall is on the home network only
+  ([ADR 0011](0011-pit-wall-access.md), point 1). If it is ever wanted, the
+  fix is an allowlist of `Host` values on the write methods, set by the
+  overlay. Schumacher's review under ADR 0011, point 4, is where it would be
+  weighed.
 - **NATS's WebSocket can't reach it.** The `ws` user, the one a browser
   gets through the WebSocket Ingress, may not publish
   ([`deploy/nats/chart/values.yaml`](../../deploy/nats/chart/values.yaml)),
