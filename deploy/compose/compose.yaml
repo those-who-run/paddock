@@ -66,7 +66,7 @@ services:
   # probe /healthz from inside it. `make up` polls it from the host, on the port
   # published below, until it answers 200.
   logbook:
-    image: ghcr.io/those-who-run/twr-logbook:0.1.8@sha256:c5659dc00cc50a12d68de2577f27a574bcabaa992fcde0ac693f14e329892094
+    image: ghcr.io/those-who-run/twr-logbook:0.1.9@sha256:81351d8a284996dc4b2520ac8e26662b5f71718808c9d66ab3857fd00d418e33
     # v2 images are amd64 only (ADR 0006); on an arm64 machine this runs it under
     # emulation rather than failing to find a matching platform.
     platform: linux/amd64
@@ -196,7 +196,7 @@ services:
   # cluster's Ingress. Images from 0.1.0 serve the API and /healthz only; the web
   # app comes with the image of paddock#131.
   pitwall:
-    image: ghcr.io/those-who-run/twr-pitwall:0.1.1@sha256:b04ef91fe0c7b1cf43c92e4af9b6fd72d672339bdbd07d7d4efbaaeb7a70dbfa
+    image: ghcr.io/those-who-run/twr-pitwall:0.1.2@sha256:077a0eee8451312725fb05cda491bf15d3a61eb994c8982ad67654f9b99642e5
     platform: linux/amd64
     profiles: [replay]
     read_only: true
