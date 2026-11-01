@@ -1,7 +1,9 @@
 # 0009: v1's history is imported into `logbook` from its stored frames
 
 **Status:** Accepted, 2026-10-31. Asked for by #263. Supersedes
-[ADR 0004](0004-beside-v1.md), point 7.
+[ADR 0004](0004-beside-v1.md), point 7. Superseded in part by
+[0013](0013-v1-import-fills-frames-from-v1s-summary.md) (point 2, third
+bullet).
 
 ## Context
 
