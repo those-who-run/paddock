@@ -1,6 +1,7 @@
 # 0011: Who can reach the pit wall
 
-**Status:** Accepted, 2026-10-31. Asked for by #134.
+**Status:** Accepted, 2026-10-31. Asked for by #134. Superseded in part by
+[0012](0012-one-pit-wall-address.md) (point 3).
 
 ## Context
 

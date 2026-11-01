@@ -66,8 +66,19 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          # /healthz answers 200 while the process serves. A poster that cannot
-          # consume stops the process, so liveness needs nothing more.
+          # With cards on, /healthz answers 503 until podium's first connection to
+          # NATS, and 200 from then on: podium waits for a NATS that is not up yet
+          # rather than exiting (paddock#340), and reconnects on its own after a
+          # later outage, so a restart would not help it. The start-up probe gives
+          # that first connection up to 10 min, as logbook's does, before liveness
+          # counts. With cards off it is 200 at once. A poster that cannot consume
+          # stops the process, so liveness needs nothing more.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /healthz
