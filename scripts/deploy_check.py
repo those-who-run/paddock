@@ -70,6 +70,16 @@ For ``deploy/components/pitwall-ingress``, rendered over the base: the Ingress
 ``pitwall`` goes to the ``pitwall`` Service's http port, with no host, class or TLS
 of its own, which the overlay that includes it sets.
 
+For ``deploy/examples/ecu-live``, the live engineer an overlay copies (paddock#108):
+the rules above but the host port, which is the example's point, and that only for
+``Deployment/ecu``'s 33740; every object labelled and requests on every container,
+as in the base; and ``ecu`` a Deployment of exactly one replica, replaced by
+``Recreate``, with UDP 33740 as a ``hostPort``, ``TWR_NATS_URL=nats://nats:4222``,
+``ADDR=:8080``, source ``live``, ``TWR_ECU_PS5_IP`` the placeholder ``192.0.2.10``,
+``TWR_ECU_RECORDINGS_DIR`` on a volume, readiness and liveness on ``/healthz``,
+non-root on a read-only root file system with no service account token and the
+RuntimeDefault seccomp profile, a memory limit, and compose's ecu image.
+
 For ``deploy/components/nats-websocket``, rendered over the base: the Ingress
 ``nats-ws`` goes to the ``nats`` Service's websocket port, with no host, class or
 TLS of its own, which the overlay that includes it sets.
@@ -124,8 +134,14 @@ COMPOSE = Path(__file__).resolve().parent.parent / "deploy" / "compose" / "compo
 NOT_IN_COMPOSE = ("docker.io/natsio/prometheus-nats-exporter:",)
 # Compose runs ecu only for `ecu replay` (its `replay` service, profile `replay`), and
 # replays are local and CI only (paddock#45 is closed), so the base does not run it.
-# ecu listening to the PS5 in the cluster comes with its own issue.
+# ecu listening to the PS5 is deploy/examples/ecu-live's, which an overlay copies.
 NOT_IN_BASE = ("ghcr.io/those-who-run/twr-ecu:",)
+# The live engineer an overlay copies (paddock#108), outside the base: it holds UDP
+# 33740 on the node, the one host port any render may have, and only there.
+ECU_LIVE = "deploy/examples/ecu-live"
+ECU_HOST_PORT = "portable: Deployment/ecu has a host port: hostPort: 33740"
+# The PS5's address in the example: a documentation address, never a real one.
+PS5_PLACEHOLDER = "192.0.2.10"
 # The ingress controller's namespace in deploy/components/network-policy, which the
 # overlay replaces.
 INGRESS_NAMESPACE = "my-ingress-namespace"
@@ -675,6 +691,51 @@ def block(lines: list[str], key: str) -> list[str]:
     return []
 
 
+def ecu_live(docs: list[Doc], compose: str) -> list[str]:
+    """deploy/examples/ecu-live (paddock#108): the live engineer an overlay copies."""
+    problems: list[str] = labelled(docs) + requests(docs)
+    dep = find(docs, "Deployment", "ecu")
+    if dep is None:
+        return problems + ["ecu: no Deployment/ecu in the render"]
+    lines = dep.lines
+    if values(lines, "replicas") != ["1"]:
+        problems.append(f"replicas: {dep} has replicas {values(lines, 'replicas')}, not exactly 1: one listener")
+    if block(lines, "strategy") != ["type: Recreate"]:
+        problems.append(f"ecu: {dep} is not replaced by Recreate, so a second pod could never take the port")
+
+    # Each port of the container, as the stripped lines of its list item.
+    ports: list[list[str]] = []
+    for line in block(lines, "ports"):
+        if line.startswith("- "):
+            ports.append([line[2:]])
+        elif ports:
+            ports[-1].append(line)
+    if not any({"containerPort: 33740", "hostPort: 33740", "protocol: UDP"} <= set(p) for p in ports):
+        problems.append(f"ecu: {dep} does not take UDP 33740 as a hostPort")
+
+    for name, want in (("TWR_NATS_URL", "nats://nats:4222"), ("ADDR", ":8080"), ("TWR_SRC", "live"),
+                       ("TWR_ECU_PS5_IP", PS5_PLACEHOLDER)):
+        if env_value(lines, name) != want:
+            problems.append(f"ecu: {dep}'s {name} is {env_value(lines, name)}, not {want}")
+    recordings = env_value(lines, "TWR_ECU_RECORDINGS_DIR")
+    if recordings is None or recordings not in values(lines, "mountPath") or \
+            not any(line.strip() == "persistentVolumeClaim:" for line in lines):
+        problems.append(f"ecu: {dep}'s TWR_ECU_RECORDINGS_DIR ({recordings}) is not on a volume that is kept")
+    for probe in ("readinessProbe", "livenessProbe"):
+        if not any(line.strip() == f"{probe}:" for line in lines):
+            problems.append(f"ecu: {dep} has no {probe}")
+    paths = values(lines, "path")
+    if not paths or any(p != "/healthz" for p in paths):
+        problems.append(f"ecu: {dep}'s probes are on {paths}, not /healthz")
+    problems += pod_hardened(dep)
+
+    composed = set(images(compose.splitlines()))
+    for image in images(lines):
+        if image not in composed:
+            problems.append(f"ecu: the example runs {image}, which deploy/compose/compose.yaml does not")
+    return problems
+
+
 def nats_config(where: str, conf: dict) -> list[str]:
     problems = []
     if "cluster" in conf:
@@ -729,6 +790,10 @@ def check(kustomization: str, text: str, compose: str | None = None) -> list[str
         problems += labelled(docs) + podium_discord(docs)
     if k == PITWALL_INGRESS:
         problems += labelled(docs) + pitwall_ingress(docs)
+    if k == ECU_LIVE:
+        if compose is None:
+            compose = COMPOSE.read_text(encoding="utf-8")
+        problems = [p for p in problems if p != ECU_HOST_PORT] + ecu_live(docs, compose)
     return problems
 
 

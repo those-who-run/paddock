@@ -15,6 +15,7 @@ repository sets those. The runbook, from nothing to running, comes with #51.
 | [`components/radio-discord/`](components/radio-discord/kustomization.yaml) | `radio` speaks in Discord, the bot's token and voice channel from the overlay's Secret ([below](#radio-in-discord)) |
 | [`components/podium-discord/`](components/podium-discord/kustomization.yaml) | `podium` posts the results cards in Discord, the bot's token and the results channel from the same Secret ([below](#podium-in-discord)) |
 | [`components/pitwall-ingress/`](components/pitwall-ingress/kustomization.yaml) | The Ingress to the pit wall, with the overlay's host, class and TLS secret ([below](#the-pit-wall)) |
+| [`examples/ecu-live/`](examples/ecu-live/kustomization.yaml) | `ecu` as the live engineer, on the PS5's UDP 33740, for an overlay to copy; not in the base ([below](#the-live-engineer)) |
 | [`compose/`](compose/README.md) | The same stack on a laptop, with no cluster |
 
 ## The base
@@ -73,7 +74,8 @@ headless Service, and `radio`:
   pinned in one place. `make deploy-render` fails when an image in the base's
   render is not compose's, or compose runs one the base does not. `ecu`'s
   image is compose's only: compose runs it to replay recordings, and replays
-  are local and CI only (#45).
+  are local and CI only (#45). The live `ecu` is an overlay's, copied from
+  [`examples/ecu-live`](#the-live-engineer), whose image is compose's too.
 - **Components** are opt-in. An overlay that publishes the WebSocket includes
   `nats-websocket` and always gives it a host
   ([`nats/README.md`](nats/README.md#nats-on-a-cluster) has the patch). A
@@ -129,7 +131,8 @@ their defaults, are in radio's README; the base sets `TWR_RADIO_SRC=live`,
 
 One token is one voice connection. A cluster where another engineer already
 speaks with the same bot sets `radio` to 0 replicas in its overlay and scales
-it up, with `ecu`, only once the other is down.
+it up, with `ecu`, only once the other is down
+([Switch engineers](#switch-engineers)).
 
 ### podium in Discord
 
@@ -232,6 +235,146 @@ kustomize build --enable-helm <overlay> | kubectl apply -f -
 Argo CD needs `kustomize.buildOptions: --enable-helm`, and its Application
 sets `spec.destination.namespace` explicitly.
 
+## The live engineer
+
+The live engineer is `ecu` listening to the PS5 (#106, #108), with `radio`
+speaking its callouts in Discord. Only one engineer holds the PS5's stream and
+the bot's voice at a time ([ADR 0004](../docs/adr/0004-beside-v1.md), point
+1). The base has no `ecu`: it would need a host port and the PS5's address,
+which belong to one cluster and one network. paddock carries an example
+instead, [`examples/ecu-live`](examples/ecu-live/kustomization.yaml), which an
+overlay copies and lists beside the base:
+
+- `ecu`'s Deployment, one replica replaced by `Recreate`, with UDP 33740 as a
+  `hostPort`. A host port keeps the pod on the cluster network, so it reaches
+  NATS by its Service, and ecu needs no broadcast, so not the host network. A
+  port is held by one pod on a node: a second `ecu`, or another engineer on
+  the port, leaves the pod `Pending`;
+- `TWR_ECU_PS5_IP`, the placeholder `192.0.2.10`, which the overlay replaces
+  with the PS5's address;
+- `TWR_ECU_RECORDINGS_DIR` at `/recordings`, on the claim `ecu-recordings`
+  (5 GiB, no storage class), where ecu records every drive in v1's format
+  (#266);
+- `/healthz` on 8080 for the probes, which also reports `idle` and
+  `idle_secs` (#107).
+
+The overlay sets what is its own: the PS5's address, the storage class, which
+node runs `ecu` (a node selector, if the cluster has more than one), and
+`radio-discord` and `podium-discord` so the driver hears the callouts and gets
+the results card. [ecu's README](https://github.com/those-who-run/ecu#listening-to-the-ps5)
+lists its other settings.
+
+### The PS5
+
+- **A fixed address.** ecu sends GT7's heartbeat to `TWR_ECU_PS5_IP`; there is
+  no discovery. Give the PS5 a fixed address, a DHCP reservation for example.
+  Without the setting, or with one that is not an IP address, `ecu` exits 2 at
+  start, and the pod restarts in a loop rather than running deaf.
+- **GT7 running.** The PS5 streams only while GT7 runs, to the address the
+  heartbeat came from: the node's. The node and the PS5 need to reach each
+  other over UDP: 33739 to the PS5, 33740 back.
+
+To check the stream, with GT7 running:
+
+```sh
+kubectl -n <namespace> exec deploy/nats-box -- nats sub 'twr.v1.live.frame.gt7.lo'
+```
+
+Frames show within a few seconds of `ecu` starting. None, and `ecu`'s log
+and `/healthz` say whether it hears anything:
+
+```sh
+kubectl -n <namespace> logs deploy/ecu
+kubectl -n <namespace> port-forward deploy/ecu 9850:8080
+curl -s http://localhost:9850/healthz   # the telemetry link, the last packet's age, idle and idle_secs
+```
+
+### Switch engineers
+
+v2 has been the live engineer since 2026-10-29, and v1's engineer is at 0
+replicas. A switch back, and forth again, is rare, so it is done by hand, in
+this order. Placeholders: `<namespace>` is v2's, and `<v1-namespace>`,
+`<v1-engineer>` and `<v1-engineer-selector>` are v1's engineer's namespace,
+Deployment and pod labels. Each `kubectl wait` returns once the pods have
+gone; "no matching resources" means they already had.
+
+1. **Check that the engineer going away is idle,** and has been for a while:
+   `idle` true and `idle_secs` well over 300 s on its `/healthz` (`ecu`'s as
+   [above](#the-ps5); v1's has the same fields). Never mid-race
+   ([below](#dont-roll-out-while-racing)).
+2. **To v2:**
+
+   ```sh
+   kubectl -n <v1-namespace> scale deployment/<v1-engineer> --replicas=0
+   kubectl -n <v1-namespace> wait --for=delete pod -l <v1-engineer-selector> --timeout=120s
+   kubectl -n <namespace> scale deployment/ecu --replicas=1
+   kubectl -n <namespace> scale deployment/radio --replicas=1
+   ```
+
+   v1's engineer first, so that it lets go of UDP 33740 before `ecu` takes it.
+3. **Back to v1:**
+
+   ```sh
+   kubectl -n <namespace> scale deployment/radio --replicas=0
+   kubectl -n <namespace> scale deployment/ecu --replicas=0
+   kubectl -n <namespace> wait --for=delete pod -l 'app.kubernetes.io/name in (ecu,radio)' --timeout=120s
+   kubectl -n <v1-namespace> scale deployment/<v1-engineer> --replicas=1
+   ```
+
+   `radio` first, so that it lets go of the Discord bot, then `ecu`; v1's
+   engineer only once both pods have gone.
+
+NATS, `logbook`, `podium` and the pit wall stay up whichever engineer is live.
+v1's engineer is only ever scaled, never otherwise changed: same image, same
+configuration, same volume.
+
+**Why the scale sticks.** Argo CD's self-heal puts a hand scale back within
+minutes. The overlay's Application has to ignore `ecu`'s and `radio`'s replica
+counts, and respect that when it syncs:
+
+```yaml
+spec:
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: ecu
+      jsonPointers: [/spec/replicas]
+    - group: apps
+      kind: Deployment
+      name: radio
+      jsonPointers: [/spec/replicas]
+  syncPolicy:
+    syncOptions:
+      - RespectIgnoreDifferences=true
+```
+
+With it, the replica count in git applies only when the Deployment is
+created; after that the scale is the one by hand. v1's engineer, under its own
+Application, needs the same, or its scale made as a commit.
+
+### Don't roll out while racing
+
+Don't roll out `ecu` or `radio` while the driver is racing. That covers an
+image bump, a configuration change, a switch of engineers, and a merge to
+paddock's `deploy/` that a cluster following `main` picks up. Nothing gates
+it: it is a rule.
+
+**Check first:** `ecu`'s `/healthz` ([above](#the-ps5)) says `idle` true and
+`idle_secs` well over 300 s.
+
+**If it happens anyway:**
+
+- an `ecu` restart from lap 2 on continues the session: a stopped `ecu` keeps
+  its open session in the `ecu` bucket, and the next run continues it within
+  the continue window, 600 s by default (`TWR_ECU_CONTINUE_WINDOW_SECS`,
+  those-who-run/ecu#56), with `session.continued` and the same session id.
+  [ecu's README](https://github.com/those-who-run/ecu#after-a-restart) has
+  the rules;
+- an `ecu` restart on lap 1 starts a new session, as v1 did, since a join on
+  lap 1 can't be told from a flying start;
+- a `radio` restart can miss callouts while it reconnects to the voice
+  channel.
+
 ## Checks
 
 `make deploy-render` (in `make test`) builds the base and each component over
@@ -259,7 +402,12 @@ holds no Secret of that name. For `pitwall-ingress`, the Ingress goes to the
 `pitwall` Service's `http` port and sets no host, class or TLS. For `network-policy`, both policies are Ingress
 only and select NATS's server and `logbook`, each lets in the namespace's own
 pods, and NATS's lets in the ingress controller's namespace, and no other, on
-8080 only.
+8080 only. For [`examples/ecu-live`](#the-live-engineer), the render rules
+hold but the host port, and only `ecu`'s 33740, and the check adds the label,
+resource requests, compose's `ecu` image, and `ecu`'s Deployment: exactly one
+replica, `Recreate`, UDP 33740 as a `hostPort`, source `live`, the placeholder
+PS5 address `192.0.2.10`, its recordings on a claim, its probes and security
+settings.
 
 `make check-deploy` (also in `make test`) runs `make deploy-render`, then
 [`scripts/private_scan.py`](../scripts/private_scan.py) over every file in
