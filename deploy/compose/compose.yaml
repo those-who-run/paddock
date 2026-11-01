@@ -196,7 +196,7 @@ services:
   # cluster's Ingress. Images from 0.1.0 serve the API and /healthz only; the web
   # app comes with the image of paddock#131.
   pitwall:
-    image: ghcr.io/those-who-run/twr-pitwall:0.1.0@sha256:2ce7214fd8c27820808fc38abb235de0b51a0cfa43e6b9964553bc5010e158ad
+    image: ghcr.io/those-who-run/twr-pitwall:0.1.1@sha256:b04ef91fe0c7b1cf43c92e4af9b6fd72d672339bdbd07d7d4efbaaeb7a70dbfa
     platform: linux/amd64
     profiles: [replay]
     read_only: true
