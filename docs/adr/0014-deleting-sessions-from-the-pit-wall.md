@@ -198,10 +198,10 @@ Settles: #362 (What changes: paddock).
 
 This record and its row in [`README.md`](README.md) are #362's paddock part.
 NATS's permissions need no change (point 11), so paddock's PR changes no
-rendered manifest. `deploy/nats/subjects.yaml` takes the two endpoints when paddock
-next copies a `contracts` release that has them. The acceptance criteria are
-met by the `contracts`, `logbook` and `pitwall` PRs; AC5 by `pitwall`'s tests
-(point 8).
+rendered manifest. `deploy/nats/subjects.yaml` takes the two endpoints when
+paddock next copies a `contracts` release that has them. The acceptance
+criteria are met by the `contracts`, `logbook` and `pitwall` PRs; AC5 by
+`pitwall`'s tests (point 8).
 
 ## Order
 
