@@ -54,8 +54,12 @@ the issue itself, and only when it no longer has `needs triage`
   The view keeps its name; its filter lists every milestone in flight, so the
   maintainer adds a milestone when its first issue starts and takes it out
   when its last closes. Each column holds the issues of every milestone in
-  the filter: to see one, add `milestone:Lauda` to the filter bar for a while
-  without saving the view.
+  the filter: to see one, replace the filter with `milestone:Lauda` in the
+  filter bar for a while, without saving the view. The columns are right only
+  while the project's workflows set Needs triage and Done
+  ([Status](#status)). If those workflows are off, closed issues stay under
+  their last status, so the view's filter adds `is:open` and shows only the
+  work still to do.
 - **By Milestone:** groups are sorted by name or not at all, never in roadmap
   order, which lives only in [`ROADMAP.md`](../ROADMAP.md#the-order).
 - **By Component:** GitHub can't group a view by label, so this view is a
