@@ -3,10 +3,10 @@
 # on NATS. It runs as compose runs it (deploy/compose/compose.yaml): the same image
 # and environment, user 65532 on a read-only root file system.
 #
-# It holds no state and mounts no volume: it reads logbook and the KV, and writes
-# nothing. So it can roll at any time (#132 R3), with no idle gate and no special
-# strategy, and a second pod during a rollout is harmless. It stops within 1 s of
-# SIGTERM.
+# It holds no state and mounts no volume: it reads logbook and the KV, and its one
+# write, deleting or restoring a session, is a request to logbook (ADR 0014). So it
+# can roll at any time (#132 R3), with no idle gate and no special strategy, and a
+# second pod during a rollout is harmless. It stops within 1 s of SIGTERM.
 #
 # Nothing outside the cluster reaches it until an overlay includes
 # deploy/components/pitwall-ingress, with its host and TLS (#132 R4: no host
