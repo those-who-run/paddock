@@ -49,8 +49,8 @@ labels:
 # Bump it with compose's, in one change, or make deploy-render fails.
 images:
   - name: ghcr.io/those-who-run/twr-logbook
-    newTag: 0.1.5
-    digest: sha256:f54dcf151b6419294bc64136074004818d463532506977e4e5d0c82f58047fb4
+    newTag: 0.1.7
+    digest: sha256:b4fe71257ed0a122cb6942072c1dcff8192c2ae0fd345b4a13b8ff852d85ffd0
   - name: ghcr.io/those-who-run/twr-radio
     newTag: 0.1.6
     digest: sha256:eb07708b11652ece6b9218b38c8621d6914a07abaedb5a25f5b828047745110a
