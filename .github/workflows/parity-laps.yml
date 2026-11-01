@@ -3,9 +3,10 @@ name: Parity laps
 # The parity harness's own runs: parity-laps (paddock#40 R6, AC1 and AC4), where
 # `make parity` replays the three default recordings through v1's image and through
 # the compose stack and fails on any lap that differs, and parity-events (paddock#104,
-# below) and parity-spoken (paddock#64, at the end). They need no secrets and fetch nothing but the images, the Go toolchain
+# below), parity-spoken (paddock#64) and parity-pitwall (paddock#133, at the end). They need no secrets and fetch nothing but the images, the Go toolchain
 # and the harness's Go modules (checksummed in parity/go.sum): v1's image is pinned
-# by digest in parity/v1.go, v2's in deploy/compose/compose.yaml, and every recording
+# by digest in parity/v1.go, v2's in deploy/compose/compose.yaml (and parity-pitwall's
+# logbook and pit wall in parity/wallsides.go), and every recording
 # is checked against its sha256 in recordings/SOURCES.yaml before anything runs. The
 # log names the images it used.
 #
@@ -110,3 +111,24 @@ jobs:
           cache: false
       - name: What radio says against what v1 says, on paddock#64's recordings
         run: make brundle-demo
+
+  # `parity pitwall` (paddock#133 R6, AC3): #133's three recordings onto one store
+  # through v1's replay and v1's pit wall app, and through ecu replay into logbook
+  # 0.1.7 with the pit wall v0.1.0 over it (the harness's own compose override), every
+  # answer of the data API compared. The stack goes down with its volumes after it.
+  parity-pitwall:
+    runs-on: ubuntu-latest
+    # About 2 min: the stack up and down, three replays a side and the questions.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: parity/go.mod
+          cache: false
+      - name: v1's pit wall data API against v2's, on #133's three recordings
+        run: make parity-pitwall

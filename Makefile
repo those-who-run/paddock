@@ -45,6 +45,7 @@ help:
 	@echo "compose-it - the walking skeleton from nothing: up, NATS, the bootstrap, logbook's health, export, reset"
 	@echo "parity - the parity harness on its three default recordings, v1's laps against v2's (CI's parity-laps job)"
 	@echo "parity-events - every recording's events and callouts, v1's against v2's off the bus (CI's parity-events job)"
+	@echo "parity-pitwall - v1's pit wall data API against v2's on #133's three recordings (CI's parity-pitwall job)"
 	@echo "brundle-demo - what radio says on paddock#64's nine recordings against v1, script off (CI's parity-spoken job)"
 	@echo
 	@echo "The walking skeleton on this machine (deploy/compose/README.md):"
@@ -52,6 +53,7 @@ help:
 	@echo "replay - FILE=<name in recordings/> [SPEED=1|N|max] [RUN=compose]: ecu replay onto the bus, as source replay-RUN"
 	@echo "radio  - [SINK=console|wav] [RUN=compose]: start radio on replay-RUN's callouts, before make replay; WAVs in WAV"
 	@echo "podium - [RUN=compose]: start podium on replay-RUN's sessions, before make replay; cards in its log"
+	@echo "pitwall - [RUN=compose]: the pit wall on replay-RUN's sessions, at http://localhost:9852"
 	@echo "sub    - print everything on twr.> through nats-box (Ctrl-C to stop)"
 	@echo "export - [SRC=live]: stop logbook, print the source's stored laps (logbook export --laps), start it again"
 	@echo "down   - stop and remove the containers; the volumes and logbook's data stay"
@@ -118,6 +120,13 @@ parity:
 parity-events:
 	$(MAKE) -C parity events RUNS=--all
 
+# v1's pit wall data API against v2's pit wall over logbook (paddock#133): #133's
+# three recordings onto one store on each side, as CI's parity-pitwall job runs it.
+# Needs what `make parity` needs, and 127.0.0.1:9852 free.
+.PHONY: parity-pitwall
+parity-pitwall:
+	$(MAKE) -C parity pitwall
+
 # The Brundle demo's scripted part (paddock#64, docs/demos/brundle.md): radio's
 # console in instant timing against v1's `replay`, both with `script: false`, on
 # #64's nine recordings, as CI's parity-spoken job runs it. Needs what `make parity`
@@ -166,6 +175,12 @@ radio:
 .PHONY: podium
 podium:
 	TWR_PODIUM_SRC=replay-$(RUN) $(STACK) --profile replay up -d podium
+
+# The pit wall in the background, on the sessions of replay-RUN that logbook stored
+# (paddock#132), at http://localhost:9852. It reads only, so start it any time.
+.PHONY: pitwall
+pitwall:
+	TWR_PITWALL_SRC=replay-$(RUN) $(STACK) --profile replay up -d pitwall
 
 .PHONY: sub
 sub:

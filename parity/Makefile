@@ -28,6 +28,7 @@ help:
 	@echo "laps  - the harness on RECORDINGS (default: R4's three), through v1's image and the compose stack"
 	@echo "events - events and callouts on RUNS (default: R4's three; --all for every recording and the restart pair)"
 	@echo "spoken - what radio says against what v1 says, script off, on RECORDINGS (default: paddock#64's nine)"
+	@echo "pitwall - v1's pit wall data API against v2's, over #133's three recordings on one store"
 	@echo "fmt   - format the Go code with gofmt"
 
 .PHONY: check
@@ -85,3 +86,9 @@ events:
 .PHONY: spoken
 spoken:
 	go run . spoken $(RECORDINGS)
+
+# v1's pit wall data API against v2's (paddock#133): #133's three recordings,
+# replayed onto one store on each side.
+.PHONY: pitwall
+pitwall:
+	go run . pitwall

@@ -1,0 +1,22 @@
+# The pit wall from outside the cluster (paddock#132): an Ingress to the `pitwall`
+# Service, which the base runs. A component, so the base exposes nothing until an
+# overlay includes it:
+#
+#   components:
+#     - <path to paddock>/deploy/components/pitwall-ingress
+#
+# and patches in the host, the ingress class and the TLS secret, which nothing here
+# names (deploy/README.md, "The pit wall", has the patch). Without a host, an
+# ingress controller that is the cluster's default would serve it on every name it
+# has no other rule for.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - ingress.yaml
+
+# The base's labels do not reach what a component adds, so it carries its own.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: twr
+    includeSelectors: false

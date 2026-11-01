@@ -16,9 +16,11 @@
 #           path: /spec/ingress/1/from/0/namespaceSelector/matchLabels/kubernetes.io~1metadata.name
 #           value: <the ingress controller's namespace>
 #
-# Only NATS's and logbook's pods are selected, so nats-box, the bootstrap Job and
-# anything else keep their traffic as the cluster allows it; what they send to NATS
-# is let in by the first rule.
+# Only NATS's and logbook's pods are selected, so nats-box, the bootstrap Job, the
+# pit wall and anything else keep their traffic as the cluster allows it; what they
+# send to NATS is let in by the first rule. The pit wall reaches NATS and so
+# logbook's services from the namespace, and the ingress controller reaches the pit
+# wall through deploy/components/pitwall-ingress.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 
