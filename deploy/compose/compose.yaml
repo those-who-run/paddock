@@ -66,7 +66,7 @@ services:
   # probe /healthz from inside it. `make up` polls it from the host, on the port
   # published below, until it answers 200.
   logbook:
-    image: ghcr.io/those-who-run/twr-logbook:0.1.7@sha256:b4fe71257ed0a122cb6942072c1dcff8192c2ae0fd345b4a13b8ff852d85ffd0
+    image: ghcr.io/those-who-run/twr-logbook:0.1.8@sha256:c5659dc00cc50a12d68de2577f27a574bcabaa992fcde0ac693f14e329892094
     # v2 images are amd64 only (ADR 0006); on an arm64 machine this runs it under
     # emulation rather than failing to find a matching platform.
     platform: linux/amd64
