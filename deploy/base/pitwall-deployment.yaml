@@ -1,0 +1,96 @@
+# The pit wall (paddock#132): the web app and its Connect API, PitwallService, over
+# logbook's services (svc.logbook.*) and the `live` KV bucket's engineer status, both
+# on NATS. It runs as compose runs it (deploy/compose/compose.yaml): the same image
+# and environment, user 65532 on a read-only root file system.
+#
+# It holds no state and mounts no volume: it reads logbook and the KV, and writes
+# nothing. So it can roll at any time (#132 R3), with no idle gate and no special
+# strategy, and a second pod during a rollout is harmless. It stops within 1 s of
+# SIGTERM.
+#
+# Nothing outside the cluster reaches it until an overlay includes
+# deploy/components/pitwall-ingress, with its host and TLS (#132 R4: no host
+# network, no host port). It has no login: keep it on the LAN (ADR 0011).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pitwall
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pitwall
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pitwall
+    spec:
+      # It needs no Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The image's user, by number.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # The image is amd64 only (ADR 0006). The base pins no node, so a cluster with
+      # other architectures selects amd64 nodes in its overlay.
+      containers:
+        - name: pitwall
+          image: ghcr.io/those-who-run/twr-pitwall
+          # pitwall's docs/pitwall.md, "Running it", lists these. The web app's
+          # directory (TWR_PITWALL_STATIC_DIR) is the image's own default, not set
+          # here, so the image and its web app version together (paddock#131).
+          env:
+            # The chart's `nats` Service (deploy/nats/chart) in the same namespace:
+            # logbook's services and the `live` bucket are both on it.
+            - name: TWR_NATS_URL
+              value: nats://nats:4222
+            - name: ADDR
+              value: ":8080"
+            - name: LOG_LEVEL
+              value: info
+            # The sources whose sessions it shows, in order of preference: v2's
+            # own and v1's imported history (the maintainer's decision D7). Not
+            # the replays', which run on a laptop only.
+            - name: TWR_PITWALL_SRC
+              value: live,v1-import
+          ports:
+            - name: http
+              containerPort: 8080
+          # /healthz answers 200 while the process serves, whether or not NATS and
+          # logbook answer (the pages say so themselves), and 503 only when the web
+          # app's index.html can't be read. So neither probe restarts it for
+          # NATS or logbook being away.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          # A starting point until paddock#256 measures it: the largest answer is a
+          # lap's trace, under NATS's 1 MiB reply limit, gzipped on its way out.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

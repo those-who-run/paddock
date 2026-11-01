@@ -60,6 +60,16 @@ for NATS's server and one for ``logbook``, each letting in the namespace's own
 pods, and NATS's letting the ingress controller's namespace, a placeholder the
 overlay replaces, reach the WebSocket's 8080 only.
 
+- paddock#132: ``pitwall`` a Deployment of one replica with no volume,
+  ``TWR_NATS_URL=nats://nats:4222``, ``ADDR=:8080`` and the sources ``live`` and
+  ``v1-import`` (D7), readiness and liveness on ``/healthz``, non-root on a read-only
+  root file system with no service account token and the RuntimeDefault seccomp
+  profile, requests and a memory limit; and its Service on 8080.
+
+For ``deploy/components/pitwall-ingress``, rendered over the base: the Ingress
+``pitwall`` goes to the ``pitwall`` Service's http port, with no host, class or TLS
+of its own, which the overlay that includes it sets.
+
 For ``deploy/components/nats-websocket``, rendered over the base: the Ingress
 ``nats-ws`` goes to the ``nats`` Service's websocket port, with no host, class or
 TLS of its own, which the overlay that includes it sets.
@@ -104,6 +114,7 @@ RADIO_DISCORD = "deploy/components/radio-discord"
 RADIO_SECRET = "radio-discord"
 RADIO_SECRET_KEYS = ("TWR_DISCORD_BOT_TOKEN", "TWR_DISCORD_VOICE_CHANNEL_ID")
 PODIUM_DISCORD = "deploy/components/podium-discord"
+PITWALL_INGRESS = "deploy/components/pitwall-ingress"
 # The keys deploy/components/podium-discord reads from radio's Secret: the bot's
 # token, and the results channel, which the overlay adds.
 PODIUM_SECRET_KEYS = ("TWR_DISCORD_BOT_TOKEN", "TWR_DISCORD_RESULTS_CHANNEL_ID")
@@ -368,7 +379,8 @@ def base(docs: list[Doc], compose: str) -> list[str]:
     problems: list[str] = labelled(docs) + requests(docs)
     for doc in docs:
         if doc.kind == "Ingress":
-            problems.append(f"R3: {doc} is in the base, which exposes nothing until an overlay includes {NATS_WEBSOCKET}")
+            problems.append(f"R3: {doc} is in the base, which exposes nothing until an overlay includes"
+                            f" {NATS_WEBSOCKET} or {PITWALL_INGRESS}")
 
     rendered = {i for doc in docs for i in images(doc.lines)}
     composed = set(images(compose.splitlines()))
@@ -385,7 +397,7 @@ def base(docs: list[Doc], compose: str) -> list[str]:
         problems.append("base: no StatefulSet/nats in the render")
     elif values(nats.lines, "replicas") != ["1"]:
         problems.append(f"replicas: {nats} has replicas {values(nats.lines, 'replicas')}, not 1")
-    return problems + logbook(docs) + radio(docs) + podium(docs)
+    return problems + logbook(docs) + radio(docs) + podium(docs) + pitwall(docs)
 
 
 def logbook(docs: list[Doc]) -> list[str]:
@@ -514,6 +526,49 @@ def podium(docs: list[Doc]) -> list[str]:
     svc = find(docs, "Service", "podium")
     if svc is None or values(svc.lines, "port") != ["8080"]:
         problems.append("#67: no Service/podium on 8080")
+    return problems
+
+
+def pitwall(docs: list[Doc]) -> list[str]:
+    dep = find(docs, "Deployment", "pitwall")
+    if dep is None:
+        return ["#132: no Deployment/pitwall in the render"]
+    problems = []
+    lines = dep.lines
+    if values(lines, "replicas") != ["1"]:
+        problems.append(f"replicas: {dep} has replicas {values(lines, 'replicas')}, not 1")
+    for name, want in (("TWR_NATS_URL", "nats://nats:4222"), ("ADDR", ":8080"),
+                       ("TWR_PITWALL_SRC", "live,v1-import")):
+        if env_value(lines, name) != want:
+            problems.append(f"#132: {dep}'s {name} is {env_value(lines, name)}, not {want}")
+    if any(line.strip() in ("volumeMounts:", "volumes:") for line in lines):
+        problems.append(f"#132: {dep} mounts a volume, and the pit wall holds no data")
+    for probe in ("readinessProbe", "livenessProbe"):
+        if not any(line.strip() == f"{probe}:" for line in lines):
+            problems.append(f"#132: {dep} has no {probe}")
+    paths = values(lines, "path")
+    if not paths or any(p != "/healthz" for p in paths):
+        problems.append(f"#132: {dep}'s probes are on {paths}, not /healthz")
+    if "8080" not in values(lines, "containerPort"):
+        problems.append(f"#132: {dep} does not name port 8080")
+    problems += pod_hardened(dep)
+
+    svc = find(docs, "Service", "pitwall")
+    if svc is None or values(svc.lines, "port") != ["8080"]:
+        problems.append("#132: no Service/pitwall on 8080")
+    return problems
+
+
+def pitwall_ingress(docs: list[Doc]) -> list[str]:
+    ingress = find(docs, "Ingress", "pitwall")
+    if ingress is None:
+        return [f"#132: no Ingress/pitwall through {PITWALL_INGRESS}"]
+    problems = []
+    for key in ("host", "ingressClassName", "tls", "secretName"):
+        if any(re.match(rf"^\s*(- )?{key}:", line) for line in ingress.lines):
+            problems.append(f"#132: {ingress} sets {key}, which the overlay sets")
+    if values(ingress.lines, "name")[1:] != ["pitwall", "http"]:
+        problems.append(f"#132: {ingress} does not go to the pitwall Service's http port")
     return problems
 
 
@@ -672,6 +727,8 @@ def check(kustomization: str, text: str, compose: str | None = None) -> list[str
         problems += labelled(docs) + radio_discord(docs)
     if k == PODIUM_DISCORD:
         problems += labelled(docs) + podium_discord(docs)
+    if k == PITWALL_INGRESS:
+        problems += labelled(docs) + pitwall_ingress(docs)
     return problems
 
 
