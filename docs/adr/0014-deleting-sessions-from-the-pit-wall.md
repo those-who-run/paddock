@@ -31,6 +31,12 @@ click, or someone else on the home network, must not cost a session. Keeping
 everything makes the delete a flag, so the way back is one more request, and
 the store never has to rebuild what it threw away.
 
+`deleted_at` survives any other write to the session. When `logbook`
+upserts it again, from a redelivered event
+([ADR 0003](0003-the-store.md), point 5) or a rerun of the v1 import
+([ADR 0009](0009-v1-history-import.md), point 6), the session stays
+deleted: only a restore (point 3) clears it. `logbook`'s tests pin it.
+
 A purge, which removes a session's rows and files for good, is not part of
 this. It is a follow-up if it is ever wanted.
 
@@ -47,7 +53,7 @@ shows as deleted with a way to restore it.
 
 ### 3. Restore, and both are idempotent
 
-Restoring a session clears `deleted_at`. Deleting a session that is already
+Restoring a session clears `deleted_at`, and nothing else does (point 1). Deleting a session that is already
 deleted, or restoring one that is not, succeeds and changes nothing, so a
 request sent twice, or from two tabs, is harmless.
 
@@ -63,6 +69,8 @@ A delete is the driver tidying the history, not a decision about the race,
 so it does not go through `ecu`, and no event is published for it. The pit
 wall asks `logbook`, and `logbook` applies the request and nothing else. It
 stays the only writer of the store ([ADR 0003](0003-the-store.md), point 1).
+This is not the session's lifecycle, which stays `ecu`'s
+([ADR 0001](0001-v2-architecture.md), point 3).
 
 `deleted_at` is a change to `logbook`'s schema, so it comes in a new
 migration with the next number. A merged migration is never edited.
@@ -113,7 +121,10 @@ holds for this write too:
   gets through the WebSocket Ingress, may not publish
   ([`deploy/nats/chart/values.yaml`](../../deploy/nats/chart/values.yaml)),
   so it can't send a request to `logbook`. Only clients in the cluster's
-  namespace can, as for every other `svc.logbook.*` endpoint.
+  namespace can, as for every other `svc.logbook.*` endpoint. That holds
+  with the `network-policy` component on, as a cluster that enforces
+  NetworkPolicy includes it
+  ([`deploy/README.md`](../../deploy/README.md#the-base)).
 
 [ADR 0011](0011-pit-wall-access.md), point 4, already sends the access
 question back to Schumacher's spec before the setup pages ship. That review
@@ -135,13 +146,15 @@ down too is a follow-up if it is wanted.
 
 ### 11. paddock
 
-This record, and NATS's permissions letting the pit wall request the two new
-subjects and nothing else new. In the base, every client in the namespace is
-NATS's `twr` user, which may do anything
+paddock: this record. NATS's permissions do not change: in the base every
+client in the namespace is NATS's `twr` user, which may do anything
 ([`deploy/nats/chart/values.yaml`](../../deploy/nats/chart/values.yaml)), so
-the pit wall needs no user of its own and the base's NATS config does not
-change; compose runs NATS with no users at all. Compose and parity keep
-working as they are.
+the pit wall can already request the two new subjects (as it can any
+other); compose runs NATS with no users. The namespace is the boundary only
+with the `network-policy` component on, as a cluster that enforces
+NetworkPolicy includes it
+([`deploy/README.md`](../../deploy/README.md#the-base)). Compose and parity
+keep working as they are.
 
 `deploy/nats/subjects.yaml` is a copy of `contracts`' at a tag, which
 `scripts/nats_check.py` compares by hash, so the two new endpoints reach it
@@ -189,7 +202,10 @@ Changing any point here needs a new record that supersedes this one.
 
 ## References
 
-- [ADR 0003](0003-the-store.md), point 1 (`logbook` owns all writes).
+- [ADR 0001](0001-v2-architecture.md), point 3 (`ecu` owns the session).
+- [ADR 0003](0003-the-store.md), point 1 (`logbook` owns all writes) and
+  point 5 (idempotent writes).
+- [ADR 0009](0009-v1-history-import.md), point 6 (when the v1 import runs).
 - [ADR 0011](0011-pit-wall-access.md), points 1 and 4, and
   [ADR 0012](0012-one-pit-wall-address.md), point 4.
 - [ADR 0002](0002-contracts.md) (how a contract evolves) and
