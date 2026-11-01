@@ -42,10 +42,14 @@ from v1's rows") covers every v1 session, and re-deriving would never happen.
   them.
 
 The frames then go through `salsa`'s v1 mapping and `ecu`'s race state
-unchanged, as ADR 0009 point 2 says. `ecu` judges everything else from the
-frames alone:
+unchanged, as ADR 0009 point 2 says. `ecu` then judges:
 
-- the kind and the start;
+- **the kind and the start**, from the frames plus three of the filled
+  values: the lap total, the field's size and the cars-on-track flag. These are
+  the kind's inputs, so the kind is only partly v2's own judgement.
+
+From the frames alone, it judges:
+
 - the track;
 - the pit stops and each lap's part in them;
 - the positions;
@@ -79,20 +83,28 @@ A re-derived session is v2's judgement of v1's frames, but not all of it:
 - **The time each lap is posted is idealised.** GT7 posts a lap's time a few
   frames after the line, and not always on the same frame. Here it arrives on
   the first frame of the next lap.
+- **The kind is judged on filled inputs.** The lap total, the field's size and
+  the cars-on-track flag are v1's, so `ecu`'s kind and start rest on them as
+  well as on the frames. Comparing the kind with v1's checks that `ecu` reads
+  the same inputs the same way, not the inputs themselves.
 - **Values within a session are flattened.** The field's size, the lap total,
   the tank and the cars-on-track flag are the same on every frame. A field that
   changed during a session (a car leaving, say) isn't seen.
 - **A missing source sends the session down the rows path** (point 2), so
   older sessions are v1's judgement, flagged, not v2's.
 
-What the import still checks independently against v1's rows are the kind, the
-track, the finish, the complete laps and the fuel. The summary lists each
+What the import checks against v1's rows, independently of v1's judgement, are
+the track, the finish, the complete laps and the fuel. It also compares the
+kind, which was judged from the frames plus v1's lap total, field size and
+cars-on-track flag. The summary lists each
 difference ([ADR 0009](0009-v1-history-import.md), point 5).
 
 ## Consequences
 
-- **Most of v1's history is re-derived:** the track, kind, pit stops,
-  positions, fuel and finish are v2's, as ADR 0009 wanted.
+- **Most of v1's history is re-derived:** the track, pit stops, positions,
+  fuel and finish are v2's, as ADR 0009 wanted. The kind and start are v2's
+  reading of v1's lap total, field size and cars-on-track flag, together with
+  the frames.
 - **Lap times can't disagree** between v1 and v2 for imported sessions. Parity
   on recordings (#133), not the import, is where `ecu`'s lap timing is checked.
 - **The importer reads v1's rows for more than ADR 0009 allowed:** to fill the
