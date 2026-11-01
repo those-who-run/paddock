@@ -52,6 +52,7 @@ help:
 	@echo "replay - FILE=<name in recordings/> [SPEED=1|N|max] [RUN=compose]: ecu replay onto the bus, as source replay-RUN"
 	@echo "radio  - [SINK=console|wav] [RUN=compose]: start radio on replay-RUN's callouts, before make replay; WAVs in WAV"
 	@echo "podium - [RUN=compose]: start podium on replay-RUN's sessions, before make replay; cards in its log"
+	@echo "pitwall - [RUN=compose]: the pit wall on replay-RUN's sessions, at http://localhost:9852"
 	@echo "sub    - print everything on twr.> through nats-box (Ctrl-C to stop)"
 	@echo "export - [SRC=live]: stop logbook, print the source's stored laps (logbook export --laps), start it again"
 	@echo "down   - stop and remove the containers; the volumes and logbook's data stay"
@@ -166,6 +167,12 @@ radio:
 .PHONY: podium
 podium:
 	TWR_PODIUM_SRC=replay-$(RUN) $(STACK) --profile replay up -d podium
+
+# The pit wall in the background, on the sessions of replay-RUN that logbook stored
+# (paddock#132), at http://localhost:9852. It reads only, so start it any time.
+.PHONY: pitwall
+pitwall:
+	TWR_PITWALL_SRC=replay-$(RUN) $(STACK) --profile replay up -d pitwall
 
 .PHONY: sub
 sub:
