@@ -1,6 +1,6 @@
 # 0014: Deleting sessions from the pit wall
 
-**Status:** Accepted, 2026-11-01. The maintainer's decision.
+**Status:** Accepted, 2026-11-01. The maintainer's decision, for #362.
 
 ## Context
 
@@ -9,7 +9,7 @@ to, and until now it only read them. A session that should not be there (a
 test drive, a few laps in the wrong car, a session a bad import made) stays in
 the list, its filter counts and the same-track comparisons for good. The
 maintainer asked for a way to delete a session from the pit wall
-(2026-11-01).
+(2026-11-01, #362).
 
 That is the pit wall's first write, and it touches several records at once:
 [ADR 0003](0003-the-store.md) (`logbook` is the only writer of the store),
@@ -40,6 +40,8 @@ deleted: only a restore (point 3) clears it. `logbook`'s tests pin it.
 A purge, which removes a session's rows and files for good, is not part of
 this. It is a follow-up if it is ever wanted.
 
+Settles: #362 (AC1: the data and lap files stay on disk).
+
 ### 2. Where a deleted session shows
 
 - **Left out:** `sessions.list` (the list, and its filters' values and
@@ -51,17 +53,24 @@ A results card's link (`/?session=<id>`, [ADR 0012](0012-one-pit-wall-address.md
 point 4) is permanent, so it still opens a deleted session, which the page
 shows as deleted with a way to restore it.
 
+Settles: #362 (AC1, hidden from the list and same-track; AC2, a deleted
+session's link still opens it).
+
 ### 3. Restore, and both are idempotent
 
 Restoring a session clears `deleted_at`, and nothing else does (point 1). Deleting a session that is already
 deleted, or restoring one that is not, succeeds and changes nothing, so a
 request sent twice, or from two tabs, is harmless.
 
+Settles: #362 (AC2, Restore brings it back; AC4).
+
 ### 4. What can't be deleted
 
 - **An open session** (one not yet closed): `failed_precondition`. Its rows
   are still being written, and the engineer is still in it.
 - **A session that does not exist:** `not_found`.
+
+Settles: #362 (AC3).
 
 ### 5. `logbook` applies it; `ecu` is not involved
 
@@ -75,6 +84,8 @@ This is not the session's lifecycle, which stays `ecu`'s
 `deleted_at` is a change to `logbook`'s schema, so it comes in a new
 migration with the next number. A merged migration is never edited.
 
+Settles: #362 (What changes: logbook, the new migration).
+
 ### 6. The store's contract
 
 `contracts` gains two request/reply endpoints in `subjects.yaml`, beside
@@ -85,6 +96,9 @@ migration with the next number. A merged migration is never edited.
 
 Each names its session the way `sessions.get` does, and the pit wall is
 their only caller. The store's `Session` message gains `deleted_at`.
+
+Settles: #362 (What changes: contracts, the two endpoints and
+`deleted_at`).
 
 ### 7. The pit wall's API
 
@@ -98,6 +112,9 @@ their only caller. The store's `Session` message gains `deleted_at`.
 - **`GetSession`,** and whatever else the session page uses, carries
   `deleted_at`.
 - The service's comment no longer calls it read-only.
+
+Settles: #362 (What changes: contracts and pitwall, the two POST
+methods).
 
 ### 8. No login: ADR 0011 stands
 
@@ -139,6 +156,8 @@ holds for this write too:
 question back to Schumacher's spec before the setup pages ship. That review
 covers this write as well.
 
+Settles: #362 (AC5).
+
 ### 9. The web app
 
 - The session page has a Delete button, with a confirmation that names the
@@ -147,11 +166,15 @@ covers this write as well.
   button.
 - The list no longer shows it.
 
+Settles: #362 (AC1 and AC2, the session page's Delete and Restore).
+
 ### 10. The Discord card stays
 
 Deleting a session does not touch `podium` or Discord: a card already posted
 stays, and its link opens the session as deleted (point 2). Taking the card
 down too is a follow-up if it is wanted.
+
+Settles: #362 (Out of scope: the Discord card).
 
 ### 11. paddock
 
@@ -168,6 +191,17 @@ keep working as they are.
 `deploy/nats/subjects.yaml` is a copy of `contracts`' at a tag, which
 `scripts/nats_check.py` compares by hash, so the two new endpoints reach it
 when paddock copies a `contracts` release that has them, not before.
+
+Settles: #362 (What changes: paddock).
+
+## What #362 does because of this
+
+This record and its row in [`README.md`](README.md) are #362's paddock part.
+NATS's permissions need no change (point 11), so paddock's PR changes no
+rendered manifest. `deploy/nats/subjects.yaml` takes the two endpoints when paddock
+next copies a `contracts` release that has them. The acceptance criteria are
+met by the `contracts`, `logbook` and `pitwall` PRs; AC5 by `pitwall`'s tests
+(point 8).
 
 ## Order
 
