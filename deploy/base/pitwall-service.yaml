@@ -1,0 +1,14 @@
+# The pit wall's web app, API and /healthz (paddock#132), for the Ingress that
+# deploy/components/pitwall-ingress adds and for the namespace's pods. ClusterIP
+# only: nothing on the node's ports.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pitwall
+spec:
+  selector:
+    app.kubernetes.io/name: pitwall
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

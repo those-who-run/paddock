@@ -8,12 +8,13 @@ repository sets those. The runbook, from nothing to running, comes with #51.
 
 | Directory | What |
 |---|---|
-| [`base/`](base/kustomization.yaml) | The base (#44): NATS, the stream and KV bootstrap Job, `logbook`, `radio` on the console (#63), and `podium` with its cards off (#67) |
+| [`base/`](base/kustomization.yaml) | The base (#44): NATS, the stream and KV bootstrap Job, `logbook`, `radio` on the console (#63), `podium` with its cards off (#67), and the pit wall inside the cluster (#132) |
 | [`nats/`](nats/README.md) | NATS from its Helm chart (`nats/chart`, #42), the streams and buckets, and the bootstrap Job (#43) |
 | [`components/nats-websocket/`](components/nats-websocket/kustomization.yaml) | The Ingress to NATS's WebSocket, with the overlay's host, class and TLS secret |
 | [`components/network-policy/`](components/network-policy/kustomization.yaml) | NetworkPolicies: only the namespace's pods reach NATS and `logbook`, and the ingress controller's namespace reaches the WebSocket |
 | [`components/radio-discord/`](components/radio-discord/kustomization.yaml) | `radio` speaks in Discord, the bot's token and voice channel from the overlay's Secret ([below](#radio-in-discord)) |
 | [`components/podium-discord/`](components/podium-discord/kustomization.yaml) | `podium` posts the results cards in Discord, the bot's token and the results channel from the same Secret ([below](#podium-in-discord)) |
+| [`components/pitwall-ingress/`](components/pitwall-ingress/kustomization.yaml) | The Ingress to the pit wall, with the overlay's host, class and TLS secret ([below](#the-pit-wall)) |
 | [`compose/`](compose/README.md) | The same stack on a laptop, with no cluster |
 
 ## The base
@@ -23,7 +24,8 @@ repository sets those. The runbook, from nothing to running, comes with #51.
 [`base/logbook-statefulset.yaml`](base/logbook-statefulset.yaml) and its
 headless Service, and `radio`:
 [`base/radio-deployment.yaml`](base/radio-deployment.yaml) and its Service, and `podium`:
-[`base/podium-deployment.yaml`](base/podium-deployment.yaml) and its Service. Every object carries `app.kubernetes.io/part-of: twr`.
+[`base/podium-deployment.yaml`](base/podium-deployment.yaml) and its Service, and the pit wall:
+[`base/pitwall-deployment.yaml`](base/pitwall-deployment.yaml) and its Service. Every object carries `app.kubernetes.io/part-of: twr`.
 
 - **`logbook`** is a StatefulSet of exactly one replica, `OrderedReady`: its
   store is one file that one process writes. Its volume, `data`, is mounted at
@@ -59,8 +61,14 @@ headless Service, and `radio`:
   port 8080, which also serves `/metrics` (`gt7_results_posts_total`), and it
   runs as user 65532 on a read-only root file system with no service account
   token. The image is amd64 only (ADR 0006).
+- **The pit wall** (`pitwall`, #132) is a Deployment of one replica that can
+  roll at any time: it holds no data, mounts no volume and writes nothing
+  ([below](#the-pit-wall)). It reaches NATS at `nats://nats:4222`, shows the
+  sources `live,v1-import` (`TWR_PITWALL_SRC`), and its readiness and liveness
+  are on `/healthz`, port 8080. It runs as user 65532 on a read-only root file
+  system with no service account token. The image is amd64 only (ADR 0006).
 - **Images** are pinned by tag and digest, the same strings as compose:
-  `logbook`, `radio` and `podium` in the base's `images:` block, NATS, `nats-box` and the
+  `logbook`, `radio`, `podium` and `pitwall` in the base's `images:` block, NATS, `nats-box` and the
   exporter in `nats/chart/values.yaml` and `nats/bootstrap-job.yaml`. Each is
   pinned in one place. `make deploy-render` fails when an image in the base's
   render is not compose's, or compose runs one the base does not. `ecu`'s
@@ -162,6 +170,53 @@ patch on the Deployment's environment. podium's README has the rest.
 On its first start podium's consumer posts only the sessions that end after
 it, none of the 30 days of sessions `EVENTS` already keeps.
 
+### The pit wall
+
+The base runs the pit wall (#132) with no way in from outside the cluster.
+[`components/pitwall-ingress`](components/pitwall-ingress/kustomization.yaml)
+adds the Ingress `pitwall`, to the `pitwall` Service's port 8080, with no
+host, class or TLS; the overlay adds them. It has no login, so the host
+belongs on the LAN ([ADR 0011](../docs/adr/0011-pit-wall-access.md)). The
+overlay's patch, in the style of the WebSocket's:
+
+```yaml
+components:
+  - <path to paddock>/deploy/components/pitwall-ingress
+patches:
+  - target: {kind: Ingress, name: pitwall}
+    patch: |-
+      - op: add
+        path: /spec/ingressClassName
+        value: <ingress class>
+      - op: add
+        path: /spec/rules/0/host
+        value: pitwall.<host>
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts: [pitwall.<host>]
+            secretName: <tls secret>
+```
+
+The pit wall reads `logbook`'s services (`svc.logbook.*`) and the `live` KV
+bucket over NATS, and writes nothing: it needs `logbook` 0.1.7 or later, which
+serves them. Without them its pages load and say the data isn't there, and its
+`/healthz` still answers 200. To check it:
+
+```sh
+kubectl -n <namespace> rollout status deployment/pitwall
+kubectl -n <namespace> port-forward svc/pitwall 9852:8080
+curl -s http://localhost:9852/healthz   # ok, its version, and whether nats and logbook answered
+```
+
+then open `https://pitwall.<host>/` through the Ingress. A results card's link,
+`/?session=<id>`, opens that session; `podium`'s `TWR_PITWALL_URL`, set in the
+overlay, makes the cards link there. NATS lets every client in the namespace
+do anything (`nats/chart/values.yaml`), so the pit wall needs no user of its
+own; `network-policy` selects only NATS and `logbook`, and lets the namespace's
+pods in, so the pit wall reaches both, and the ingress controller reaches the
+pit wall as the cluster allows.
+
 Render and apply with kustomize 5.7.x, not 5.8
 ([kubernetes-sigs/kustomize#6058](https://github.com/kubernetes-sigs/kustomize/issues/6058)),
 and `helm` on the `PATH`. `kubectl apply -k` cannot inflate NATS's chart:
@@ -190,12 +245,14 @@ no Secret or Discord setting, its `emptyDir` at `/tmp`, environment, probes,
 security settings, resources and Service; and `podium`'s Deployment: exactly
 one replica, `Recreate`, source `live` and the `discord` sink with no Secret or
 Discord setting, environment, probes, security settings, resources and
-Service. Each component's render carries the label too. For `radio-discord`,
+Service; and the pit wall's Deployment: one replica, no volume, its sources,
+environment, probes, security settings, resources and Service. Each component's render carries the label too. For `radio-discord`,
 the sink is `discord`, both settings come from Secret `radio-discord` under
 their own key, and the render holds no Secret of that name. For
 `podium-discord`, the token and the results channel come from Secret
 `radio-discord` under their own key, the channel's `optional`, and the render
-holds no Secret of that name. For `network-policy`, both policies are Ingress
+holds no Secret of that name. For `pitwall-ingress`, the Ingress goes to the
+`pitwall` Service's `http` port and sets no host, class or TLS. For `network-policy`, both policies are Ingress
 only and select NATS's server and `logbook`, each lets in the namespace's own
 pods, and NATS's lets in the ingress controller's namespace, and no other, on
 8080 only.
