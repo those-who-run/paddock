@@ -1,11 +1,12 @@
 // Command parity is the walking skeleton's referee (paddock#40, paddock#104): it
 // replays each recording through v1 and through v2, normalises both sides' stored
 // laps, or the events and callouts each side decided, or what each side spoke
-// (paddock#64), to the same lines and compares them.
+// (paddock#64), or what each side's pit wall answers (paddock#133), to the same lines and compares them.
 //
 //	parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…
 //	parity events [--v1-image IMG] [--compose FILE] [--healthz URL] [--nats URL] [--keep] [--all] RUN…
 //	parity spoken [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--all] RECORDING…
+//	parity pitwall [--v1-image IMG] [--compose FILE] [--healthz URL] [--pitwall URL] [--keep] [RECORDING…]
 //
 // The exit code is 0 when every recording matches, 1 when any differs, and 2 when
 // the run is refused or a side fails. README.md has the detail.
@@ -51,6 +52,7 @@ type options struct {
 	compose string
 	healthz string
 	nats    string
+	pitwall string
 	keep    bool
 	frames  bool
 	// everyRecording: the runs cover every recording, so an unused accepted
@@ -76,10 +78,13 @@ func cli(ctx context.Context, args []string, stdout, stderr io.Writer, mk sides)
 		return events(ctx, args[1:], stdout, stderr, mk)
 	case len(args) > 0 && args[0] == "spoken":
 		return spoken(ctx, args[1:], stdout, stderr, mk)
+	case len(args) > 0 && args[0] == "pitwall":
+		return pitwall(ctx, args[1:], stdout, stderr, mk)
 	}
 	_, _ = fmt.Fprintln(stderr, "usage: parity laps [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--frames] RECORDING…")
 	_, _ = fmt.Fprintln(stderr, "       parity events [--v1-image IMG] [--compose FILE] [--healthz URL] [--nats URL] [--keep] [--all] RUN…")
 	_, _ = fmt.Fprintln(stderr, "       parity spoken [--v1-image IMG] [--compose FILE] [--healthz URL] [--keep] [--all] RECORDING…")
+	_, _ = fmt.Fprintln(stderr, "       parity pitwall [--v1-image IMG] [--compose FILE] [--healthz URL] [--pitwall URL] [--keep] [RECORDING…]")
 	return exitRefused
 }
 
@@ -280,9 +285,12 @@ func realSides(log io.Writer) sides {
 		if o.nats == "" {
 			o.nats = defaultNATS
 		}
+		if o.pitwall == "" {
+			o.pitwall = defaultPitwall
+		}
 		v2 := &v2Side{
 			run: execRunner, compose: compose, file: o.compose, keep: o.keep, log: log,
-			healthz: o.healthz, nats: o.nats, listen: natsListen,
+			healthz: o.healthz, nats: o.nats, listen: natsListen, pitwall: strings.TrimRight(o.pitwall, "/"),
 			client: &http.Client{Timeout: 5 * time.Second},
 			wait:   5 * time.Minute, settle: 15 * time.Second, quiet: 2 * time.Second, poll: time.Second,
 			said: 5 * time.Second,

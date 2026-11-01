@@ -35,6 +35,8 @@ type v2Side struct {
 	// nats is NATS as compose publishes it, and listen how the checker listens.
 	nats   string
 	listen listenFunc
+	// pitwall is the pit wall's address, as compose publishes it.
+	pitwall string
 }
 
 // logbookHealth is the part of logbook's /healthz the harness reads.

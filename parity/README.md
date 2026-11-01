@@ -349,6 +349,100 @@ CI's `parity-spoken` job runs `make brundle-demo` from paddock's root: the nine.
 It is in [`parity-laps.yml`](../.github/workflows/parity-laps.yml) beside the
 other two runs and, like them, not a required check.
 
+## The pit wall
+
+```sh
+go run . pitwall                                 # #133's three recordings, onto one store
+make pitwall
+```
+
+```
+parity pitwall [--v1-image IMG] [--compose FILE] [--healthz URL] [--pitwall URL] [--keep] [RECORDING…]
+```
+
+v1's pit wall data API against v2's (paddock#133): the same questions asked of
+both over the same recordings. With no `RECORDING`, #133's three, as the Rosberg
+plan trims it: a race at Circuit Gilles Villeneuve
+(`real-nuc-gilles-villeneuve-race-2026-10-17`), the pit stop at the same track
+(`real-nuc-gilles-villeneuve-pit-stop-2026-10-17`: #122 AC2's lap flags, and
+#123's traces either side of the cut-scene), whose sessions are each other's
+same-track, and Suzuka joined part way (`real-nuc-suzuka-joined-mid-race-2026-10-18`,
+#122 AC3's `joined_on_lap`). The recordings go onto one store on each side, in
+order, the n-th on a clock n-1 days after 2026-01-01T00:00:00Z, so the list,
+its options and same-track have more than one session to work on. `--pitwall`
+is the pit wall as compose publishes it (`http://127.0.0.1:9852`); `--keep`
+keeps v2's stack and both sides' answers. The exit codes are `laps`' own.
+
+- **v1** runs [`v1pitwall.py`](v1pitwall.py) in v1's image: v1's own `replay`
+  of each recording with its `--clock` into one temporary store, then v1's pit
+  wall app (`make_app`, what `those-who-run pitwall` serves) asked over HTTP in
+  the same process. Nothing in v1 is changed.
+- **v2** brings up a fresh compose project, `parity-pitwall`, of compose.yaml's
+  own logbook and pit wall, so the run checks the images compose pins and
+  Renovate bumps. A compose file of the harness's own laid over the stack's
+  (`wallOverride` in [`wallsides.go`](wallsides.go)) sets only the pit wall's
+  source, `TWR_PITWALL_SRC=parity`. The pit wall is in compose's `replay`
+  profile with radio and podium, so it is started by name after `up -d`, and
+  nothing else in the profile starts. It waits for the pit wall's `/healthz` to say `logbook`, runs `ecu
+  replay --src parity --speed max --clock T` for each recording, waits for
+  logbook's laps (v1's count) and for the list to show every session closed, then
+  asks `PitwallService` over Connect's JSON.
+
+**The questions** (R1), on each side: the session list with no filter, then for
+each session in it `GetSession`, `ListLaps`, `ListSameTrack`, and `GetTrace` at
+1500 points for each complete lap (R4: every complete lap of the three). Every
+lap of these recordings has fewer than 1500 frames, so no trace is thinned here:
+logbook's `TestTracesEqualV1s` and `TestThinningKeepsThePeaks` check thinning
+against v1's own `lap_trace`.
+
+**The comparison.** v2's answers are put in v1's names and shapes first
+(`v1Shape`), by contracts' own map of v1's schema (`pitwall_v1_test.go`): every
+field, null where it is absent; a session and a trace unwrapped from their
+responses; Timestamps as Unix seconds (the maintainer's decision, 2026-10-31);
+`best_lap` as `best_lap_no`, `fuel_burned` as `fuel_used`, `track.track_id` as
+`track.id`; an absent `total_laps` as v1's 0; and the two fields v1 had no value
+for (`card_posted_at`, `from_v1_rows`) left out. v1's lap `file` is left out
+(contracts left it out), and so are the ids each side mints.
+
+- **Sessions pair** by their recording (the day they started on) and their
+  place in it, in start order (R2). Their start and track are then compared as
+  fields, so a session that starts or sits elsewhere is a difference, not a
+  missing pair.
+- **Values compare** field by field, nested ones by path (`track.name`), lists
+  value for value; `started_at` and `ended_at` within 1 ms, fuel within
+  0.001 L, everything else exactly (R3). v1 keeps a time as a float of Unix
+  seconds and ecu as whole milliseconds, so a millisecond's rounding is all the
+  conversion makes; a start that moves further, such as a held start (#74), is a
+  difference. A trace compares value for value in
+  every channel; a difference says how many values differ and the first. The
+  list compares its order, `total`, `matched` and each filter's options with
+  their counts; same-track compares which sessions, by pair.
+- **The pit lap's jump** (#123 AC2): on each lap v1 flags `pit`, v2's trace must
+  have two points more than 20 m apart.
+
+**Accepted differences** (R5) are the `wallAccepted` entries in
+[`accepted.go`](accepted.go), each with its reason and the decision or issue
+behind it. Each is pinned, with no wildcard: a recording, a session's place in
+it (from 1), the routes it may match, the lap where those routes are per lap
+(`laps`, `trace`) and none where they aren't, the field, and both values as the
+output prints them. A field of the list's own (its order, `total`, `matched`,
+options) has no recording, session or lap, and only the `sessions` route. An
+entry pinned otherwise is refused before anything runs (exit 2). Any difference
+no entry allows fails the run, and so does an entry that allowed none. On the three recordings there are none: the maintainer's
+decided departures either don't arise there (the track label for a circuit known
+only by its family, a session with no full lap, the ranked kind) or are the
+mapping above (Timestamps, contracts' renames, an absent `total_laps`), and the
+card's words, from contracts' `format`, are v1's for these sessions. Every
+session's start and end are v1's to the millisecond, the race's, 19.5 s into its
+recording, among them.
+
+**The output** is a line per difference (recording, session, route, lap, field,
+both values and any accepted entry), then a line per recording with the
+sessions, laps and traces on each side and the differences, failing and
+accepted.
+
+CI's `parity-pitwall` job runs `make parity-pitwall` from paddock's root.
+
 ## Checks
 
 `make check` runs the Go checks in the order of `those-who-run/.github`'s

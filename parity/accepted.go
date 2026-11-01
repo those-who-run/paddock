@@ -526,3 +526,109 @@ func unused(results []EventResult) []acceptance {
 	}
 	return out
 }
+
+// The pit wall's accepted differences (paddock#133 R5): what v2's pit wall
+// answers otherwise than v1's, on purpose. Each entry is pinned, with no
+// wildcard: a recording, a session's place in it (from 1), the routes it may
+// match, the lap where the routes are per lap (laps, trace), the field, and both
+// values as the output prints them, so a value that moves again is a difference.
+// The list's own fields (its order, total, matched and options) have no
+// recording, session or lap, and only the sessions route. An entry pinned
+// otherwise is refused before anything runs (pinned), and one that allowed
+// nothing fails the run: `parity pitwall` always runs every recording its entries
+// name.
+type wallAcceptance struct {
+	ID     string
+	Issue  string
+	Reason string
+	// Rec is the recording's stem; "" is the list's own fields.
+	Rec     string
+	Session int
+	Calls   []string
+	Lap     int
+	Field   string
+	V1, V2  string
+}
+
+// wallCalls are the routes a difference names, and which of them are per lap.
+var wallCalls = map[string]bool{"sessions": false, "session": false, "same_track": false, "laps": true, "trace": true}
+
+// pinned says why an entry isn't pinned as the type says it must be, or "".
+func (e wallAcceptance) pinned() string {
+	switch {
+	case e.ID == "" || e.Issue == "" || e.Reason == "":
+		return "no id, issue or reason"
+	case e.Field == "":
+		return "no field"
+	case len(e.Calls) == 0:
+		return "no route"
+	case e.Rec == "" && (e.Session != 0 || e.Lap != 0 || !slices.Equal(e.Calls, []string{"sessions"})):
+		return "a field of the list's own with a session, a lap or a route other than sessions"
+	case e.Rec != "" && e.Session < 1:
+		return "no session"
+	}
+	if e.Rec == "" {
+		return ""
+	}
+	perLap := wallCalls[e.Calls[0]]
+	for _, c := range e.Calls {
+		lap, ok := wallCalls[c]
+		switch {
+		case !ok:
+			return "an unknown route " + c
+		case lap != perLap:
+			return "routes per lap and per session together"
+		}
+	}
+	switch {
+	case perLap && e.Lap < 1:
+		return "no lap"
+	case !perLap && e.Lap != 0:
+		return "a lap on a route that has none"
+	}
+	return ""
+}
+
+func (e wallAcceptance) allows(d WallDiff) bool {
+	return e.Rec == d.Rec && e.Session == d.Session && slices.Contains(e.Calls, d.Call) &&
+		e.Lap == d.Lap && e.Field == d.Field && e.V1 == d.V1 && e.V2 == d.V2
+}
+
+// unpinned are the entries that aren't pinned, each with why.
+func unpinned(entries []wallAcceptance) []string {
+	var out []string
+	for _, e := range entries {
+		if why := e.pinned(); why != "" {
+			out = append(out, e.ID+": "+why)
+		}
+	}
+	return out
+}
+
+// acceptWall marks the differences an entry allows and returns the entries that
+// allowed none.
+func acceptWall(diffs []WallDiff, entries []wallAcceptance) []wallAcceptance {
+	used := make([]bool, len(entries))
+	for i := range diffs {
+		for j, e := range entries {
+			if e.allows(diffs[i]) {
+				diffs[i].Accepted, used[j] = e.ID, true
+				break
+			}
+		}
+	}
+	var stale []wallAcceptance
+	for j, e := range entries {
+		if !used[j] {
+			stale = append(stale, e)
+		}
+	}
+	return stale
+}
+
+// wallAccepted is the list. It is empty: on #133's three recordings v2's pit wall
+// answers what v1's does once v1Shape has mapped contracts' names, Timestamps and
+// an absent total_laps (README.md, "The pit wall"). The maintainer's other decided
+// departures (a track known only by its family, sessions with no full lap, the
+// ranked kind) don't arise on them.
+var wallAccepted = []wallAcceptance{}
