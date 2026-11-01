@@ -1362,6 +1362,23 @@ class EcuLive(unittest.TestCase):
         self.assertFails("hostPort: 33740", "hostPort: 33741", "portable")
         self.assertIn(deploy_check.ECU_HOST_PORT, problems(ECU_LIVE, deploy_check.BASE))
 
+    def test_the_host_port_is_allowed_only_once(self) -> None:
+        # A second hostPort: 33740 on ecu, or 33740 on another object, fails.
+        port = "        - containerPort: 33740\n          hostPort: 33740\n          name: telemetry\n          protocol: UDP\n"
+        self.assertEqual(ECU_LIVE.count(port), 1)
+        twice = ECU_LIVE.replace(port, port + port.replace("name: telemetry", "name: telemetry-2"))
+        self.assertIn(deploy_check.ECU_HOST_PORT, self.check(twice))
+        other = ECU_LIVE + (
+            "---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  labels:\n"
+            "    app.kubernetes.io/part-of: twr\n  name: other\nspec:\n  template:\n    spec:\n"
+            f"      containers:\n      - image: {ECU_IMAGE}\n        name: other\n        ports:\n{port}"
+            "        resources:\n          requests:\n            cpu: 10m\n")
+        self.assertIn("portable: Deployment/other has a host port: hostPort: 33740", self.check(other))
+        self.assertNotIn(deploy_check.ECU_HOST_PORT, self.check(other))
+
+    def test_the_claim_is_in_the_render(self) -> None:
+        self.assertFails("  name: ecu-recordings\nspec:", "  name: ecu-other\nspec:")
+
     def test_udp_33740_on_the_host(self) -> None:
         self.assertFails("          hostPort: 33740\n", "")
         self.assertFails("          protocol: UDP\n", "")

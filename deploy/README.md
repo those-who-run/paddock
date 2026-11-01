@@ -292,8 +292,8 @@ curl -s http://localhost:9850/healthz   # the telemetry link, the last packet's 
 ### Switch engineers
 
 v2 has been the live engineer since 2026-10-29, and v1's engineer is at 0
-replicas. A switch back, and forth again, is rare, so it is done by hand, in
-this order. Placeholders: `<namespace>` is v2's, and `<v1-namespace>`,
+replicas. A switch back, and forth again, is rare, so it is done by hand
+([ADR 0015](../docs/adr/0015-the-live-engineer-by-hand.md)), in this order. Placeholders: `<namespace>` is v2's, and `<v1-namespace>`,
 `<v1-engineer>` and `<v1-engineer-selector>` are v1's engineer's namespace,
 Deployment and pod labels. Each `kubectl wait` returns once the pods have
 gone; "no matching resources" means they already had.
@@ -403,10 +403,10 @@ holds no Secret of that name. For `pitwall-ingress`, the Ingress goes to the
 only and select NATS's server and `logbook`, each lets in the namespace's own
 pods, and NATS's lets in the ingress controller's namespace, and no other, on
 8080 only. For [`examples/ecu-live`](#the-live-engineer), the render rules
-hold but the host port, and only `ecu`'s 33740, and the check adds the label,
+hold but the host port, and only one `hostPort: 33740` on `ecu`, and the check adds the label,
 resource requests, compose's `ecu` image, and `ecu`'s Deployment: exactly one
 replica, `Recreate`, UDP 33740 as a `hostPort`, source `live`, the placeholder
-PS5 address `192.0.2.10`, its recordings on a claim, its probes and security
+PS5 address `192.0.2.10`, its recordings on a claim the render holds, its probes and security
 settings.
 
 `make check-deploy` (also in `make test`) runs `make deploy-render`, then

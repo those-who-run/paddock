@@ -72,11 +72,11 @@ of its own, which the overlay that includes it sets.
 
 For ``deploy/examples/ecu-live``, the live engineer an overlay copies (paddock#108):
 the rules above but the host port, which is the example's point, and that only for
-``Deployment/ecu``'s 33740; every object labelled and requests on every container,
+one ``hostPort: 33740`` on ``Deployment/ecu``; every object labelled and requests on every container,
 as in the base; and ``ecu`` a Deployment of exactly one replica, replaced by
 ``Recreate``, with UDP 33740 as a ``hostPort``, ``TWR_NATS_URL=nats://nats:4222``,
 ``ADDR=:8080``, source ``live``, ``TWR_ECU_PS5_IP`` the placeholder ``192.0.2.10``,
-``TWR_ECU_RECORDINGS_DIR`` on a volume, readiness and liveness on ``/healthz``,
+``TWR_ECU_RECORDINGS_DIR`` on a claim the render holds, readiness and liveness on ``/healthz``,
 non-root on a read-only root file system with no service account token and the
 RuntimeDefault seccomp profile, a memory limit, and compose's ecu image.
 
@@ -721,6 +721,9 @@ def ecu_live(docs: list[Doc], compose: str) -> list[str]:
     if recordings is None or recordings not in values(lines, "mountPath") or \
             not any(line.strip() == "persistentVolumeClaim:" for line in lines):
         problems.append(f"ecu: {dep}'s TWR_ECU_RECORDINGS_DIR ({recordings}) is not on a volume that is kept")
+    for claim in values(lines, "claimName"):
+        if find(docs, "PersistentVolumeClaim", claim) is None:
+            problems.append(f"ecu: {dep} mounts the claim {claim}, which is not a PersistentVolumeClaim in the render")
     for probe in ("readinessProbe", "livenessProbe"):
         if not any(line.strip() == f"{probe}:" for line in lines):
             problems.append(f"ecu: {dep} has no {probe}")
@@ -793,7 +796,13 @@ def check(kustomization: str, text: str, compose: str | None = None) -> list[str
     if k == ECU_LIVE:
         if compose is None:
             compose = COMPOSE.read_text(encoding="utf-8")
-        problems = [p for p in problems if p != ECU_HOST_PORT] + ecu_live(docs, compose)
+        # The one host port allowed: 33740, once, on Deployment/ecu. A second one, on
+        # ecu or on any other object, fails as anywhere else.
+        ecu = find(docs, "Deployment", "ecu")
+        held = [line for line in ecu.lines if re.match(r"^\s*(- )?hostPort:", line)] if ecu else []
+        if len(held) == 1 and problems.count(ECU_HOST_PORT) == 1:
+            problems.remove(ECU_HOST_PORT)
+        problems += ecu_live(docs, compose)
     return problems
 
 
