@@ -1,0 +1,13 @@
+# Where ecu records every drive (TWR_ECU_RECORDINGS_DIR, paddock#266), in v1's
+# recording format, so a race driven on v2 replays through v1 and v2 alike. A race
+# is a few hundred KiB; ecu neither archives nor prunes them yet. No storage class:
+# the overlay sets one, or the cluster's default applies.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ecu-recordings
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi

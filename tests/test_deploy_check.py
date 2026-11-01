@@ -1231,5 +1231,204 @@ class PitwallIngressComponent(unittest.TestCase):
         self.assertNotIn("pitwall-ingress", base.split("resources:", 1)[1].split("labels:", 1)[0])
 
 
+ECU_IMAGE = "ghcr.io/those-who-run/twr-ecu:0.1.15@sha256:" + "c" * 64
+
+# `kustomize build deploy/examples/ecu-live`, with ecu's image as ECU_IMAGE.
+ECU_LIVE = f"""\
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app.kubernetes.io/part-of: twr
+  name: ecu-recordings
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: twr
+  name: ecu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ecu
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ecu
+        app.kubernetes.io/part-of: twr
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: TWR_NATS_URL
+          value: nats://nats:4222
+        - name: ADDR
+          value: :8080
+        - name: LOG_LEVEL
+          value: info
+        - name: TWR_SRC
+          value: live
+        - name: TWR_ECU_PS5_IP
+          value: 192.0.2.10
+        - name: TWR_ECU_RECORDINGS_DIR
+          value: /recordings
+        image: {ECU_IMAGE}
+        livenessProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 20
+        name: ecu
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 33740
+          hostPort: 33740
+          name: telemetry
+          protocol: UDP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 5
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 24
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /recordings
+          name: recordings
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: recordings
+        persistentVolumeClaim:
+          claimName: ecu-recordings
+"""
+ECU_COMPOSE = COMPOSE + f"  replay:\n    image: {ECU_IMAGE}\n"
+
+
+class EcuLive(unittest.TestCase):
+    """deploy/examples/ecu-live (paddock#108): the live engineer an overlay copies,
+    checked with the base's rules but the host port, and its own."""
+
+    def check(self, text: str, compose: str = ECU_COMPOSE) -> list[str]:
+        return deploy_check.check(deploy_check.ECU_LIVE, text, compose)
+
+    def assertFails(self, old: str, new: str, rule: str = "ecu") -> None:
+        self.assertEqual(ECU_LIVE.count(old), 1, old)
+        found = self.check(ECU_LIVE.replace(old, new))
+        self.assertTrue(any(p.startswith(rule + ":") for p in found), found)
+
+    def test_good(self) -> None:
+        self.assertEqual(self.check(ECU_LIVE), [])
+
+    def test_the_host_port_is_allowed_only_for_33740(self) -> None:
+        # The base's rule still holds for any other host port, here or anywhere else.
+        self.assertFails("hostPort: 33740", "hostPort: 33741", "portable")
+        self.assertIn(deploy_check.ECU_HOST_PORT, problems(ECU_LIVE, deploy_check.BASE))
+
+    def test_the_host_port_is_allowed_only_once(self) -> None:
+        # A second hostPort: 33740 on ecu, or 33740 on another object, fails.
+        port = "        - containerPort: 33740\n          hostPort: 33740\n          name: telemetry\n          protocol: UDP\n"
+        self.assertEqual(ECU_LIVE.count(port), 1)
+        twice = ECU_LIVE.replace(port, port + port.replace("name: telemetry", "name: telemetry-2"))
+        self.assertIn(deploy_check.ECU_HOST_PORT, self.check(twice))
+        other = ECU_LIVE + (
+            "---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  labels:\n"
+            "    app.kubernetes.io/part-of: twr\n  name: other\nspec:\n  template:\n    spec:\n"
+            f"      containers:\n      - image: {ECU_IMAGE}\n        name: other\n        ports:\n{port}"
+            "        resources:\n          requests:\n            cpu: 10m\n")
+        self.assertIn("portable: Deployment/other has a host port: hostPort: 33740", self.check(other))
+        self.assertNotIn(deploy_check.ECU_HOST_PORT, self.check(other))
+
+    def test_the_claim_is_in_the_render(self) -> None:
+        self.assertFails("  name: ecu-recordings\nspec:", "  name: ecu-other\nspec:")
+
+    def test_udp_33740_on_the_host(self) -> None:
+        self.assertFails("          hostPort: 33740\n", "")
+        self.assertFails("          protocol: UDP\n", "")
+        self.assertFails("- containerPort: 33740", "- containerPort: 33741")
+
+    def test_one_replica_by_recreate(self) -> None:
+        self.assertFails("  replicas: 1\n", "  replicas: 2\n", "replicas")
+        self.assertFails("    type: Recreate\n", "    type: RollingUpdate\n")
+
+    def test_environment(self) -> None:
+        for old, new in (("value: 192.0.2.10", "value: 192.0.2.11"),
+                         ("value: nats://nats:4222", "value: nats://nats.example.com:4222"),
+                         ("value: :8080", "value: :9090"),
+                         ("value: live", "value: parity")):
+            with self.subTest(new=new):
+                self.assertFails(old, new)
+
+    def test_recordings_on_a_kept_volume(self) -> None:
+        self.assertFails("value: /recordings", "value: /tmp")
+        self.assertFails("        persistentVolumeClaim:\n          claimName: ecu-recordings\n",
+                         "        emptyDir: {}\n")
+
+    def test_probes_and_pod(self) -> None:
+        self.assertFails("path: /healthz\n            port: http\n          periodSeconds: 20",
+                         "path: /metrics\n            port: http\n          periodSeconds: 20")
+        self.assertFails("readOnlyRootFilesystem: true", "readOnlyRootFilesystem: false", "pod")
+        self.assertFails("      automountServiceAccountToken: false\n", "", "pod")
+
+    def test_label_and_requests(self) -> None:
+        self.assertFails("  labels:\n    app.kubernetes.io/part-of: twr\n  name: ecu-recordings\n",
+                         "  name: ecu-recordings\n", "R1")
+        self.assertFails("          requests:\n            cpu: 100m\n", "          other:\n            cpu: 100m\n",
+                         "R5")
+
+    def test_image_is_composes(self) -> None:
+        self.assertTrue(any(p.startswith("ecu:") for p in self.check(ECU_LIVE, COMPOSE)))
+        self.assertFails(ECU_IMAGE, ECU_IMAGE.replace("0.1.15", "0.1.16"))
+        self.assertFails(ECU_IMAGE, "ghcr.io/those-who-run/twr-ecu:0.1.15", "pinned")
+
+    def test_the_real_example_is_composes_and_outside_the_base(self) -> None:
+        example = (ROOT / deploy_check.ECU_LIVE / "kustomization.yaml").read_text()
+        tag = re.search(r"newTag: (\S+)\n\s+digest: (\S+)", example)
+        assert tag is not None
+        compose = (ROOT / "deploy" / "compose" / "compose.yaml").read_text()
+        self.assertIn(f"ghcr.io/those-who-run/twr-ecu:{tag.group(1)}@{tag.group(2)}", compose)
+        self.assertIn(f"value: {deploy_check.PS5_PLACEHOLDER}\n",
+                      (ROOT / deploy_check.ECU_LIVE / "ecu-deployment.yaml").read_text())
+        base = (ROOT / deploy_check.BASE / "kustomization.yaml").read_text()
+        self.assertNotIn("examples", base)
+
+
 if __name__ == "__main__":
     unittest.main()
