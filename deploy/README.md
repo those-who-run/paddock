@@ -294,7 +294,7 @@ In what the base and each component render to
 | `logbook` at exactly one replica | Its store is one file that one process writes. |
 | `radio` at exactly one replica, replaced by `Recreate` | A source's callouts go to one speaker; an overlay may set 0. |
 | `podium` at exactly one replica, replaced by `Recreate` | podium runs as a single replica: a second would wait on the first's cards. |
-| No Secret object, but the NATS chart's `nats-box-contexts`, allowed by name | The repository is public, so a Secret's values are the overlay's, created outside git. `nats-box-contexts` holds only the in-cluster URL of NATS, no credential. |
+| No Secret object, but the NATS chart's `nats-box-contexts`, allowed by name while each context in it holds only a `url` | The repository is public, so a Secret's values are the overlay's, created outside git. `nats-box-contexts` holds only the in-cluster URL of NATS, no credential. |
 | No Secret value, Discord setting or Secret reference in the base | The base runs on any cluster; the token and channels are the overlay's, through `radio-discord` and `podium-discord`. |
 | Every object labelled `app.kubernetes.io/part-of: twr`, and resource requests on every container | An overlay and a cluster's tools can find the stack's objects, and the scheduler can place its pods. |
 

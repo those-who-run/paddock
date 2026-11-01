@@ -152,7 +152,8 @@ FORBIDDEN_KINDS = {
     "Secret": "a Secret object, whose values are the overlay's",
 }
 # NATS's chart renders nats-box's contexts as a Secret. It holds only the in-cluster
-# URL of NATS, no credential (paddock#298), so it is allowed by name.
+# URL of NATS, no credential (paddock#298), so it is allowed by name, as long as each
+# context in it still holds only a `url` (contexts_secret).
 ALLOWED_SECRETS = {"nats-box-contexts"}
 
 
@@ -189,7 +190,9 @@ def documents(text: str) -> list[Doc]:
 def portable(docs: list[Doc]) -> list[str]:
     problems = []
     for doc in docs:
-        if doc.kind in FORBIDDEN_KINDS and not (doc.kind == "Secret" and doc.name in ALLOWED_SECRETS):
+        if doc.kind == "Secret" and doc.name in ALLOWED_SECRETS:
+            problems += contexts_secret(doc)
+        elif doc.kind in FORBIDDEN_KINDS:
             problems.append(f"portable: {doc} is {FORBIDDEN_KINDS[doc.kind]}")
         for line in doc.lines:
             for pattern, what in FORBIDDEN:
@@ -198,6 +201,30 @@ def portable(docs: list[Doc]) -> list[str]:
             m = IMAGE.match(line)
             if m and not PINNED.match(m.group(1)):
                 problems.append(f"pinned: {doc} has an image without a tag and digest: {m.group(1)}")
+    return problems
+
+
+def contexts_secret(doc: Doc) -> list[str]:
+    """nats-box's contexts hold NATS's URL and nothing else: a user, password, token,
+    nkey or creds file in one would be a credential in a public repository."""
+    if any(re.match(r"^data:", line) for line in doc.lines):
+        return [f"portable: {doc} has data, where only stringData with NATS's URL belongs"]
+    problems = []
+    in_string_data = False
+    for line in doc.lines:
+        if re.match(r"^\S", line):
+            in_string_data = line == "stringData:"
+        elif in_string_data and (m := re.match(r"^  ([^\s:]+): ?(.*)$", line)):
+            key, inline = m.groups()
+            text = literal_block(doc.lines, key) if inline in ("|", "|-") else inline.strip("'\"")
+            try:
+                context = json.loads(text or "")
+            except ValueError:
+                context = None
+            if not isinstance(context, dict):
+                problems.append(f"portable: {doc} has {key}, which is not a context with NATS's URL")
+            elif set(context) != {"url"}:
+                problems.append(f"portable: {doc} has more than NATS's URL in {key}: {', '.join(sorted(context))}")
     return problems
 
 
