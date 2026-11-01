@@ -577,7 +577,7 @@ func newWallV2(t *testing.T, f *fakeRunner, keep bool) (*v2Side, *atomic.Bool, *
 }
 
 func TestV2AsksThePitWallOverTheStack(t *testing.T) {
-	f := &fakeRunner{rules: []rule{{has: "config --images", out: "nats\nlogbook:0.1.7\npitwall:0.1.0\n"}}}
+	f := &fakeRunner{rules: []rule{{has: "config --images", out: "nats\nlogbook:0.1.7\npitwall:0.1.1\n"}}}
 	s, _, _ := newWallV2(t, f, false)
 	got, err := s.PitWall(context.Background(), wallRecs(), wallClocks(3), 10)
 	if err != nil {
@@ -588,15 +588,16 @@ func TestV2AsksThePitWallOverTheStack(t *testing.T) {
 		t.Errorf("%+v", r.Diffs)
 	}
 	stack := "docker compose -p parity-pitwall -f /paddock/deploy/compose/compose.yaml -f "
-	if !strings.HasPrefix(f.calls[0], stack) || !strings.HasSuffix(f.calls[0], "/pitwall.yaml down --volumes --remove-orphans") ||
-		!strings.HasSuffix(f.calls[1], " up -d") ||
-		!strings.Contains(f.calls[4], "replay replay --src parity --speed max --clock 2026-01-03T00:00:00Z /recording/real-nuc-suzuka-joined-mid-race-2026-10-18.jsonl.gz") ||
-		!strings.HasSuffix(f.calls[5], "down --volumes --remove-orphans") || len(f.calls) != 6 {
+	if !strings.HasPrefix(f.calls[0], stack) || !strings.HasSuffix(f.calls[0], "/pitwall.yaml --profile replay down --volumes --remove-orphans") ||
+		!strings.HasSuffix(f.calls[1], "/pitwall.yaml up -d") ||
+		!strings.HasSuffix(f.calls[2], "/pitwall.yaml --profile replay up -d --no-deps pitwall") ||
+		!strings.Contains(f.calls[5], "replay replay --src parity --speed max --clock 2026-01-03T00:00:00Z /recording/real-nuc-suzuka-joined-mid-race-2026-10-18.jsonl.gz") ||
+		!strings.HasSuffix(f.calls[6], "--profile replay down --volumes --remove-orphans") || len(f.calls) != 7 {
 		t.Errorf("calls\n%s", strings.Join(f.calls, "\n"))
 	}
 	images, err := s.WallImages(context.Background())
-	if err != nil || strings.Join(images, " ") != "nats logbook:0.1.7 pitwall:0.1.0" || !strings.Contains(f.calls[6], "/pitwall.yaml --profile replay config --images") {
-		t.Errorf("%q %v %q", images, err, f.calls[6])
+	if err != nil || strings.Join(images, " ") != "nats logbook:0.1.7 pitwall:0.1.1" || !strings.Contains(f.calls[7], "/pitwall.yaml --profile replay config --images") {
+		t.Errorf("%q %v %q", images, err, f.calls[7])
 	}
 }
 
@@ -612,7 +613,7 @@ func TestV2KeepsItsStackAndSettlesOnAnOpenSession(t *testing.T) {
 	if _, err := s.PitWall(context.Background(), wallRecs(), wallClocks(3), 10); err != nil {
 		t.Fatal(err)
 	}
-	if last := f.calls[len(f.calls)-1]; !strings.HasSuffix(last, " stop") {
+	if last := f.calls[len(f.calls)-1]; !strings.HasSuffix(last, " --profile replay stop") {
 		t.Errorf("last call %q", last)
 	}
 }
@@ -661,14 +662,12 @@ func TestV2sPitWallFails(t *testing.T) {
 	}
 }
 
-func TestTheWallOverrideIsHardenedAndPinned(t *testing.T) {
-	for _, want := range []string{
-		"twr-logbook:0.1.7@sha256:", "twr-pitwall:0.1.0@sha256:", "cap_drop: [ALL]", `"no-new-privileges:true"`,
-		"read_only: true", `"127.0.0.1:9852:8080"`, "TWR_PITWALL_SRC: parity",
-	} {
-		if !strings.Contains(wallOverride, want) {
-			t.Errorf("no %q", want)
-		}
+// The override sets only the pit wall's source: the images, ports and hardening
+// are compose's own, so the run checks what compose runs.
+func TestTheWallOverrideSetsOnlyTheSource(t *testing.T) {
+	want := "services:\n  pitwall:\n    environment:\n      TWR_PITWALL_SRC: parity\n"
+	if wallOverride != want {
+		t.Errorf("override\n%s", wallOverride)
 	}
 }
 

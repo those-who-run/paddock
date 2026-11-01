@@ -370,20 +370,20 @@ same-track, and Suzuka joined part way (`real-nuc-suzuka-joined-mid-race-2026-10
 #122 AC3's `joined_on_lap`). The recordings go onto one store on each side, in
 order, the n-th on a clock n-1 days after 2026-01-01T00:00:00Z, so the list,
 its options and same-track have more than one session to work on. `--pitwall`
-is the pit wall as the harness publishes it (`http://127.0.0.1:9852`); `--keep`
+is the pit wall as compose publishes it (`http://127.0.0.1:9852`); `--keep`
 keeps v2's stack and both sides' answers. The exit codes are `laps`' own.
 
 - **v1** runs [`v1pitwall.py`](v1pitwall.py) in v1's image: v1's own `replay`
   of each recording with its `--clock` into one temporary store, then v1's pit
   wall app (`make_app`, what `those-who-run pitwall` serves) asked over HTTP in
   the same process. Nothing in v1 is changed.
-- **v2** brings up a fresh compose project, `parity-pitwall`, with a compose file
-  of the harness's own laid over the stack's (`wallOverride` in
-  [`wallsides.go`](wallsides.go)): logbook 0.1.7, the first that serves the pit
-  wall, and the pit wall v0.1.0 on the harness's source (`TWR_PITWALL_SRC=parity`),
-  published on 127.0.0.1:9852, both pinned by digest. compose.yaml has logbook
-  0.1.5 and no pit wall until the logbook runbook and #132; the override goes once
-  it has them. It waits for the pit wall's `/healthz` to say `logbook`, runs `ecu
+- **v2** brings up a fresh compose project, `parity-pitwall`, of compose.yaml's
+  own logbook and pit wall, so the run checks the images compose pins and
+  Renovate bumps. A compose file of the harness's own laid over the stack's
+  (`wallOverride` in [`wallsides.go`](wallsides.go)) sets only the pit wall's
+  source, `TWR_PITWALL_SRC=parity`. The pit wall is in compose's `replay`
+  profile with radio and podium, so it is started by name after `up -d`, and
+  nothing else in the profile starts. It waits for the pit wall's `/healthz` to say `logbook`, runs `ecu
   replay --src parity --speed max --clock T` for each recording, waits for
   logbook's laps (v1's count) and for the list to show every session closed, then
   asks `PitwallService` over Connect's JSON.

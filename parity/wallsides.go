@@ -19,42 +19,17 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// defaultPitwall is the pit wall as wallOverride publishes it: v1's port, as
-// compose is to publish it (#124's triage).
+// defaultPitwall is the pit wall as compose publishes it: v1's port (#124's
+// triage, #132).
 const defaultPitwall = "http://127.0.0.1:9852"
 
-// The v2 images `parity pitwall` runs on top of the compose file's: logbook 0.1.7,
-// the first that serves the pit wall (#122, #123), and the pit wall v0.1.0 (#124).
-// compose.yaml still pins logbook 0.1.5 until the logbook runbook's bump, and has
-// no pit wall until #132, so the harness lays its own compose file over the stack's
-// (wallOverride), as `parity spoken` does for radio. Both go once compose has them.
-const (
-	wallLogbookImage = "ghcr.io/those-who-run/twr-logbook:0.1.7@sha256:b4fe71257ed0a122cb6942072c1dcff8192c2ae0fd345b4a13b8ff852d85ffd0"
-	wallPitwallImage = "ghcr.io/those-who-run/twr-pitwall:0.1.0@sha256:2ce7214fd8c27820808fc38abb235de0b51a0cfa43e6b9964553bc5010e158ad"
-)
-
-// wallOverride is the compose file laid over the stack's for a pit wall run:
-// logbook 0.1.7, and the pit wall on the harness's source, with the hardening
-// every compose service has (tests/test_compose.py's rules).
+// wallOverride is the compose file laid over the stack's for a pit wall run: only
+// the pit wall's source, so the run checks compose's own pit wall and logbook,
+// the images Renovate bumps.
 const wallOverride = `services:
-  logbook:
-    image: ` + wallLogbookImage + `
   pitwall:
-    image: ` + wallPitwallImage + `
-    platform: linux/amd64
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
     environment:
-      TWR_NATS_URL: nats://nats:4222
       TWR_PITWALL_SRC: parity
-      ADDR: ":8080"
-      LOG_LEVEL: info
-    ports:
-      - "127.0.0.1:9852:8080"
-    depends_on:
-      nats-bootstrap:
-        condition: service_completed_successfully
 `
 
 // v1PitwallScript is v1pitwall.py: v1's replays, then v1's pit wall asked.
@@ -96,7 +71,8 @@ func (s *v2Side) wallStack(project, override string, args ...string) []string {
 	return append(append(append([]string{}, s.compose...), "-p", project, "-f", s.file, "-f", override), args...)
 }
 
-// WallImages lists the images of the stack with the override laid over it.
+// WallImages lists the images of the stack with its replay profile, the pit wall's
+// among them.
 func (s *v2Side) WallImages(ctx context.Context) ([]string, error) {
 	dir, override, err := writeOverride()
 	if err != nil {
@@ -144,13 +120,15 @@ func (s *v2Side) PitWall(ctx context.Context, recs []Recording, clocks []time.Ti
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	const project = "parity-pitwall"
-	if _, err := s.run(ctx, s.wallStack(project, override, "down", "--volumes", "--remove-orphans")...); err != nil {
+	// By profile, so the pit wall goes down with the rest.
+	down := []string{"--profile", "replay", "down", "--volumes", "--remove-orphans"}
+	if _, err := s.run(ctx, s.wallStack(project, override, down...)...); err != nil {
 		return nil, err
 	}
 	defer func() {
-		args := []string{"down", "--volumes", "--remove-orphans"}
+		args := down
 		if s.keep {
-			args = []string{"stop"}
+			args = []string{"--profile", "replay", "stop"}
 			_, _ = fmt.Fprintf(s.log, "parity: kept v2's stack, compose project %s (stopped, volumes kept)\n", project)
 		}
 		if _, downErr := s.run(context.WithoutCancel(ctx), s.wallStack(project, override, args...)...); downErr != nil && err == nil {
@@ -158,6 +136,13 @@ func (s *v2Side) PitWall(ctx context.Context, recs []Recording, clocks []time.Ti
 		}
 	}()
 	if _, err := s.run(ctx, s.wallStack(project, override, "up", "-d")...); err != nil {
+		return nil, fmt.Errorf("v2 up: %w", err)
+	}
+	// The pit wall is in compose's replay profile, with radio and podium, which the
+	// run doesn't want; by profile and by name, as spoken.go starts radio, since
+	// podman compose doesn't enable a profile for a service named on the command
+	// line.
+	if _, err := s.run(ctx, s.wallStack(project, override, "--profile", "replay", "up", "-d", "--no-deps", "pitwall")...); err != nil {
 		return nil, fmt.Errorf("v2 up: %w", err)
 	}
 	if _, err := s.waitLaps(ctx, -1); err != nil {

@@ -109,7 +109,7 @@ func pitwall(ctx context.Context, args []string, stdout, stderr io.Writer, mk si
 	if fs == nil {
 		return code
 	}
-	fs.StringVar(&o.pitwall, "pitwall", defaultPitwall, "the pit wall's address, as the harness's compose override publishes it")
+	fs.StringVar(&o.pitwall, "pitwall", defaultPitwall, "the pit wall's address, as compose publishes it")
 	fs.BoolVar(&o.keep, "keep", false, "keep v2's stack and both sides' answers, and say where")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(stderr, "usage: parity pitwall [--v1-image IMG] [--compose FILE] [--healthz URL] [--pitwall URL] [--keep] [RECORDING…]")
