@@ -199,9 +199,13 @@ patches:
 ```
 
 The pit wall reads `logbook`'s services (`svc.logbook.*`) and the `live` KV
-bucket over NATS, and writes nothing: it needs `logbook` 0.1.7 or later, which
-serves them. Without them its pages load and say the data isn't there, and its
-`/healthz` still answers 200. To check it:
+bucket over NATS, and holds no state of its own: it needs `logbook` 0.1.7 or
+later, which serves them. Its one write is asking `logbook` to delete or
+restore a session (`svc.logbook.sessions.delete` and `.restore`,
+[ADR 0014](../docs/adr/0014-deleting-sessions-from-the-pit-wall.md)), which
+needs a `logbook` that serves those two as well. Without them its pages
+load and say the data isn't there, and its `/healthz` still answers 200. To
+check it:
 
 ```sh
 kubectl -n <namespace> rollout status deployment/pitwall
