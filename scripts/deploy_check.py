@@ -6,8 +6,10 @@ scripts/deploy_render.sh renders each kustomization with ``kustomize build
     python3 scripts/deploy_check.py KUSTOMIZATION RENDERED.yaml
 
 For every kustomization, the rules a public base keeps (ADR 0004, point 8): no
-namespace, no storage class, no node pinning, nothing on the host's network or
-ports, no Service beyond the cluster, and every image pinned by tag and digest.
+namespace and no Namespace object, no storage class, no node pinning or node
+affinity, nothing on the host's network, ports or file system (``hostPath``), no
+Service beyond the cluster, no Secret object but NATS's ``nats-box-contexts``
+(paddock#355), and every image pinned by tag and digest.
 paddock#50 replaces these with the portable-base check over deploy/base.
 
 For ``deploy/nats/chart``, what paddock#42 asks of NATS:
@@ -137,10 +139,21 @@ FORBIDDEN = (
     (re.compile(r"^\s*namespace:"), "a namespace, which the overlay sets"),
     (re.compile(r"^\s*storageClassName:"), "a storage class, which the overlay sets"),
     (re.compile(r"^\s*(nodeName|nodeSelector):"), "node pinning"),
+    (re.compile(r"^\s*nodeAffinity:"), "node affinity, which names one cluster's nodes"),
+    (re.compile(r"^\s*(- )?hostPath:"), "a hostPath volume, which is one machine's files"),
     (re.compile(r"^\s*hostNetwork: true$"), "the host's network"),
     (re.compile(r"^\s*(- )?hostPort:"), "a host port"),
     (re.compile(r"^\s*type: (NodePort|LoadBalancer)$"), "a Service beyond the cluster"),
 )
+# Kinds a portable base never renders, whatever their name: the overlay creates the
+# namespace, and a Secret's values are the overlay's, never in a public repository.
+FORBIDDEN_KINDS = {
+    "Namespace": "a Namespace object, which the overlay creates",
+    "Secret": "a Secret object, whose values are the overlay's",
+}
+# NATS's chart renders nats-box's contexts as a Secret. It holds only the in-cluster
+# URL of NATS, no credential (paddock#298), so it is allowed by name.
+ALLOWED_SECRETS = {"nats-box-contexts"}
 
 
 class Doc:
@@ -176,6 +189,8 @@ def documents(text: str) -> list[Doc]:
 def portable(docs: list[Doc]) -> list[str]:
     problems = []
     for doc in docs:
+        if doc.kind in FORBIDDEN_KINDS and not (doc.kind == "Secret" and doc.name in ALLOWED_SECRETS):
+            problems.append(f"portable: {doc} is {FORBIDDEN_KINDS[doc.kind]}")
         for line in doc.lines:
             for pattern, what in FORBIDDEN:
                 if pattern.match(line):

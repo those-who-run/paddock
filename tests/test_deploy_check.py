@@ -1,5 +1,6 @@
 """The render check (scripts/deploy_check.py, paddock#42, #44): a public base names no
-namespace, storage class, node or host port and pins every image, NATS's chart
+namespace, storage class, node or host port, renders no Namespace, Secret (but
+nats-box-contexts), hostPath volume or node affinity (#355) and pins every image, NATS's chart
 renders one server with JetStream on file storage, 4222 and the WebSocket in the
 cluster only, and a WebSocket client that may only subscribe (R6), and the base
 (#44) runs compose's images and logbook as one StatefulSet replica whose volume is
@@ -222,6 +223,45 @@ class Render(unittest.TestCase):
                      "  type: LoadBalancer"):
             with self.subTest(line=line):
                 self.assertFails(broken("  replicas: 1\n", f"  replicas: 1\n{line}\n"), "portable")
+
+    def test_no_node_affinity(self) -> None:
+        affinity = (
+            "      affinity:\n        nodeAffinity:\n"
+            "          requiredDuringSchedulingIgnoredDuringExecution:\n"
+            "            nodeSelectorTerms:\n            - matchExpressions:\n"
+            "              - key: kubernetes.io/hostname\n                operator: In\n"
+            "                values:\n                - my-node\n"
+        )
+        text = broken(f"      automountServiceAccountToken: false\n      containers:\n      - image: {BOX}",
+                      f"{affinity}      automountServiceAccountToken: false\n      containers:\n      - image: {BOX}")
+        self.assertIn("portable: Deployment/nats-box has node affinity, which names one cluster's nodes: "
+                      "nodeAffinity:", problems(text))
+
+    def test_no_host_path(self) -> None:
+        for volumes in ("      volumes:\n      - hostPath:\n          path: /var/lib/twr\n        name: data\n",
+                        "      volumes:\n      - name: data\n        hostPath:\n          path: /var/lib/twr\n"):
+            with self.subTest(volumes=volumes):
+                text = broken("      securityContext:\n        seccompProfile:\n          type: RuntimeDefault\n---\n",
+                              "      securityContext:\n        seccompProfile:\n          type: RuntimeDefault\n"
+                              f"{volumes}---\n")
+                found = problems(text)
+                self.assertTrue(any(p.startswith("portable: Deployment/nats-box has a hostPath volume") for p in found),
+                                found)
+
+    def test_no_namespace_object(self) -> None:
+        text = GOOD + "---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: twr\n"
+        self.assertIn("portable: Namespace/twr is a Namespace object, which the overlay creates", problems(text))
+
+    def test_no_secret_object(self) -> None:
+        text = GOOD + "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: radio-discord\nstringData:\n  k: v\n"
+        self.assertIn("portable: Secret/radio-discord is a Secret object, whose values are the overlay's",
+                      problems(text))
+
+    def test_nats_box_contexts_is_the_one_secret_allowed(self) -> None:
+        secret = ("---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: {}\n"
+                  "stringData:\n  default.json: '{{\"url\": \"nats://nats:4222\"}}'\n")
+        self.assertEqual(problems(GOOD + secret.format("nats-box-contexts")), [])
+        self.assertTrue(problems(GOOD + secret.format("nats-box-contexts-2")))
 
     def test_pinned(self) -> None:
         self.assertFails(broken(BOX, "docker.io/natsio/nats-box:0.20.0"), "pinned")

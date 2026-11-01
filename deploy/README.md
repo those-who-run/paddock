@@ -282,8 +282,11 @@ In what the base and each component render to
 | Rule | Why |
 |---|---|
 | No `metadata.namespace` | The overlay sets the namespace, so the same base can run in any namespace, beside v1 in its own. |
+| No Namespace object | The overlay creates the namespace or uses one the cluster has; a base that creates one ties the stack to that name. |
 | No `storageClassName` | Storage classes differ from cluster to cluster; the overlay sets one, or the cluster's default applies. |
 | No `nodeName` or `nodeSelector` | Node names and labels belong to one cluster. |
+| No `nodeAffinity` | Node affinity pins pods by node labels, which belong to one cluster, as `nodeSelector` does. |
+| No `hostPath` volume | A host path is one machine's file system: it ties a pod to that node, and its data outside the cluster's storage. |
 | No `hostNetwork` or `hostPort` | A host's network and ports belong to one machine, and two copies on one node would collide. |
 | No NodePort or LoadBalancer Service | What reaches outside the cluster is the overlay's choice (an Ingress in a component, with the overlay's host). |
 | Every image pinned by tag and digest | A render gives the same images on every cluster and every day, and an upgrade is a reviewed change. |
@@ -291,11 +294,9 @@ In what the base and each component render to
 | `logbook` at exactly one replica | Its store is one file that one process writes. |
 | `radio` at exactly one replica, replaced by `Recreate` | A source's callouts go to one speaker; an overlay may set 0. |
 | `podium` at exactly one replica, replaced by `Recreate` | podium runs as a single replica: a second would wait on the first's cards. |
+| No Secret object, but the NATS chart's `nats-box-contexts`, allowed by name | The repository is public, so a Secret's values are the overlay's, created outside git. `nats-box-contexts` holds only the in-cluster URL of NATS, no credential. |
 | No Secret value, Discord setting or Secret reference in the base | The base runs on any cluster; the token and channels are the overlay's, through `radio-discord` and `podium-discord`. |
 | Every object labelled `app.kubernetes.io/part-of: twr`, and resource requests on every container | An overlay and a cluster's tools can find the stack's objects, and the scheduler can place its pods. |
-
-A Namespace object, `hostPath` volumes, node affinity and Secret objects are
-rules for the base as well, but nothing checks them yet.
 
 In every file git knows, Markdown, docs and ADRs included
 ([`scripts/private_scan.py`](../scripts/private_scan.py)):
