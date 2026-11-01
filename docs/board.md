@@ -42,11 +42,33 @@ the issue itself, and only when it no longer has `needs triage`
 
 ## Views
 
-- **Milestone Fangio:** the current milestone's issues as a board by status,
-  the view to check what is in flight now. It is renamed, and its filter
-  changed, when the next milestone starts.
-- **By Milestone:** every issue in a table grouped by milestone. Groups are
-  sorted by name or not at all, never in roadmap order.
-- **By Component:** every issue by its `component:` label, so it shows which
-  repository the work lands in ([`labels.md`](labels.md)).
-- **Guardrails and ADRs:** the issues labelled `guardrail` or `adr`.
+| View | Layout | Filter | Shows |
+|---|---|---|---|
+| Milestones in flight | Board, a column per status | `milestone:` and each milestone in flight, comma-separated in roadmap order, such as `milestone:Brabham,Lauda` | What is in flight now. |
+| By Milestone | Table, grouped by milestone | none | Every issue under its milestone. |
+| By Component | Table, with the Labels column | none; `label:"component: ecu"` for one component | Which repository each issue's work lands in. |
+| Guardrails and ADRs | Table | `label:guardrail,adr` | The issues labelled `guardrail` or `adr`. |
+
+- **Milestones in flight:** a milestone is in flight from when its first
+  issue starts until its last one closes, and several often are at once.
+  The view keeps its name; its filter lists every milestone in flight, so the
+  maintainer adds a milestone when its first issue starts and takes it out
+  when its last closes. Each column holds the issues of every milestone in
+  the filter: to see one, replace the filter with `milestone:Lauda` in the
+  filter bar for a while, without saving the view. The columns are right only
+  while the project's workflows set Needs triage and Done
+  ([Status](#status)). If those workflows are off, closed issues stay under
+  their last status, so the view's filter adds `is:open` and shows only the
+  work still to do.
+- **By Milestone:** groups are sorted by name or not at all, never in roadmap
+  order, which lives only in [`ROADMAP.md`](../ROADMAP.md#the-order).
+- **By Component:** GitHub can't group a view by label, so this view is a
+  table with the Labels column, where each issue's `component:` label shows
+  the repository its work lands in ([`labels.md`](labels.md)). Filter it by
+  one `component:` label to see that repository's issues, such as
+  `label:"component: ecu"`.
+- **Guardrails and ADRs:** the safeguards and the decisions, whatever their
+  milestone ([`guardrails.md`](guardrails.md), [`adr/`](adr/README.md)).
+
+The project's README says what each view is for in a line, and links here
+and to [`ROADMAP.md`](../ROADMAP.md).
