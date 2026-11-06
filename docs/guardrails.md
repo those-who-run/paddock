@@ -68,18 +68,39 @@ environment.
 
 ## Agent identity
 
-Agents don't work with the maintainer's credentials. They work as their own
-GitHub account, so GitHub can tell an agent's work from the maintainer's, and
-the ruleset can ask for an approval the agent can't give.
+Who an agent works as on GitHub decides what GitHub can enforce on its work.
+It has changed once already, and is planned to change again.
 
-- **The account:** `mo-chara-croche`, a member of the organisation's
-  `pit-crew` team with the Write role, never Admin. Its fine-grained token is
-  scoped to the organisation. It pushes branches and opens pull requests, and
-  merges only when the maintainer asks.
-- **Commits** are authored by that account, with its GitHub noreply address,
-  and keep the agent trailer (`Co-Authored-By: ...`), so each one names both
-  the account and the agent that wrote it. Nothing checks either yet (see
-  [Known gaps](#known-gaps)).
+- **Today: the maintainer's own account.** Agent sessions run on the
+  maintainer's machine, started by him, and since late October 2026 they
+  work under his GitHub account: they push branches and open pull requests
+  as him. GitHub cannot tell an agent's work from his.
+- **What that costs.** GitHub does not let an account approve its own pull
+  request. The `main` ruleset requires a code owner's approval and the
+  maintainer is the only code owner, so a PR opened under his account can
+  never get the approval it needs. He merges each one himself, through the
+  bypass the ruleset gives an admin, and that bypass skips the required
+  checks and the merge queue along with the approval. This is a known gap,
+  the first under [Known gaps](#known-gaps).
+- **Commits** are authored with the noreply address of the account the
+  session works under, the maintainer's today, and keep the agent trailer
+  (`Co-Authored-By: ...`). The trailer is the only thing that marks a commit
+  as an agent's. Nothing checks either yet (see [Known gaps](#known-gaps)).
+- **Before: a bot account.** `mo-chara-croche`, a member of the
+  organisation's `pit-crew` team with the Write role, never Admin, with a
+  fine-grained token scoped to the organisation. From #236 until late
+  October 2026 agents pushed branches and opened pull requests as it, and
+  the maintainer approved each one, since an approval from the bot's own
+  account did not count. The account still exists. Agent sessions no longer
+  use it, and whether it is kept, for anything that needs a user account and
+  not an App, or retired, is undecided.
+- **Planned: GitHub Apps.** Unattended agents are to act as two Apps,
+  `twr-builder` and `twr-reviewer`. Neither is a code owner, is on a bypass
+  list, or can approve, so the maintainer can approve a PR that
+  `twr-builder` opens and it lands through the merge queue, with nothing
+  bypassed. Neither App exists yet, and no unattended agent runs.
+  [`ladder.md`](ladder.md) has the design and
+  [where it stands](ladder.md#where-things-stand).
 - **The maintainer** is the only admin and the only code owner.
   [`.github/CODEOWNERS`](../.github/CODEOWNERS) names him on every path
   (`* @ciaranRoche`). `those-who-run/.github` and paddock have it, and the Go
@@ -88,9 +109,10 @@ the ruleset can ask for an approval the agent can't give.
 - **The `main` ruleset** requires code-owner review and one approval, and
   dismisses an approval when new commits are pushed (paddock's entry in
   `scripts/repos.json` in `those-who-run/.github`, with `approvals: 1` and
-  `code_owners: true`, applied by `protect-repo.sh`). An approval from the agent's account
-  doesn't count, because it isn't a code owner, so the maintainer approves
-  every merge.
+  `code_owners: true`, applied by `protect-repo.sh`). An approval from an
+  account that isn't a code owner doesn't count, so only the maintainer's
+  does. Admins can bypass the ruleset, only through a pull request, and the
+  maintainer is the only admin.
 - **Dependency updates** don't auto-merge in v2. Renovate groups them into
   one PR per repository per week, and security fixes come at once in a PR
   of their own; the maintainer approves each like any other.
@@ -99,18 +121,31 @@ the ruleset can ask for an approval the agent can't give.
 
 Carried from v1, and still open unless a step from the menu closes them.
 
-- **The ruleset can't tell an agent's merge from the maintainer's.** v1's
-  ruleset requires 0 approvals and agents there work with the maintainer's
-  credentials, so a merge by either looks the same to GitHub. The guard
-  hook's ask on `gh pr merge` is the gate. paddock already goes further: its
-  ruleset requires code-owner review and 1 approval, a push after the
-  approval needs another, and agents work as their own account, which isn't
-  a code owner (see [Agent identity](#agent-identity)). Any repository still
-  protected with 0 approvals, or an agent run with the maintainer's
-  credentials, keeps the v1 gap.
+- **Agents work under the maintainer's account, and their PRs merge through
+  the admin bypass.** The ruleset can't tell an agent's work from the
+  maintainer's: both arrive as him. He can't approve a PR his own account
+  opened, so the required approval, the gate the ruleset was set up to be,
+  can't be met for agent work, and he merges it through the admin bypass.
+  The bypass skips every rule at once: the approval, the required checks and
+  the merge queue. CI still runs on the PR and its results show, but nothing
+  makes a merge wait for them, and nothing tests the PR against the `main`
+  it lands on as the queue would. What is left is what the maintainer reads
+  before he merges, the guard hook, which blocks `gh pr merge --admin` and
+  asks before any other merge inside Claude Code, and the rule that an agent
+  never merges with a bypass ([`AGENTS.md`](../AGENTS.md#merging)). This is
+  v1's gap again: there the ruleset requires 0 approvals and agents work
+  with the maintainer's credentials. paddock was past it while agents worked
+  as the bot account (see [Agent identity](#agent-identity)), and is not
+  now. [`ladder.md`](ladder.md) is how it is planned to close: unattended
+  agents act as GitHub Apps, whose PRs the maintainer can approve and queue.
+  That leaves two paths to `main` for a while, since sessions on the
+  maintainer's machine stay under his account until they move to such an
+  identity too; only then can the bypass go.
 - **`needs triage` is a rule, not a check.** Nothing stops an agent from
   working on an issue that still has the label; it relies on the agent
-  reading the issue first.
+  reading the issue first. The same holds for `agent-ready`, the label an
+  unattended agent waits for: the job that is to check it, and who applied
+  it, is planned and not running ([`ladder.md`](ladder.md)).
 - **The test guard runs the PR's own copy.** CI runs the script and reads the
   PR body as they are in the PR, so a PR can change the check along with the
   tests. It makes the reason visible; the maintainer's review is the gate.
@@ -133,6 +168,11 @@ Carried from v1, and still open unless a step from the menu closes them.
 In the rough order expected. Each is a `guardrail` issue when needed, not
 before.
 
+The [merge ladder](ladder.md) is the plan for step 3, and it adds an
+independent review of every PR, which this menu did not have. It is planned
+as one piece of work in the maintainer's notes, not as an issue per step,
+and none of it runs yet. The steps it covers say so.
+
 1. **The managed settings file on the maintainer's machine.** Claude Code
    policy owned by the system, not the user, so an agent can't edit its own
    permissions or hooks: bypass mode off, only managed rules and hooks, a
@@ -142,13 +182,20 @@ before.
    whatever else the ruleset allows. Covers the test guard's own copy, the
    guard's copies and the rules. paddock and `those-who-run/.github` already
    need it on every path, through `CODEOWNERS` and code-owner review
-   (see [Agent identity](#agent-identity)).
-3. **An agent identity with a required approval.** Agents work as their own
-   account with the Write role, never Admin, and every PR needs an approval
-   the agent can't give itself. Closes the gap that the ruleset can't tell
-   the two apart. Done in paddock and `those-who-run/.github` (#236, see
-   [Agent identity](#agent-identity)); this step takes it to every
-   repository.
+   (see [Agent identity](#agent-identity)). The ladder's `sensitive` lane
+   names such a PR to the maintainer and has it read more closely; it shows
+   and does not require ([`ladder.md`](ladder.md#lanes)).
+3. **An agent identity with a required approval.** Every agent PR is opened
+   by an account that is not the maintainer's, has the Write role at most
+   and is not a code owner, so it needs an approval the agent can't give
+   itself. Closes the gap that the ruleset can't tell the two apart. The
+   rulesets already ask for the approval; what is missing is the identity.
+   paddock and `those-who-run/.github` had one from #236, the bot account,
+   until agent sessions moved to the maintainer's account (see
+   [Agent identity](#agent-identity)). The [merge ladder](ladder.md) takes
+   this step for unattended agents, with GitHub Apps. Moving the sessions on
+   the maintainer's machine to such an identity, and then removing the admin
+   bypass, is the rest of the step and is not planned yet.
 4. **The guard as a plugin**, once copying it between repositories hurts, so
    every repository takes one versioned guard instead of a copy.
 5. **Organisation policy as code with a read-only drift check**, once there
@@ -161,7 +208,9 @@ before.
 7. **A promotion ladder towards more autonomy:** levels of what agents may do
    on their own, such as merging low-risk changes on green, each with the
    evidence needed to move up and the setting that moves back down. Only
-   when the maintainer wants more autonomy.
+   when the maintainer wants more autonomy. This is not the merge ladder:
+   on that one the maintainer merges every PR, and a lane changes how
+   closely a PR is read, never who merges it.
 
 ## References
 
