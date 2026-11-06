@@ -189,8 +189,10 @@ paddock has no language of its own, so what is specific to it is short.
   hooks on every file (CI's `checks / checks`), then `make test` and
   `make nats-it` (CI's `test`). `make test` checks that every internal
   Markdown link and anchor resolves, `docs/labels.md` and
-  `.github/labels.yml` list the same labels, the guard and settings in
-  `.claude/` are `those-who-run/.github`'s `agent/` at the commit CI pins,
+  `.github/labels.yml` list the same labels, the copies in `.claude/` (the
+  guard, its settings and, once the pinned release lists them, the skills and
+  the reviewer's brief) are `those-who-run/.github`'s `agent/` at the commit
+  CI pins with no stale copy left tracked,
   the stream definitions in `deploy/nats/` match `contracts`' subjects with
   no overlaps, the cluster manifests under `deploy/` render and pass
   kubeconform and their checks, no file holds a private address or host name
@@ -206,6 +208,12 @@ paddock has no language of its own, so what is specific to it is short.
   `those-who-run/.github`, then copied here unchanged with the bump of the
   `checks.yml` pin in `.github/workflows/ci.yml`. `.claude/guard.json` holds
   paddock's own values.
+- So is every skill and agent named `twr-*` under `.claude/skills/` and
+  `.claude/agents/`. What is copied where is `agent/copies.json` in
+  `those-who-run/.github` at that pin; a release from before that file copies
+  the guard and settings only. `make guard` fails on a copy that differs or
+  is missing, and on a tracked `twr-*` skill or agent the pinned release does
+  not list: remove a stale copy, never edit one.
 
 ## Pointers
 

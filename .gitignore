@@ -1,10 +1,13 @@
 __pycache__/
-# Claude Code: only the shared settings, the guard and its config are tracked;
-# the rest, among it the worktrees in .claude/worktrees/, stays out.
+# Claude Code: only the shared settings, the guard and its config, and the skills
+# and agents copied from those-who-run/.github are tracked; the rest, among it the
+# worktrees in .claude/worktrees/, stays out.
 .claude/*
 !.claude/settings.json
 !.claude/guard.json
 !.claude/hooks/
 .claude/hooks/*
 !.claude/hooks/guard.py
+!.claude/skills/
+!.claude/agents/
 .cache/
