@@ -1,0 +1,34 @@
+# An example of the live engineer (paddock#108): ecu listening to the PS5, for an
+# overlay to copy. It is not in deploy/base and no overlay includes it from here:
+# it holds a host port, which the base never does (deploy/README.md, "Portable-base
+# rules"), and the PS5's address, which belongs to one network. An overlay copies
+# these files, sets the PS5's address and whatever else is its own (a storage
+# class, a node selector, the replica count while another engineer holds the port)
+# and lists them beside the base. deploy/README.md, "The live engineer", has the
+# rest.
+#
+# make deploy-render builds it as it builds the base and checks it with the base's
+# rules but the host port (scripts/deploy_check.py, ecu_live): ecu's image pinned
+# and compose's, the label, requests, one replica replaced by Recreate, UDP 33740
+# on the host, the placeholder PS5 address, the recordings on a volume and the
+# /healthz probes.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ecu-deployment.yaml
+  - ecu-recordings.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: twr
+    includeSelectors: false
+    includeTemplates: true
+
+# ecu's image, by tag and by the digest of its index, the same string as compose's
+# `replay` service (deploy/compose/compose.yaml). Bump it with compose's, in one
+# change, or make deploy-render fails.
+images:
+  - name: ghcr.io/those-who-run/twr-ecu
+    newTag: 0.1.15
+    digest: sha256:fb36c73df942ccdb07d0effd08b003b84fd9a6e0b9891e71045c6715011b6d33

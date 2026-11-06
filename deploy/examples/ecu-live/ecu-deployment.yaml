@@ -1,0 +1,118 @@
+# ecu as the live engineer (paddock#108): it heartbeats the PS5, takes GT7's stream
+# on UDP 33740 and publishes the frames, events and callouts under the source `live`
+# (ecu's README, "Listening to the PS5"). It runs as compose runs ecu's image: user
+# 65532 on a read-only root file system.
+#
+# One replica, replaced by Recreate: a host port is held by one pod on a node, so a
+# rolling update's second pod could never start, and the PS5 streams to one
+# listener. A pod that cannot get the port stays Pending, which is also what keeps
+# two engineers off one node: while another engineer holds 33740, the overlay sets
+# 0 replicas (deploy/README.md, "Switch engineers").
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecu
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ecu
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ecu
+    spec:
+      # It needs no Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # On SIGTERM ecu keeps the open session in the `ecu` bucket, ends none, and
+      # waits up to 8 s for what it has queued; the next run continues the session
+      # (ecu's README, "After a restart").
+      terminationGracePeriodSeconds: 30
+      # The image's user, by number; fsGroup lets it write the recordings volume.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # The image is amd64 only (ADR 0006). Which node runs ecu is the overlay's:
+      # the PS5 streams back to the address the heartbeat came from, the node's.
+      containers:
+        - name: ecu
+          image: ghcr.io/those-who-run/twr-ecu
+          # No subcommand: ecu listens to the PS5.
+          env:
+            # The chart's `nats` Service (deploy/nats/chart) in the same namespace.
+            - name: TWR_NATS_URL
+              value: nats://nats:4222
+            - name: ADDR
+              value: ":8080"
+            - name: LOG_LEVEL
+              value: info
+            # Live frames go out under `live` and no other.
+            - name: TWR_SRC
+              value: live
+            # The PS5's address, where the heartbeat goes: a placeholder the overlay
+            # replaces. Without it, or with a value that is not an IP address, ecu
+            # exits 2 at start.
+            - name: TWR_ECU_PS5_IP
+              value: 192.0.2.10
+            - name: TWR_ECU_RECORDINGS_DIR
+              value: /recordings
+          ports:
+            - name: http
+              containerPort: 8080
+            # GT7's stream, from the PS5 to the node's address. hostPort keeps the
+            # pod on the cluster network, so it reaches NATS by its Service; ecu
+            # needs no broadcast, so not the host network.
+            - name: telemetry
+              containerPort: 33740
+              hostPort: 33740
+              protocol: UDP
+          # /healthz answers 200 while ecu runs, NATS down included (it reconnects
+          # by itself) and the PS5 off, and 503 once a task has died or the listener
+          # cannot hold its port; it binds again with backoff up to 30 s, so
+          # liveness waits 10 min, as radio's does.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 30
+          # A starting point until paddock#256 measures it: one decoder and race
+          # state at 60 packets a second.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: recordings
+              mountPath: /recordings
+      volumes:
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: ecu-recordings
