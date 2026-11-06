@@ -6,8 +6,10 @@ scripts/deploy_render.sh renders each kustomization with ``kustomize build
     python3 scripts/deploy_check.py KUSTOMIZATION RENDERED.yaml
 
 For every kustomization, the rules a public base keeps (ADR 0004, point 8): no
-namespace, no storage class, no node pinning, nothing on the host's network or
-ports, no Service beyond the cluster, and every image pinned by tag and digest.
+namespace and no Namespace object, no storage class, no node pinning or node
+affinity, nothing on the host's network, ports or file system (``hostPath``), no
+Service beyond the cluster, no Secret object but NATS's ``nats-box-contexts``
+(paddock#355), and every image pinned by tag and digest.
 paddock#50 replaces these with the portable-base check over deploy/base.
 
 For ``deploy/nats/chart``, what paddock#42 asks of NATS:
@@ -137,10 +139,22 @@ FORBIDDEN = (
     (re.compile(r"^\s*namespace:"), "a namespace, which the overlay sets"),
     (re.compile(r"^\s*storageClassName:"), "a storage class, which the overlay sets"),
     (re.compile(r"^\s*(nodeName|nodeSelector):"), "node pinning"),
+    (re.compile(r"^\s*nodeAffinity:"), "node affinity, which names one cluster's nodes"),
+    (re.compile(r"^\s*(- )?hostPath:"), "a hostPath volume, which is one machine's files"),
     (re.compile(r"^\s*hostNetwork: true$"), "the host's network"),
     (re.compile(r"^\s*(- )?hostPort:"), "a host port"),
     (re.compile(r"^\s*type: (NodePort|LoadBalancer)$"), "a Service beyond the cluster"),
 )
+# Kinds a portable base never renders, whatever their name: the overlay creates the
+# namespace, and a Secret's values are the overlay's, never in a public repository.
+FORBIDDEN_KINDS = {
+    "Namespace": "a Namespace object, which the overlay creates",
+    "Secret": "a Secret object, whose values are the overlay's",
+}
+# NATS's chart renders nats-box's contexts as a Secret. It holds only the in-cluster
+# URL of NATS, no credential (paddock#298), so it is allowed by name, as long as each
+# context in it still holds only a `url` (contexts_secret).
+ALLOWED_SECRETS = {"nats-box-contexts"}
 
 
 class Doc:
@@ -176,6 +190,10 @@ def documents(text: str) -> list[Doc]:
 def portable(docs: list[Doc]) -> list[str]:
     problems = []
     for doc in docs:
+        if doc.kind == "Secret" and doc.name in ALLOWED_SECRETS:
+            problems += contexts_secret(doc)
+        elif doc.kind in FORBIDDEN_KINDS:
+            problems.append(f"portable: {doc} is {FORBIDDEN_KINDS[doc.kind]}")
         for line in doc.lines:
             for pattern, what in FORBIDDEN:
                 if pattern.match(line):
@@ -183,6 +201,30 @@ def portable(docs: list[Doc]) -> list[str]:
             m = IMAGE.match(line)
             if m and not PINNED.match(m.group(1)):
                 problems.append(f"pinned: {doc} has an image without a tag and digest: {m.group(1)}")
+    return problems
+
+
+def contexts_secret(doc: Doc) -> list[str]:
+    """nats-box's contexts hold NATS's URL and nothing else: a user, password, token,
+    nkey or creds file in one would be a credential in a public repository."""
+    if any(re.match(r"^data:", line) for line in doc.lines):
+        return [f"portable: {doc} has data, where only stringData with NATS's URL belongs"]
+    problems = []
+    in_string_data = False
+    for line in doc.lines:
+        if re.match(r"^\S", line):
+            in_string_data = line == "stringData:"
+        elif in_string_data and (m := re.match(r"^  ([^\s:]+): ?(.*)$", line)):
+            key, inline = m.groups()
+            text = literal_block(doc.lines, key) if inline in ("|", "|-") else inline.strip("'\"")
+            try:
+                context = json.loads(text or "")
+            except ValueError:
+                context = None
+            if not isinstance(context, dict):
+                problems.append(f"portable: {doc} has {key}, which is not a context with NATS's URL")
+            elif set(context) != {"url"}:
+                problems.append(f"portable: {doc} has more than NATS's URL in {key}: {', '.join(sorted(context))}")
     return problems
 
 

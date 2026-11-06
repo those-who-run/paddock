@@ -1,20 +1,23 @@
-"""The render check (scripts/deploy_check.py, paddock#42, #44): a public base names no
-namespace, storage class, node or host port and pins every image, NATS's chart
-renders one server with JetStream on file storage, 4222 and the WebSocket in the
-cluster only, and a WebSocket client that may only subscribe (R6), and the base
-(#44) runs compose's images and logbook as one StatefulSet replica whose volume is
-kept, and radio (#63) as one Deployment replica on the console, with Discord and its
-Secret only through deploy/components/radio-discord. BASE is GOOD with logbook,
-radio and the base's label, POLICIES what deploy/components/network-policy adds to
-it, and DISCORD radio as deploy/components/radio-discord changes it. podium (#67)
-is in the base with its cards off, and PODIUM_DISCORD is podium as
+"""The render check (scripts/deploy_check.py, paddock#42, #44): a public base
+names no namespace, storage class, node or host port, renders no Namespace,
+Secret (but nats-box-contexts), hostPath volume or node affinity (#355) and pins
+every image, NATS's chart renders one server with JetStream on file storage,
+4222 and the WebSocket in the cluster only, and a WebSocket client that may only
+subscribe (R6), and the base (#44) runs compose's images and logbook as one
+StatefulSet replica whose volume is kept, and radio (#63) as one Deployment
+replica on the console, with Discord and its Secret only through
+deploy/components/radio-discord. BASE is GOOD with logbook, radio and the base's
+label, POLICIES what deploy/components/network-policy adds to it, and DISCORD
+radio as deploy/components/radio-discord changes it. podium (#67) is in the base
+with its cards off, and PODIUM_DISCORD is podium as
 deploy/components/podium-discord changes it. The pit wall (#132) is in the base
-with no Ingress, and PITWALL_INGRESS is what deploy/components/pitwall-ingress adds.
+with no Ingress, and PITWALL_INGRESS is what deploy/components/pitwall-ingress
+adds.
 
-GOOD is a cut-down `kustomize build --enable-helm deploy/nats/chart`, in the style
-kustomize writes, and INGRESS what deploy/components/nats-websocket adds to it; each
-test breaks one thing in them. `make deploy-render` runs the
-check on the real render."""
+GOOD is a cut-down `kustomize build --enable-helm deploy/nats/chart`, in the
+style kustomize writes, and INGRESS what deploy/components/nats-websocket adds
+to it; each test breaks one thing in them. `make deploy-render` runs the check
+on the real render."""
 
 from __future__ import annotations
 
@@ -222,6 +225,62 @@ class Render(unittest.TestCase):
                      "  type: LoadBalancer"):
             with self.subTest(line=line):
                 self.assertFails(broken("  replicas: 1\n", f"  replicas: 1\n{line}\n"), "portable")
+
+    def test_no_node_affinity(self) -> None:
+        affinity = (
+            "      affinity:\n        nodeAffinity:\n"
+            "          requiredDuringSchedulingIgnoredDuringExecution:\n"
+            "            nodeSelectorTerms:\n            - matchExpressions:\n"
+            "              - key: kubernetes.io/hostname\n                operator: In\n"
+            "                values:\n                - my-node\n"
+        )
+        text = broken(f"      automountServiceAccountToken: false\n      containers:\n      - image: {BOX}",
+                      f"{affinity}      automountServiceAccountToken: false\n      containers:\n      - image: {BOX}")
+        self.assertIn("portable: Deployment/nats-box has node affinity, which names one cluster's nodes: "
+                      "nodeAffinity:", problems(text))
+
+    def test_no_host_path(self) -> None:
+        for volumes in ("      volumes:\n      - hostPath:\n          path: /var/lib/twr\n        name: data\n",
+                        "      volumes:\n      - name: data\n        hostPath:\n          path: /var/lib/twr\n"):
+            with self.subTest(volumes=volumes):
+                text = broken("      securityContext:\n        seccompProfile:\n          type: RuntimeDefault\n---\n",
+                              "      securityContext:\n        seccompProfile:\n          type: RuntimeDefault\n"
+                              f"{volumes}---\n")
+                found = problems(text)
+                self.assertTrue(any(p.startswith("portable: Deployment/nats-box has a hostPath volume") for p in found),
+                                found)
+
+    def test_no_namespace_object(self) -> None:
+        text = GOOD + "---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: twr\n"
+        self.assertIn("portable: Namespace/twr is a Namespace object, which the overlay creates", problems(text))
+
+    def test_no_secret_object(self) -> None:
+        text = GOOD + "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: radio-discord\nstringData:\n  k: v\n"
+        self.assertIn("portable: Secret/radio-discord is a Secret object, whose values are the overlay's",
+                      problems(text))
+
+    def test_nats_box_contexts_is_the_one_secret_allowed(self) -> None:
+        secret = ("---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: {}\n"
+                  "stringData:\n  default.json: '{{\"url\": \"nats://nats:4222\"}}'\n")
+        self.assertEqual(problems(GOOD + secret.format("nats-box-contexts")), [])
+        self.assertTrue(problems(GOOD + secret.format("nats-box-contexts-2")))
+
+    def test_nats_box_contexts_holds_only_the_url(self) -> None:
+        def secret(data: str) -> str:
+            return f"---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: nats-box-contexts\n{data}type: Opaque\n"
+
+        # As the chart renders it.
+        chart = 'stringData:\n  default.json: |\n    {\n      "url": "nats://nats"\n    }\n'
+        self.assertEqual(problems(GOOD + secret(chart)), [])
+        for field in ("user", "password", "creds", "nkey", "token"):
+            with self.subTest(field=field):
+                text = GOOD + secret(chart.replace('"url": "nats://nats"', f'"url": "nats://nats",\n      "{field}": "x"'))
+                self.assertIn(f"portable: Secret/nats-box-contexts has more than NATS's URL in default.json: {', '.join(sorted([field, 'url']))}",
+                              problems(text))
+        self.assertIn("portable: Secret/nats-box-contexts has data, where only stringData with NATS's URL belongs",
+                      problems(GOOD + secret("data:\n  default.json: e30=\n")))
+        self.assertIn("portable: Secret/nats-box-contexts has token, which is not a context with NATS's URL",
+                      problems(GOOD + secret("stringData:\n  token: s3cret\n")))
 
     def test_pinned(self) -> None:
         self.assertFails(broken(BOX, "docker.io/natsio/nats-box:0.20.0"), "pinned")
