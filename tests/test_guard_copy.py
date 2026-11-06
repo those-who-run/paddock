@@ -248,13 +248,25 @@ class Manifest(Repository):
         self.assertIn(f"{SKILL} is missing", problems[0])
         self.assertIn("agent/skills/twr-dev/SKILL.md", problems[0])
 
-    def test_a_directory_at_a_destination_is_missing_not_a_crash(self):
+    def test_a_directory_at_a_destination_is_not_a_file_not_a_crash(self):
         self.release_with_skills()
         (self.root / BRIEF).unlink()
         (self.root / BRIEF).mkdir()
         problems = self.check()
         self.assertEqual(len(problems), 1)
-        self.assertIn(f"{BRIEF} is missing", problems[0])
+        self.assertIn(f"{BRIEF} is not a file", problems[0])
+
+    def test_a_source_outside_agent_is_checked_like_any_other(self):
+        # As chassis's copy of this check does: the manifest says where a copy comes
+        # from, and the destination is what is held to .claude/.
+        listed = {**LISTED, "docs/notes.md": ".claude/skills/twr-dev/notes.md"}
+        self.release_with_skills(listed)
+        self.github["docs/notes.md"] = b"# notes\n"
+        self.write(".claude/skills/twr-dev/notes.md", b"# notes\n")
+        self.track()
+        self.assertEqual(self.check(), [])
+        self.write(".claude/skills/twr-dev/notes.md", b"# other notes\n")
+        self.assertEqual(len(self.check()), 1)
 
     def test_a_listed_source_that_is_not_at_the_pin_fails_and_is_named(self):
         self.release_with_skills()
@@ -365,14 +377,14 @@ class MalformedManifest(Repository):
     def test_a_source_with_dot_dot(self):
         self.refused({**LISTED, "agent/../scripts/fan_out.py": ".claude/skills/twr-x/SKILL.md"}, "has `..` in it")
 
-    def test_a_source_outside_agent(self):
-        self.refused({**LISTED, "scripts/fan_out.py": ".claude/skills/twr-x/SKILL.md"}, "is not under agent/")
+    def test_an_absolute_source(self):
+        self.refused({**LISTED, "/agent/skills/twr-x/SKILL.md": ".claude/skills/twr-x/SKILL.md"}, "not a plain relative path")
+
+    def test_a_path_with_a_control_character(self):
+        self.refused({**LISTED, "agent/skills/twr-dev/SKILL.md": ".claude/skills/twr-dev/SKILL\n.md"}, "not a plain relative path")
 
     def test_two_sources_for_one_destination(self):
         self.refused({**LISTED, "agent/skills/twr-proof/SKILL.md": SKILL}, f"to {SKILL}")
-
-    def test_the_repositorys_own_config_as_a_destination(self):
-        self.refused({**LISTED, "agent/guard.example.json": ".claude/guard.json"}, "never a copy")
 
     def test_a_manifest_without_the_guard(self):
         without = {k: v for k, v in LISTED.items() if k != "agent/guard.py"}
@@ -465,20 +477,26 @@ class Stale(Repository):
         self.track()
         self.assertEqual(len(self.check()), 2)
 
-    def test_git_failing_is_a_failure_not_a_pass(self):
+    def test_outside_a_repository_the_files_on_disk_are_checked(self):
+        # Where git can't say what is tracked, the check must not pass for want of
+        # an answer: every file on disk counts.
+        self.release_with_skills()
+        self.write(".claude/skills/twr-old/SKILL.md")
         shutil.rmtree(self.root / ".git")
         # Above the temporary directory there may be a repository; stop git looking.
         with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(self.root.parent)}):
             problems = self.check()
-        self.assertEqual(len(problems), 1, problems)
-        self.assertIn("could not ask git", problems[0])
-        self.assertNotIn("\n", problems[0])
+            self.assertEqual(len(problems), 1, problems)
+            self.assertIn(".claude/skills/twr-old/SKILL.md is a stale copy", problems[0])
+            shutil.rmtree(self.root / ".claude/skills/twr-old")
+            self.assertEqual(self.check(), [])
 
-    def test_no_git_at_all_is_a_failure_too(self):
+    def test_without_git_the_files_on_disk_are_checked(self):
+        self.write(BRIEF)
         with mock.patch.object(guard_copy.subprocess, "run", side_effect=FileNotFoundError("git")):
             problems = self.check()
         self.assertEqual(len(problems), 1)
-        self.assertIn("could not ask git", problems[0])
+        self.assertIn(f"{BRIEF} is a stale copy", problems[0])
 
 
 class Ignored(unittest.TestCase):

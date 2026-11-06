@@ -23,11 +23,13 @@ at its destination here, and it must list those two. Either way:
   since a config the guard can't read blocks every Bash command.
 
 A manifest that can't be read, or that names a destination outside ``.claude/`` or a
-path with ``..``, fails the check: a manifest this can't trust is never a pass.
+path with ``..``, fails the check, and nothing is compared against it: a manifest
+this can't trust is never a pass.
 
 It fetches the files from raw.githubusercontent.com over HTTPS, so it needs the
-network, and it asks git which files are tracked. ``make test`` and CI's ``test`` job
-run it.
+network, and it asks git which files are tracked (the files on disk, where git can't
+say). ``make test`` and CI's ``test`` job run it. those-who-run/chassis ships the same
+check to the repositories made from it; the two are kept alike.
 
     python3 scripts/guard_copy.py
 """
@@ -56,8 +58,7 @@ COPIES = {
     "agent/settings.json": Path(".claude/settings.json"),
 }
 CONFIG = Path(".claude/guard.json")
-# Where a manifest's paths may point: from .github's agent/ into .claude/ here.
-SOURCES = "agent"
+# Where a manifest's destinations must be.
 DESTINATIONS = ".claude"
 # The names kept for copies: anything below .claude/skills/twr-*/, and
 # .claude/agents/twr-*.md. A tracked file with such a name is a copy the manifest
@@ -115,20 +116,21 @@ def fetch(commit: str, path: str) -> bytes:
         ) from None
 
 
-def path_problem(path: object, under: str) -> str | None:
-    """Why a manifest's path can't be used, or None when it is a plain path below `under`."""
+def path_problem(path: object, under: str | None = None) -> str | None:
+    """Why a manifest's path can't be used, or None when it is a relative path of
+    plain names, below `under` when that is given."""
     if not isinstance(path, str) or not path:
         return "is not a path"
     # Checked on the text, before anything treats it as a path: a `..` or a leading
-    # `/` would take a destination out of .claude/, or a fetch out of agent/.
+    # `/` would take a destination out of .claude/, and a fetch out of the commit.
     parts = path.split("/")
     if ".." in parts:
         return "has `..` in it"
-    if path.startswith("/") or "\\" in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
+    if path.startswith("/") or "\\" in path or not all(c.isprintable() for c in path):
         return "is not a plain relative path with `/` between its parts"
     if "" in parts or "." in parts:
         return "has an empty or `.` part"
-    if parts[0] != under or len(parts) < 2:
+    if under is not None and (parts[0] != under or len(parts) < 2):
         return f"is not under {under}/"
     return None
 
@@ -161,37 +163,29 @@ def manifest_copies(raw: bytes, commit: str) -> tuple[dict[str, Path], list[str]
     copies: dict[str, Path] = {}
     sources: dict[str, str] = {}  # destination to the source that claimed it
     for source, destination in listed.items():
-        if reason := path_problem(source, SOURCES):
+        if reason := path_problem(source):
             problems.append(f"{where} lists the source {source!r}, which {reason}")
             continue
         if reason := path_problem(destination, DESTINATIONS):
             problems.append(f"{where} sends {source} to {destination!r}, which {reason}")
-            continue
-        if destination == CONFIG.as_posix():
-            problems.append(
-                f"{where} sends {source} to {CONFIG}, which holds each repository's own values and is never a copy"
-            )
             continue
         if destination in sources:
             problems.append(f"{where} sends both {sources[destination]} and {source} to {destination}")
             continue
         sources[destination] = source
         copies[source] = Path(destination)
-    if not problems:
-        problems = [
-            f"{where} does not send {source} to {destination}: every repository copies the guard and its settings"
-            for source, destination in COPIES.items()
-            if copies.get(source) != destination
-        ]
+    problems += [
+        f"{where} does not send {source} to {destination}: every repository copies the guard and its settings"
+        for source, destination in COPIES.items()
+        if listed.get(source) != destination.as_posix()
+    ]
     return ({}, problems) if problems else (copies, [])
 
 
-class TrackedError(Exception):
-    """git couldn't say which files are tracked; the message says why."""
-
-
 def tracked_files(root: Path) -> list[str]:
-    """The files git tracks under .claude/skills/ and .claude/agents/ in `root`, from its root."""
+    """The files git tracks under .claude/skills/ and .claude/agents/ in `root`, from
+    its root. Where git can't say (no git, or a directory outside any repository),
+    every file there on disk, so the check never passes for want of an answer."""
     # `root` decides the repository, not a GIT_DIR or index left in the environment
     # by a hook this runs under.
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
@@ -200,13 +194,15 @@ def tracked_files(root: Path) -> list[str]:
             ["git", "-C", str(root), "ls-files", "-z", "--", SKILLS, AGENTS],
             check=True, capture_output=True, env=env,
         )
-    except (OSError, subprocess.CalledProcessError) as e:
-        reason = e.stderr.decode("utf-8", "replace").strip() if isinstance(e, subprocess.CalledProcessError) else e
-        raise TrackedError(
-            f"could not ask git which files under {SKILLS}/ and {AGENTS}/ are tracked ({reason}): "
-            "the check for stale copies needs git and a checkout"
-        ) from None
-    return [name for name in listed.stdout.decode("utf-8", "surrogateescape").split("\0") if name]
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(
+            path.relative_to(root).as_posix()
+            for directory in (SKILLS, AGENTS)
+            if (root / directory).is_dir()
+            for path in (root / directory).rglob("*")
+            if not path.is_dir()
+        )
+    return sorted(name for name in listed.stdout.decode("utf-8", "replace").split("\0") if name)
 
 
 def is_copy_name(path: str) -> bool:
@@ -255,7 +251,7 @@ def _check(root: Path, get, tracked) -> tuple[list[str], int | None]:
         listed = len(copies)
 
     problems = []
-    for source, copy in copies.items():
+    for source, copy in sorted(copies.items()):
         try:
             want = get(commit, source)
         except NotFound as e:
@@ -269,8 +265,9 @@ def _check(root: Path, get, tracked) -> tuple[list[str], int | None]:
         except FetchError as e:
             return [str(e)], None
         if not (root / copy).is_file():
+            what = "is not a file" if (root / copy).exists() or (root / copy).is_symlink() else "is missing"
             problems.append(
-                f"{copy} is missing: it is {CANONICAL}'s {source} at {commit[:12]}, the commit {CI} pins; "
+                f"{copy} {what}: it is {CANONICAL}'s {source} at {commit[:12]}, the commit {CI} pins; "
                 "copy it unchanged from there"
             )
         elif (root / copy).read_bytes() != want:
@@ -279,12 +276,8 @@ def _check(root: Path, get, tracked) -> tuple[list[str], int | None]:
                 "copy it unchanged from there"
             )
 
-    try:
-        names = tracked(root)
-    except TrackedError as e:
-        return [*problems, str(e)], None
     wanted = {copy.as_posix() for copy in copies.values()}
-    for name in sorted(names):
+    for name in tracked(root):
         if is_copy_name(name) and name not in wanted:
             why = (
                 f"{CANONICAL} at {commit[:12]}, the commit {CI} pins, has no {MANIFEST}, so it copies no skill or agent here"
@@ -292,7 +285,8 @@ def _check(root: Path, get, tracked) -> tuple[list[str], int | None]:
                 else f"{CANONICAL}'s {MANIFEST} at {commit[:12]}, the commit {CI} pins, does not list it"
             )
             problems.append(
-                f"{name} is a stale copy: {why}. Remove it; a skill or agent named twr-* comes only from there"
+                f"{name} is a stale copy: {why}. Remove it; a skill or agent of paddock's own "
+                "takes a name that doesn't start with twr-"
             )
 
     if not problems and (reason := config_problem(root / COPIES["agent/guard.py"], root / CONFIG)):
