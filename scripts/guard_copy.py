@@ -1,19 +1,35 @@
-"""Check that paddock's copy of the agent guard is the canonical one (#20 R3).
+"""Check that paddock's copies of the agent files are the canonical ones (#20 R3).
 
-The guard and the settings that run it live once, in those-who-run/.github's
-``agent/``, and each repository copies them unchanged (``agent/README.md`` there).
-This checks the copies here byte for byte against ``agent/`` at the commit paddock's
-CI pins for ``checks.yml``, so there is one pinned ``.github`` version to bump:
-Renovate's bump of that pin fails this check until the copies are brought up to the
-same commit, in the same PR.
+The guard, the settings that run it, and the skills and agent briefs live once, in
+those-who-run/.github's ``agent/``, and each repository copies them unchanged
+(``agent/README.md`` there). This checks the copies here byte for byte against
+``agent/`` at the commit paddock's CI pins for ``checks.yml``, so there is one pinned
+``.github`` version to bump: Renovate's bump of that pin fails this check until the
+copies are brought up to the same commit, in the same PR.
+
+What is copied where is ``agent/copies.json`` at that commit: a JSON object from a
+path in ``.github`` to a path under ``.claude/`` here. A commit from before the
+manifest has none, and its copies are the two it always had:
 
 - ``.claude/hooks/guard.py`` is ``agent/guard.py``;
-- ``.claude/settings.json`` is ``agent/settings.json``;
+- ``.claude/settings.json`` is ``agent/settings.json``.
+
+With a manifest, every file it lists must be at the pinned commit and equal the file
+at its destination here, and it must list those two. Either way:
+
+- a tracked file under ``.claude/skills/twr-*/`` or at ``.claude/agents/twr-*.md``
+  that is not a destination is a stale copy, and fails;
 - ``.claude/guard.json``, paddock's own values, loads with the guard's own reader,
   since a config the guard can't read blocks every Bash command.
 
-It fetches the two files from raw.githubusercontent.com over HTTPS, so it needs the
-network. ``make test`` and CI's ``test`` job run it.
+A manifest that can't be read, or that names a destination outside ``.claude/`` or a
+path with ``..``, fails the check, and nothing is compared against it: a manifest
+this can't trust is never a pass.
+
+It fetches the files from raw.githubusercontent.com over HTTPS, so it needs the
+network, and it asks git which files are tracked (the files on disk, where git can't
+say). ``make test`` and CI's ``test`` job run it. those-who-run/chassis ships the same
+check to the repositories made from it; the two are kept alike.
 
     python3 scripts/guard_copy.py
 """
@@ -21,20 +37,36 @@ network. ``make test`` and CI's ``test`` job run it.
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import re
+import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CI = Path(".github/workflows/ci.yml")
 CANONICAL = "those-who-run/.github"
+MANIFEST = "agent/copies.json"
+# The copies of a commit with no manifest, and the two every manifest must list: a
+# manifest that left them out would stop the guard itself being checked.
 COPIES = {
     "agent/guard.py": Path(".claude/hooks/guard.py"),
     "agent/settings.json": Path(".claude/settings.json"),
 }
 CONFIG = Path(".claude/guard.json")
+# Where a manifest's destinations must be.
+DESTINATIONS = ".claude"
+# The names kept for copies: anything below .claude/skills/twr-*/, and
+# .claude/agents/twr-*.md. A tracked file with such a name is a copy the manifest
+# lists, or a stale one: a skill or brief that .github dropped or renamed, which a
+# session here would still load.
+SKILLS = ".claude/skills"
+AGENTS = ".claude/agents"
+PREFIX = "twr-"
 
 PIN = re.compile(
     r"^\s*uses:\s*" + re.escape(CANONICAL) + r"/\.github/workflows/checks\.yml@([0-9a-f]{40})\b",
@@ -56,22 +88,130 @@ class FetchError(Exception):
     """A canonical file couldn't be fetched; the message says which and why."""
 
 
+class NotFound(FetchError):
+    """The fetch was answered with a 404: no such file at that commit, or no such commit."""
+
+
 def fetch(commit: str, path: str) -> bytes:
     """A file of those-who-run/.github at a commit."""
-    url = f"https://raw.githubusercontent.com/{CANONICAL}/{commit}/{path}"
+    # Quoted, so a listed path holding `?` or `#` is asked for as that file (and is
+    # not there) rather than cutting the URL short at a file that is.
+    url = f"https://raw.githubusercontent.com/{CANONICAL}/{commit}/{urllib.parse.quote(path)}"
     try:
         with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 (fixed https URL)
             return response.read()
     except (urllib.error.URLError, TimeoutError) as e:
-        # A 404 is a pin that names no commit of .github; anything else is most
-        # likely the network. One line either way, as the other problems are.
+        # A 404 is a file that is not at that commit, or a pin that names no commit
+        # of .github; anything else is most likely the network. One line either way,
+        # as the other problems are.
         if isinstance(e, urllib.error.HTTPError):
             e.close()  # it holds the response open
         reason = e.reason if isinstance(e, urllib.error.URLError) else e
-        raise FetchError(
+        # A 404 has a type of its own: for the manifest the check reads it as a
+        # commit from before the manifest, and no other failure may pass for that.
+        kind = NotFound if isinstance(e, urllib.error.HTTPError) and e.code == 404 else FetchError
+        raise kind(
             f"could not fetch {url} ({reason}): check that the checks.yml pin in {CI} "
             "is a commit of those-who-run/.github, and the network"
         ) from None
+
+
+def path_problem(path: object, under: str | None = None) -> str | None:
+    """Why a manifest's path can't be used, or None when it is a relative path of
+    plain names, below `under` when that is given."""
+    if not isinstance(path, str) or not path:
+        return "is not a path"
+    # Checked on the text, before anything treats it as a path: a `..` or a leading
+    # `/` would take a destination out of .claude/, and a fetch out of the commit.
+    parts = path.split("/")
+    if ".." in parts:
+        return "has `..` in it"
+    if path.startswith("/") or "\\" in path or not all(c.isprintable() for c in path):
+        return "is not a plain relative path with `/` between its parts"
+    if "" in parts or "." in parts:
+        return "has an empty or `.` part"
+    if under is not None and (parts[0] != under or len(parts) < 2):
+        return f"is not under {under}/"
+    return None
+
+
+def _no_repeats(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """A JSON object's members, refusing a key given twice (json keeps the last)."""
+    seen: dict[str, object] = {}
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError(f"lists {key} twice")
+        seen[key] = value
+    return seen
+
+
+def manifest_copies(raw: bytes, commit: str) -> tuple[dict[str, Path], list[str]]:
+    """A manifest's copies, source to destination, and what is wrong with it.
+
+    Any problem makes the whole manifest unusable: the caller checks nothing against
+    a manifest it can't trust, and reports the problems instead.
+    """
+    where = f"{CANONICAL}'s {MANIFEST} at {commit[:12]}, the commit {CI} pins,"
+    try:
+        listed = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_repeats)
+    except (ValueError, RecursionError) as e:  # bad UTF-8, bad JSON, a repeated key
+        return {}, [f"{where} can't be read ({e}): it should be one JSON object, source path to destination path"]
+    if not isinstance(listed, dict):
+        return {}, [f"{where} is not a JSON object, source path to destination path"]
+
+    problems = []
+    copies: dict[str, Path] = {}
+    sources: dict[str, str] = {}  # destination to the source that claimed it
+    for source, destination in listed.items():
+        if reason := path_problem(source):
+            problems.append(f"{where} lists the source {source!r}, which {reason}")
+            continue
+        if reason := path_problem(destination, DESTINATIONS):
+            problems.append(f"{where} sends {source} to {destination!r}, which {reason}")
+            continue
+        if destination in sources:
+            problems.append(f"{where} sends both {sources[destination]} and {source} to {destination}")
+            continue
+        sources[destination] = source
+        copies[source] = Path(destination)
+    problems += [
+        f"{where} does not send {source} to {destination}: every repository copies the guard and its settings"
+        for source, destination in COPIES.items()
+        if listed.get(source) != destination.as_posix()
+    ]
+    return ({}, problems) if problems else (copies, [])
+
+
+def tracked_files(root: Path) -> list[str]:
+    """The files git tracks under .claude/skills/ and .claude/agents/ in `root`, from
+    its root. Where git can't say (no git, or a directory outside any repository),
+    every file there on disk, so the check never passes for want of an answer."""
+    # `root` decides the repository, not a GIT_DIR or index left in the environment
+    # by a hook this runs under.
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--", SKILLS, AGENTS],
+            check=True, capture_output=True, env=env,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(
+            path.relative_to(root).as_posix()
+            for directory in (SKILLS, AGENTS)
+            if (root / directory).is_dir()
+            for path in (root / directory).rglob("*")
+            if not path.is_dir()
+        )
+    return sorted(name for name in listed.stdout.decode("utf-8", "replace").split("\0") if name)
+
+
+def is_copy_name(path: str) -> bool:
+    """Whether a tracked path has one of the names kept for copies."""
+    folder, _, rest = path.rpartition("/")
+    if folder == AGENTS:
+        return rest.startswith(PREFIX) and rest.endswith(".md")
+    below = path.removeprefix(SKILLS + "/")
+    return below != path and below.startswith(PREFIX) and "/" in below
 
 
 def config_problem(guard: Path, config: Path) -> str | None:
@@ -88,36 +228,87 @@ def config_problem(guard: Path, config: Path) -> str | None:
     return None
 
 
-def check(root: Path = ROOT, get=fetch) -> list[str]:
-    """What differs from the canonical files, one message each."""
+def _check(root: Path, get, tracked) -> tuple[list[str], int | None]:
+    """The problems, and how many copies the manifest lists when the pin has one."""
     try:
         commit = pinned_commit((root / CI).read_text(encoding="utf-8"))
     except ValueError as e:
-        return [str(e)]
+        return [str(e)], None
+
+    # A 404 is a commit from before the manifest, whose copies are the guard and the
+    # settings. A pin that names no commit at all gives a 404 here too, and is
+    # reported by the fetch of the guard below, as it always was.
+    try:
+        raw = get(commit, MANIFEST)
+    except NotFound:
+        copies, listed = dict(COPIES), None
+    except FetchError as e:
+        return [str(e)], None
+    else:
+        copies, problems = manifest_copies(raw, commit)
+        if problems:
+            return problems, None
+        listed = len(copies)
+
     problems = []
-    for source, copy in COPIES.items():
+    for source, copy in sorted(copies.items()):
         try:
             want = get(commit, source)
+        except NotFound as e:
+            if listed is None:
+                return [str(e)], None
+            problems.append(
+                f"{CANONICAL}'s {MANIFEST} at {commit[:12]}, the commit {CI} pins, lists {source}, "
+                f"which is not in {CANONICAL} at that commit"
+            )
+            continue
         except FetchError as e:
-            return [str(e)]
-        have = (root / copy).read_bytes() if (root / copy).exists() else None
-        if have != want:
+            return [str(e)], None
+        if not (root / copy).is_file():
+            what = "is not a file" if (root / copy).exists() or (root / copy).is_symlink() else "is missing"
+            problems.append(
+                f"{copy} {what}: it is {CANONICAL}'s {source} at {commit[:12]}, the commit {CI} pins; "
+                "copy it unchanged from there"
+            )
+        elif (root / copy).read_bytes() != want:
             problems.append(
                 f"{copy} is not {CANONICAL}'s {source} at {commit[:12]}, the commit {CI} pins: "
                 "copy it unchanged from there"
             )
+
+    wanted = {copy.as_posix() for copy in copies.values()}
+    for name in tracked(root):
+        if is_copy_name(name) and name not in wanted:
+            why = (
+                f"{CANONICAL} at {commit[:12]}, the commit {CI} pins, has no {MANIFEST}, so it copies no skill or agent here"
+                if listed is None
+                else f"{CANONICAL}'s {MANIFEST} at {commit[:12]}, the commit {CI} pins, does not list it"
+            )
+            problems.append(
+                f"{name} is a stale copy: {why}. Remove it; a skill or agent of paddock's own "
+                "takes a name that doesn't start with twr-"
+            )
+
     if not problems and (reason := config_problem(root / COPIES["agent/guard.py"], root / CONFIG)):
         problems.append(reason)
-    return problems
+    return problems, listed
+
+
+def check(root: Path = ROOT, get=fetch, tracked=tracked_files) -> list[str]:
+    """What differs from the canonical files, one message each."""
+    return _check(root, get, tracked)[0]
 
 
 def main(root: Path = ROOT) -> int:
-    problems = check(root)
+    problems, listed = _check(root, fetch, tracked_files)
     for p in problems:
         print(p, file=sys.stderr)
     if problems:
         return 1
-    print(f"the guard and settings in .claude/ are {CANONICAL}'s agent/ at the commit {CI} pins")
+    if listed is None:
+        print(f"the guard and settings in .claude/ are {CANONICAL}'s agent/ at the commit {CI} pins")
+    else:
+        print(f"the {listed} copies in .claude/ are the files {CANONICAL}'s {MANIFEST} lists at the commit {CI} pins")
     return 0
 
 

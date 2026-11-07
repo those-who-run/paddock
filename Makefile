@@ -37,7 +37,7 @@ help:
 	@echo "test   - paddock's own checks: links, labels, the guard copy, and their tests (CI's test job)"
 	@echo "links  - every internal link and anchor in the Markdown resolves (offline)"
 	@echo "labels - docs/labels.md and .github/labels.yml list the same labels"
-	@echo "guard  - .claude/ holds those-who-run/.github's guard and settings at the pinned commit"
+	@echo "guard  - .claude/ holds those-who-run/.github's guard, settings and the other copies its manifest lists, at the pinned commit, and no stale one"
 	@echo "nats   - deploy/nats/: stream subjects match contracts' subjects.yaml, no overlaps, every limit set (offline)"
 	@echo "check-deploy - the portable-base rules (deploy/README.md): deploy-render, then the private-detail scan of every file"
 	@echo "deploy-render - kustomize build --enable-helm of deploy/'s kustomizations, kubeconform strict, and their checks"
