@@ -64,14 +64,20 @@ class Pin(unittest.TestCase):
 
 
 class Repository(unittest.TestCase):
-    """A repository with paddock's .claude/ and a ci.yml pinned at SHA."""
+    """A repository with paddock's guard, settings and config in .claude/, nothing
+    else there, and a ci.yml pinned at SHA."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
-        shutil.copytree(ROOT / ".claude", self.root / ".claude",
-                        ignore=shutil.ignore_patterns("worktrees", "settings.local.json"))
+        # Only the three files the check reads from paddock's own tree: the guard,
+        # which the check loads to read the config, its settings, and the config.
+        # Not the whole of .claude/: the skills and briefs the fan-out copies there
+        # belong to whichever release paddock is at, and each test says what its pin
+        # sends here, so copying them would make the fixture depend on the checkout.
+        for copy in (*guard_copy.COPIES.values(), guard_copy.CONFIG):
+            self.write(copy.as_posix(), (ROOT / copy).read_bytes())
         (self.root / guard_copy.CI).parent.mkdir(parents=True)
         (self.root / guard_copy.CI).write_text(CI)
         # A repository of its own, so the check for stale copies asks git about this
