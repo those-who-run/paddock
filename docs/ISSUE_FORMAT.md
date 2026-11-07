@@ -126,6 +126,11 @@ Every template adds the `needs triage` label. The maintainer removes it when
 the issue is accepted as a spec, the maintainer's own issues included. Until
 it is removed, agents don't work on the issue, whoever wrote it.
 
+Once an issue is a spec, the maintainer may add `agent-ready`: his go-ahead
+for an unattended agent to build it. Only he applies it, never while
+`needs triage` is still there, and `hold` pauses the issue all the same
+([labels.md](labels.md#process)).
+
 A new issue lands on the
 [Race Control](https://github.com/orgs/those-who-run/projects/2) board on its
 own, with the status Needs triage ([`board.md`](board.md)).

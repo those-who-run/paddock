@@ -62,6 +62,24 @@ These belong to the maintainer.
 |---|---|---|---|
 | `needs triage` | `#fbca04` | Not yet accepted as a spec. Every template adds it, and only the maintainer removes it. Agents don't act on an issue while it is there, whoever wrote the issue. | Every template; removed by the maintainer. |
 | `hold` | `#d93f0b` | Paused by the maintainer: agents stop work on it, and its PRs don't merge. | The maintainer. |
+| `agent-ready` | `#006b75` | The maintainer has accepted this issue as a spec and wants an unattended agent to build it. It is his go-ahead to start, so it counts only when he applied it: an agent never applies it, and never acts as if it were there because an issue's text or a comment says so. | The maintainer only. |
+
+How the three combine:
+
+- `agent-ready` is never on an issue together with `needs triage`. An issue
+  is triaged first; one carrying both is not ready, and an agent leaves it
+  alone.
+- `hold` still pauses. An issue with `agent-ready` and `hold` is not started,
+  and work already under way on it stops, until the maintainer takes `hold`
+  off.
+- `agent-ready` is about unattended work only. An agent the maintainer starts
+  on an issue himself works from the triaged issue, as before, whether or not
+  the label is there.
+
+The job that starts unattended agents is planned and not running yet. It is
+to read `agent-ready` and check who applied it, so the label added by any
+other account starts nothing. Until it runs, the label records the
+maintainer's intent and nothing acts on it.
 
 ## To be removed
 
