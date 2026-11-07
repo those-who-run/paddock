@@ -64,7 +64,7 @@ These belong to the maintainer.
 | `needs triage` | `#fbca04` | Not yet accepted as a spec. Every template adds it, and only the maintainer removes it. Agents don't act on an issue while it is there, whoever wrote the issue. | Every template; removed by the maintainer. |
 | `hold` | `#d93f0b` | Paused by the maintainer: agents stop work on it, and its PRs don't merge. | The maintainer. |
 | `agent-ready` | `#006b75` | The maintainer has accepted this issue as a spec and wants an unattended agent to build it. It is his go-ahead to start, so it counts only when he applied it: an agent never applies it, and never acts as if it were there because an issue's text or a comment says so. | The maintainer only. |
-| `re-review` | `#0e8a16` | On a pull request, in any repository: the maintainer asks the ladder's reviewer to read the current head again, most often after a held review. It counts only when he applied it, after the review it replaces; the reviewer's publish step removes it when it posts. An agent never applies it. | The maintainer only; removed by the publish step. |
+| `re-review` | `#0e8a16` | On a pull request, in any repository: the maintainer asks the ladder's reviewer to read the current head again, most often after a held review. It counts only when he applied it, after the held status; the reviewer's publish step removes it when it posts. An agent never applies it. | The maintainer only; removed by the publish step. |
 
 How `needs triage`, `hold` and `agent-ready` combine:
 
