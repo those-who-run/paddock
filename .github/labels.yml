@@ -41,6 +41,9 @@
 - name: "component: dash"
   color: c5def5
   description: The live wheel dashboard
+- name: "component: pit-crew"
+  color: c5def5
+  description: "The merge ladder's runner: poller, fetch, publish, twr-claude (Go)"
 - name: "component: deploy"
   color: c5def5
   description: Kubernetes base, overlays, NATS, the runbook
