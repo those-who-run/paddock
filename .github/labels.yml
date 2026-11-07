@@ -75,3 +75,6 @@
 - name: agent-ready
   color: 006b75
   description: A spec for an unattended agent to build; only the maintainer applies it
+- name: re-review
+  color: 0e8a16
+  description: The maintainer asks the ladder to review this head again; the publisher removes it
