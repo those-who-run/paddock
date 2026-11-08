@@ -174,8 +174,10 @@ before.
 
 The [merge ladder](ladder.md) is the plan for step 3, and it adds an
 independent review of every PR, which this menu did not have. It is planned
-as one piece of work in the maintainer's notes, not as an issue per step,
-and none of it runs yet. The steps it covers say so.
+as one piece of work in the maintainer's notes, not as an issue per step.
+Of it, only the review job runs; the build and fix jobs do not yet
+([where things stand](ladder.md#where-things-stand)). The steps it covers
+say so.
 
 1. **The managed settings file on the maintainer's machine.** Claude Code
    policy owned by the system, not the user, so an agent can't edit its own

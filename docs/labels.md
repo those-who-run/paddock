@@ -64,8 +64,9 @@ These belong to the maintainer.
 | `needs triage` | `#fbca04` | Not yet accepted as a spec. Every template adds it, and only the maintainer removes it. Agents don't act on an issue while it is there, whoever wrote the issue. | Every template; removed by the maintainer. |
 | `hold` | `#d93f0b` | Paused by the maintainer: agents stop work on it, and its PRs don't merge. | The maintainer. |
 | `agent-ready` | `#006b75` | The maintainer has accepted this issue as a spec and wants an unattended agent to build it. It is his go-ahead to start, so it counts only when he applied it: an agent never applies it, and never acts as if it were there because an issue's text or a comment says so. | The maintainer only. |
+| `re-review` | `#0e8a16` | On a pull request, in any repository: the maintainer asks the ladder's reviewer to read the current head again, most often after a held review. It counts only when he applied it, after the held status; the reviewer's publish step removes it when it posts. An agent never applies it. | The maintainer only; removed by the publish step. |
 
-How the three combine:
+How `needs triage`, `hold` and `agent-ready` combine:
 
 - `agent-ready` is never on an issue together with `needs triage`. An issue
   is triaged first; one carrying both is not ready, and an agent leaves it
@@ -81,6 +82,14 @@ The job that starts unattended agents is planned and not running yet. It is
 to read `agent-ready` and check who applied it, so the label added by any
 other account starts nothing. Until it runs, the label records the
 maintainer's intent and nothing acts on it.
+
+`re-review` is the one label here that is not only `paddock`'s: it goes on
+pull requests in every repository, where the reviewer reads them
+([ladder](ladder.md#where-things-stand)). The reviewer job is to act on it
+only when the maintainer's login applied it, as for `agent-ready`, and it is
+not acted on until that change to the job merges. It is listed here and in
+`labels.yml` so the names, colours and descriptions stay one set; the
+maintainer creates it in each repository by hand.
 
 ## To be removed
 

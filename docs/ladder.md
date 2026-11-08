@@ -7,9 +7,9 @@ built with shared skills, checked by CI, read by an independent reviewer
 agent, and merged last by the maintainer. The maintainer is the last rung on
 every PR, and nothing on this page changes that.
 
-**Most of this is a design, not a description.** Nothing of the ladder runs
-yet. [Where things stand](#where-things-stand) says which parts exist; read
-it before relying on anything below.
+**Most of this is still a design, not a description.** Of the unattended
+jobs, only the reviewer runs. [Where things stand](#where-things-stand) says
+which parts exist; read it before relying on anything below.
 
 [`AGENTS.md`](../AGENTS.md) has the rules an agent follows today, and
 [`guardrails.md`](guardrails.md) what enforces them. This page is the
@@ -17,8 +17,11 @@ reference for where they are heading.
 
 ## Where things stand
 
-Nothing of the ladder runs yet: no unattended agent builds, reviews or fixes
-anything, and no status named below is set on any pull request.
+Rung 3 runs; the build, fix and ready rungs do not. Since 2026-11-07 the
+review job runs unattended on the maintainer's cluster as the `twr-reviewer`
+App, and it has posted reviews: one marker comment per head commit and the
+status `review / verdict`. No unattended agent builds or fixes anything yet,
+and nothing sets `ladder / ready` or `ladder / stuck`.
 
 What exists:
 
@@ -26,29 +29,44 @@ What exists:
 |---|---|
 | The rules agents and people follow | [`AGENTS.md`](../AGENTS.md), [`CLAUDE.md`](../CLAUDE.md) |
 | The guard hook and the Claude Code project settings | Each repository's `.claude/`, copied from `those-who-run/.github` ([`guardrails.md`](guardrails.md#the-guardrails-at-the-start)) |
+| The skills, the reviewer's brief and the lanes | `those-who-run/.github`'s `agent/`; each repository's `.claude/skills/` once its pinned release carries them |
 | The `main` ruleset: a pull request, one approval by a code owner, a new approval after a push, squash merges, the required checks | Every repository, set from `those-who-run/.github` |
 | The merge queue | Every repository but `those-who-run/.github`, which merges without one |
 | CI's required checks | Each repository's workflows |
 | `twr-release`, the GitHub App that release-please and the release fan-out run as | The organisation |
+| `twr-reviewer`, the GitHub App the review job posts as | The organisation; the job runs on the maintainer's cluster, from `those-who-run/pit-crew` |
+| The review job and the status `review / verdict` | Running since 2026-11-07 |
+| The labels `agent-ready`, `hold` and `re-review` | Described in [`labels.md`](labels.md#process); the maintainer applies them to GitHub by hand |
 
-What is planned, and not running yet:
+What is being built, and not running yet:
 
 | Piece | State |
 |---|---|
-| The skills, the reviewer's brief and the lanes | Proposed in [those-who-run/.github#68](https://github.com/those-who-run/.github/pull/68), which shows whether they have merged. No repository has a copy until a release carries them and the fan-out copies them. |
-| The evidence table in pull request bodies | Described by the proposed skills and by [`CLAUDE.md`](../CLAUDE.md). Nothing checks it. |
-| The `agent-ready` label and the job that reads it | Planned. |
-| The `twr-builder` and `twr-reviewer` GitHub Apps | Planned. The maintainer creates them. |
-| The unattended jobs: build, review, fix, and the step that marks a PR ready | Planned. |
-| The statuses `review / verdict`, `ladder / ready` and `ladder / stuck` | Planned. Nothing sets them. |
+| The build and fix jobs, and the `twr-builder` App they publish as | Being built in `those-who-run/pit-crew`. Nothing reads `agent-ready` yet, so the label starts nothing. |
+| The step that marks a PR ready, and the statuses `ladder / ready` and `ladder / stuck` | Planned. Nothing sets them. |
+| The evidence table in pull request bodies | Described by the skills and by [`CLAUDE.md`](../CLAUDE.md). The reviewer reads it; no check enforces it. |
+| `re-review` being acted on | Proposed in [those-who-run/pit-crew#8](https://github.com/those-who-run/pit-crew/pull/8), which shows whether it has merged. Until it does, a held review is read again only at the PR's next head. |
+
+A held review: when the publish step refuses the reviewer's output (a
+private value or a mention in it, or no verdict written at all), it posts no
+comment, sets `review / verdict` to `error` with `held:` and the reason, and
+keeps the output for the maintainer. The status counts as the review at that
+head, so the job does not read the PR again until its head moves. The
+`re-review` label is how the maintainer is to ask for another read of the
+same head: it counts only when he applied it after the held status, and the
+publish step removes it when it posts. That waits on the pit-crew change in
+the table above. Like every verdict, a held
+one is advice: it is not a required check, and it neither blocks nor allows a
+merge ([why](#why-the-verdict-is-advisory)).
 
 How agent work reaches `main` today: agent sessions run on the maintainer's
 machine, started by him, under his own GitHub account. He cannot approve a PR
 his own account opened, so he merges each one himself through the bypass the
 `main` ruleset gives an admin, which skips the required approval, the
 required checks and the merge queue. That is a known gap
-([`guardrails.md`](guardrails.md#known-gaps)), and the ladder is how it is
-planned to close.
+([`guardrails.md`](guardrails.md#known-gaps)), and the build job, opening
+PRs as `twr-builder`, is how it is planned to close. The reviewer reads
+those PRs too; its verdict does not change how they merge.
 
 ## The rungs
 
@@ -118,7 +136,7 @@ the Apps and holds their keys; an agent never holds one.
 | Identity | What it does | What it cannot do |
 |---|---|---|
 | `twr-builder`, a GitHub App (planned) | Pushes branches and opens pull requests, from the publish step of the build and fix jobs. Installed on every repository but `those-who-run/.github`. It writes contents and pull requests, and reads issues. | Approve a PR, merge one, or label an issue. It is not a code owner and is on no ruleset's bypass list. It cannot change a workflow until the maintainer grants it that. |
-| `twr-reviewer`, a GitHub App (planned) | Comments on pull requests and sets commit statuses, from the steps that pick up work and post results. Installed on every repository. It reads contents and issues. | Push, approve, merge, or label an issue. It is not a code owner and is on no bypass list. |
+| `twr-reviewer`, a GitHub App (exists; posting since 2026-11-07) | Comments on pull requests and sets commit statuses, from the steps that pick up work and post results. Installed on every repository. It reads contents and issues. | Push, approve, merge, or label an issue. It is not a code owner and is on no bypass list. |
 | `twr-release`, a GitHub App (exists) | What it does today: release-please's release PRs and tags, and the release fan-out's PRs. | Anything the ladder adds. It builds, reviews and approves nothing. |
 | The maintainer | Rung 0 and rung 5. The only code owner, the only approver, the only admin. Agent sessions on his machine also work under his account for now. | Approve a PR his own account opened: GitHub does not allow it. |
 | `mo-chara-croche`, a bot user account (exists) | Nothing on the ladder. Agent sessions worked as it for a time ([`guardrails.md`](guardrails.md#agent-identity)). Whether it is kept, for anything that needs a user account and not an App, is undecided. | Approve as a code owner, or bypass a ruleset: it has the Write role, never Admin. |
