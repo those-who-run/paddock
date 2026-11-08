@@ -30,5 +30,5 @@ labels:
 # change, or make deploy-render fails.
 images:
   - name: ghcr.io/those-who-run/twr-ecu
-    newTag: 0.1.15
-    digest: sha256:fb36c73df942ccdb07d0effd08b003b84fd9a6e0b9891e71045c6715011b6d33
+    newTag: 0.1.17
+    digest: sha256:14484d6e886d8f2e56f27a69e7e9c2e50561113ff8fe7bd6d682babe3118eef7
