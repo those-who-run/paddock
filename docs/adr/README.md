@@ -27,8 +27,11 @@ Signs it is time:
 - Sections: **Status**, **Context**, **Decision** (one heading per point, each
   naming the issues it settles), **Consequences**, and what it means for the
   issue that asked for it.
-- Status is *Accepted* or *Superseded by NNNN*. A record is not edited to say
-  something new: a new record replaces it, and the old one points to it.
+- Status is *Accepted* or *Superseded by NNNN*. A record may be *Proposed*
+  while its own pull request is open, when the issue that asked for it leaves
+  the decision to the maintainer; he sets the status line and the index row
+  to Accepted when he decides, before it merges. A record is not edited to
+  say something new: a new record replaces it, and the old one points to it.
 - A later record may supersede a single point of an earlier one. The earlier
   record's status line and its index row then say "Superseded in part by
   NNNN (point N)".
@@ -56,7 +59,7 @@ Signs it is time:
 | [0013](0013-v1-import-fills-frames-from-v1s-summary.md) | The v1 import fills the six fields v1's lap files lack (lap total, GT7's last and best lap times, tank, field size, cars-on-track flag) from v1's `summary.json`, the lap times from v1's stored ones, before `ecu` re-derives the rest (the kind and start partly from those filled values); a summary lacking a source sends the session down the rows path. Re-derived lap times are v1's by construction. Supersedes ADR 0009, point 2, third bullet. |
 | [0014](0014-deleting-sessions-from-the-pit-wall.md) | Deleting sessions from the pit wall: a soft delete `logbook` applies (`deleted_at`, rows and lap files kept) and a restore, both idempotent; deleted sessions left out of the list and same-track but still opened by their link; open sessions can't be deleted; `svc.logbook.sessions.delete` and `.restore`, and `DeleteSession` and `RestoreSession` as POST; no login, under ADR 0011; `ecu`, `podium` and the card untouched. |
 | [0015](0015-the-live-engineer-by-hand.md) | The live engineer, by hand: a switch of engineers is a rare flip done by hand, made to stick with Argo CD's `ignoreDifferences`; no gate hook, only the rule not to roll out `ecu` or `radio` while racing, which relies on ecu's session continuation; the live `ecu` is the overlay's copy of paddock's example, and the base keeps no host port. Supersedes ADR 0004, points 2 and 3. |
-| [0016](0016-tracing.md) | Tracing across the bus (Proposed): W3C `traceparent` reserved in NATS headers beside the CloudEvents ones, and `trace_id` and `span_id` log fields reserved; off by default, API-only instrumentation, no SDK in images; five spans on the callout path when on; OTLP as the exporter and no collector or trace store in v2; the callout id on logs, `created_at`/`expires_at` and `radio`'s histograms are enough, with the measured cost per language and image and what would reopen it. |
+| [0016](0016-tracing.md) | Tracing across the bus (Proposed): W3C `traceparent` reserved in NATS headers beside the CloudEvents ones, and `trace_id` and `span_id` log fields reserved; off by default, API-only instrumentation, no SDK in images; five spans on the callout path when on; OTLP as the exporter and no collector or trace store in v2; the callout id on logs (planned), `created_at`/`expires_at` and `radio`'s histograms (planned) are enough, with the measured cost per language and image and what would reopen it. |
 
 ## v1's records
 
