@@ -44,9 +44,13 @@ headless Service, and `radio`:
   the console, a line a callout in its log, so it needs no Discord and no
   Secret; [`components/radio-discord`](#radio-in-discord) makes it speak in
   Discord. Its speech cache is an `emptyDir` at `/tmp` (256 MiB, the cache
-  capped at 100 MiB), which refills in a lap. Piper's voice is in the image,
-  fetched at build time and checked against radio's `SHA256SUMS`, and checked
-  again when radio loads it, so the image's digest pins the voice too. It
+  capped at 100 MiB), which refills in a lap. Piper's two voices are in the
+  image (from radio 0.1.7), fetched at build time and checked against radio's
+  `SHA256SUMS`, and checked again when radio loads one, so the image's digest
+  pins the voices too. It speaks with `en_GB-alba-medium`; an overlay picks
+  the other with `TWR_RADIO_VOICE=en_GB-northern_english_male-medium` in the
+  Deployment's environment, and a name the image doesn't hold stops radio at
+  start-up. It
   reaches NATS at `nats://nats:4222`, its readiness and liveness are on
   `/healthz`, port 8080, which answers 200 once it is connected, and it runs
   as user 65532 on a read-only root file system with no service account
